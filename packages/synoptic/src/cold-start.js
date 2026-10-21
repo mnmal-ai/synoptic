@@ -662,7 +662,7 @@ export async function runColdStart(opts) {
 
     // One barrier. Rejection semantics match the old serial code: the isolated
     // roots resolve regardless, and anchor/openWork reject into the outer catch.
-    const [concepts, anchor, owData, schema, resolvedMemoryMd, { anchorVector, ruleVectors }] =
+    const [concepts, , owData, schema, resolvedMemoryMd, { anchorVector, ruleVectors }] =
       await Promise.all([conceptsP, anchorP, openWorkP, schemaP, memoryP, vectorsP]);
 
     inboxMd = await inboxP;

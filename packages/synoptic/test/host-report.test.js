@@ -226,7 +226,7 @@ describe('reportHostInstall', () => {
 describe('reportHostWithChecks', () => {
   const base = { key: 'h/p/claude-code' };
   const fields = { pinState: 'ok' };
-  const refuse = (detail) => (key, onFailure) => {
+  const refuse = (detail) => (_key, onFailure) => {
     onFailure('cortext/createHostInstall', detail);
     return 'refused';
   };

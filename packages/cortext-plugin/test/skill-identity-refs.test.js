@@ -72,6 +72,7 @@ test('no shipped skill gives an identity variable a `:-` default', () => {
   expect(offenders).toEqual([]);
 });
 
+// biome-ignore lint/suspicious/noTemplateCurlyInString: the title names the literal `${VAR}` syntax under test
 test('substrate-setup does not claim `${VAR}` expansion reads settings files', () => {
   // Claude Code does NOT expand a server's `${VAR}` refs against
   // `.claude/settings.local.json` — expansion reads only the shell `claude` was
