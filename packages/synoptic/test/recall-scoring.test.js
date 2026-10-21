@@ -237,7 +237,7 @@ describe('buildScoredByType project scope', () => {
 describe('buildScoredByType resolves unknown-project recall rows', () => {
   function resolvingRouter({ recall, resolve }) {
     const seen = [];
-    const impl = (url, init) => {
+    const impl = (_url, init) => {
       const payload = JSON.parse(init.body);
       const key = Object.keys(payload)[0];
       if (key === 'recall/Hit') {
@@ -329,7 +329,7 @@ describe('buildScoredByType resolves unknown-project recall rows', () => {
 describe('buildScoredByType asks recall/Hit for its scope', () => {
   function capturing({ refuseWhere = false, recall = {} } = {}) {
     const recallParams = [];
-    const fetchImpl = (url, init) => {
+    const fetchImpl = (_url, init) => {
       const payload = JSON.parse(init.body);
       const key = Object.keys(payload)[0];
       const ok = (data, errors) =>

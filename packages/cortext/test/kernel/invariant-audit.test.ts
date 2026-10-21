@@ -7,7 +7,6 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { CORTEXT_COORDINATOR_NAME, CORTEXT_NAMESPACE } from '../../src/kernel/cortext-namespace.js';

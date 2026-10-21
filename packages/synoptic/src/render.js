@@ -676,7 +676,7 @@ export function renderMustDigest(musts, ns = 'cortext') {
  */
 function renderMustRules(musts, ns = 'cortext') {
   return renderRuleTiers(
-    { must: musts.map((r) => toRuleEntry(r, ns)) },
+    { must: musts.map((r) => toRuleEntry(r)) },
     {
       title: `## Agent Rules — must (${musts.length})`,
       intro: [
@@ -787,7 +787,7 @@ function renderAgentRulesClassic(rules, ns = 'cortext') {
     lines.push('');
     lines.push(
       ...renderRuleGroups(
-        musts.map((r) => toRuleEntry(r, ns)),
+        musts.map((r) => toRuleEntry(r)),
         { ...BY_COST, level: '####' }
       )
     );
@@ -869,7 +869,7 @@ function isPinned(rule) {
  * If you author a rule whose rationale contains an instruction, it is in the
  * wrong field. Put it in `rule`.
  */
-function toRuleEntry(r, ns = 'cortext') {
+function toRuleEntry(r) {
   return {
     ref: `#${r.shortId}`,
     severity: r.severity ?? null,
@@ -920,7 +920,7 @@ function renderAgentRulesSalient(
   // would otherwise lift musts into a tier of their own.
   const tiers = tierRules(
     rules.map((r) => ({
-      ...toRuleEntry(r, ns),
+      ...toRuleEntry(r),
       severity: 'should',
       score: score.get(r.shortId) ?? null
     })),

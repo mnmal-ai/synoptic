@@ -4356,7 +4356,7 @@ function renderMustDigest(musts, ns = "cortext") {
 * bind and that more rules exist further down.
 */
 function renderMustRules(musts, ns = "cortext") {
-	return renderRuleTiers({ must: musts.map((r) => toRuleEntry(r, ns)) }, {
+	return renderRuleTiers({ must: musts.map((r) => toRuleEntry(r)) }, {
 		title: `## Agent Rules — must (${musts.length})`,
 		intro: [`**Binding. These are not preferences.** Missing one produces a violation you will not notice yourself committing, which is why they lead this document rather than following the recoverable context below. The advisory \`should\` tier renders further down; query \`${ns}/AgentRule\` for anything not shown.`, "Each rule renders in full. Its `rationale` — the incident history that makes the rule revisable — is recorded but not injected; fetch it by shortId when you are about to argue with a rule rather than follow one."],
 		...BY_COST
@@ -4435,7 +4435,7 @@ function renderAgentRulesClassic(rules, ns = "cortext") {
 	if (musts.length > 0) {
 		lines.push("### must — load-bearing behaviour and safety boundaries");
 		lines.push("");
-		lines.push(...renderRuleGroups(musts.map((r) => toRuleEntry(r, ns)), {
+		lines.push(...renderRuleGroups(musts.map((r) => toRuleEntry(r)), {
 			...BY_COST,
 			level: "####"
 		}));
@@ -4510,7 +4510,7 @@ function isPinned(rule) {
 * If you author a rule whose rationale contains an instruction, it is in the
 * wrong field. Put it in `rule`.
 */
-function toRuleEntry(r, ns = "cortext") {
+function toRuleEntry(r) {
 	return {
 		ref: `#${r.shortId}`,
 		severity: r.severity ?? null,
@@ -4537,7 +4537,7 @@ function renderAgentRulesSalient(rules, { sessionContext, topK, anchorVector, ru
 	});
 	const score = new Map(ranked.map((s, i) => [s.shortId, ranked.length - i]));
 	const tiers = tierRules(rules.map((r) => ({
-		...toRuleEntry(r, ns),
+		...toRuleEntry(r),
 		severity: "should",
 		score: score.get(r.shortId) ?? null
 	})), { topK });
@@ -5269,7 +5269,7 @@ async function runColdStart(opts) {
 				ruleVectors: toShortIdVectors(rules, ruleVecs)
 			};
 		});
-		const [concepts, anchor, owData, schema, resolvedMemoryMd, { anchorVector, ruleVectors }] = await Promise.all([
+		const [concepts, , owData, schema, resolvedMemoryMd, { anchorVector, ruleVectors }] = await Promise.all([
 			conceptsP,
 			anchorP,
 			openWorkP,

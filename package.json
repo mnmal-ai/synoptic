@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "check-types": "pnpm -r check-types",
-    "lint": "pnpm -r lint"
+    "lint": "biome check --error-on-warnings ."
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
