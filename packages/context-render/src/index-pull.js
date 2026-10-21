@@ -78,7 +78,9 @@ export function renderIndexLine(entry) {
  * @param {string|null|undefined} text
  */
 function oneLine(text) {
-  return String(text ?? '').replace(/\s*\n\s*/g, ' ');
+  // A whitespace run holding a line break becomes one space. One `\s+` per run
+  // keeps it linear, where `\s*\n\s*` backtracked on a long run.
+  return String(text ?? '').replace(/\s+/g, (run) => (run.includes('\n') ? ' ' : run));
 }
 
 /**

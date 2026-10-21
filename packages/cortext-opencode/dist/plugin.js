@@ -222,7 +222,7 @@ function nextFence(open, line) {
 	return fence[0] === open[0] && fence.length >= open.length ? null : open;
 }
 /** ATX heading: 1-6 `#` followed by a space. */
-const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+const HEADING_RE = /^(#{1,6})\s+(\S.*)?$/;
 /**
 * Flatten ATX headings to bold so stored content cannot forge document
 * structure. Headings inside fenced code blocks are left alone — there they are
@@ -240,7 +240,7 @@ function flattenHeadings(text) {
 		if (wasOpen !== null || open !== null) return line;
 		const m = HEADING_RE.exec(line);
 		if (m === null) return line;
-		const heading = m[2].trim();
+		const heading = (m[2] ?? "").trim();
 		return heading.length === 0 ? "" : `**${heading}**`;
 	}).join("\n");
 }
@@ -363,7 +363,7 @@ function renderIndexLine(entry) {
 * @param {string|null|undefined} text
 */
 function oneLine$1(text) {
-	return String(text ?? "").replace(/\s*\n\s*/g, " ");
+	return String(text ?? "").replace(/\s+/g, (run) => run.includes("\n") ? " " : run);
 }
 /**
 * The pulled block then the index block, as lines for the caller to place.
