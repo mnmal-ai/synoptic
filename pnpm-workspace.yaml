@@ -1,0 +1,39 @@
+packages:
+  - "packages/*"
+
+catalog:
+  "@biomejs/biome": "^2.5.15"
+  # cortext-opencode build-time types only (erased at bundle — the shipped
+  # dist/plugin.js has zero runtime deps; @opencode/plugin's `define` is an
+  # identity function that tsdown inlines). Public npm, not GitHub Packages.
+  "@opencode-ai/plugin": "^1.18.35"
+  "@opencode/plugin": "^2.0.24"
+  "@types/node": "^26.6.4"
+  "@mnmal-ai/substrate": "1.0.0-alpha.0"
+  postgres: "3.4.9"
+  tsdown: "^0.23.0"
+  typescript: "^7.0.2"
+  vitest: "^5.0.3"
+  zod: "^4.6.5"
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+
+# Supply-chain quarantine waivers. Each line says "install this exact version
+# now, skipping the release-age hold", so every entry must name a version the
+# lockfile actually resolves and must be re-pointed on every bump.
+#
+# The policy check validates the EXISTING lockfile before resolving anything,
+# so on a fast follow-up (bumping again before the version you are leaving is a
+# day old) list BOTH versions, install, then drop the outgoing one and prove
+# the result with `pnpm install --frozen-lockfile`.
+#
+# holomap-clusterer is NOT a direct dependency, so it looks like a dead entry.
+# It arrives transitively through the recall half of @mnmal-ai/substrate, which pins it
+# exactly, so a grep of the repo's package.json files will never show it.
+minimumReleaseAgeExclude:
+  - '@mnmal-ai/holomap-clusterer@0.2.1'
+  - '@mnmal-ai/substrate@1.0.0-alpha.0'
+  - "@opencode-ai/plugin@1.18.35"
+  - "@opencode-ai/sdk@1.18.35"

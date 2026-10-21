@@ -1,0 +1,270 @@
+name: Publish packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+# Never cancel: a run cut short between the npm publish and the tag leaves a
+# release half-done.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-release:
+    name: Detect release commit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Check if merge commit is from a release branch
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # workflow_dispatch can name any branch; only main releases.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::publishing runs only from refs/heads/main, not $GITHUB_REF"
+            exit 1
+          fi
+          # COMMIT_MSG is from git log (not event payload) — no injection surface.
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          SEMVER='v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?'
+          if echo "$COMMIT_MSG" | grep -qE "^(release: |chore: bump version to |Merge pull request #[0-9]+ from [^/]+/release/)$SEMVER"; then
+            VERSION=$(echo "$COMMIT_MSG" | grep -oE "$SEMVER" | head -1)
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="v$(node -p "require('./packages/cortext/package.json').version")"
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Everything that runs repo or dependency code happens here, with a
+  # read-only token and no OIDC: install scripts, builds and tests never sit
+  # beside a credential that can publish or push.
+  verify:
+    name: Build, test & pack
+    runs-on: ubuntu-latest
+    # The pin gate runs first. Nothing after it is reversible: an npm publish
+    # cannot be withdrawn, and the tag is what the next repin names.
+    needs: [detect-release]
+    if: github.ref == 'refs/heads/main' && needs.detect-release.outputs.is_release == 'true'
+    permissions:
+      contents: read
+    # Same throwaway postgres as CI's pg job: the pg-gated suites are the only
+    # checks on the shipped migrations, and a release can arrive here with CI
+    # red or never run, so publish cannot trust CI ran on this commit.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: ci-superuser-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # The public packages; private ones, the cortext-plugin among them,
+      # never ship.
+      PACKAGES: synoptic context-render cortext cortext-opencode
+      PGPASSWORD: ci-superuser-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c  # v4.3.0
+        with:
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # Same byte-determinism gate as CI: the hooks, bins and OpenCode dist
+      # are committed output, so a source edit without its
+      # rebuilt artifact must fail here, before anything irreversible.
+      - name: Committed build artifacts match source
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::pnpm build changed tracked files: run pnpm build and commit the result"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+
+      # Nothing irreversible before these pass. A release PR can merge with CI
+      # red or never run, and workflow_dispatch publishes whatever is on main,
+      # so the publish job cannot trust that CI already ran on this commit.
+      - name: Type-check
+        run: pnpm check-types
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Provision the least-privilege test role
+        run: |
+          psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE substrate_test LOGIN PASSWORD 'ci-substrate-test'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+          CREATE DATABASE substrate_test OWNER substrate_test;
+          SQL
+          psql -h 127.0.0.1 -U postgres -d substrate_test -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER SCHEMA public OWNER TO substrate_test;
+          CREATE EXTENSION IF NOT EXISTS vector;
+          SQL
+
+      # pg-gated suites are the only checks on the shipped migrations. A
+      # self-skip (no usable POSTGRES_URL) would pass green having tested
+      # nothing, so a skip fails the job — same guard as CI's pg job.
+      - name: Test (pg-gated suites run, none skipped)
+        env:
+          POSTGRES_URL: postgres://substrate_test:ci-substrate-test@127.0.0.1:5432/substrate_test
+        run: |
+          pnpm --filter @mnmal-ai/cortext exec vitest run \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/pg.json"
+          # shellcheck disable=SC2016 # the ${} are JS template literals
+          node -e '
+            const r = require(process.env.RUNNER_TEMP + "/pg.json");
+            const skipped = r.numPendingTests + r.numTodoTests;
+            if (skipped > 0) {
+              console.error(`::error::${skipped} pg-gated tests were skipped; POSTGRES_URL did not reach them`);
+              process.exit(1);
+            }
+            console.log(`${r.numPassedTests} passed, none skipped`);
+          '
+
+      # pnpm pack rewrites workspace:/catalog: refs exactly as pnpm publish
+      # does, and strips the lifecycle scripts, so the tarball is the final
+      # artifact and publishing it runs nothing from the repo.
+      - name: Pack the public packages
+        run: |
+          read -ra pkgs <<< "$PACKAGES"
+          filters=()
+          for p in "${pkgs[@]}"; do filters+=(--filter "@mnmal-ai/$p"); done
+          pnpm "${filters[@]}" pack --pack-destination "$RUNNER_TEMP/pkg"
+          # An unmatched --filter packs nothing and still exits 0.
+          got=$(for t in "$RUNNER_TEMP"/pkg/*.tgz; do tar -xOzf "$t" package/package.json | jq -r .name; done | sort | xargs)
+          want=$(printf '@mnmal-ai/%s\n' "${pkgs[@]}" | sort | xargs)
+          if [ "$got" != "$want" ]; then
+            echo "::error::packed '$got', expected '$want'"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/pkg/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Holds the OIDC token and nothing else: no checkout, no install, no repo
+  # code. It publishes the tarballs verify built, byte for byte.
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: [detect-release, verify]
+    if: github.ref == 'refs/heads/main' && needs.detect-release.outputs.is_release == 'true'
+    # npm's trusted-publisher entry names this workflow file AND this
+    # environment, so renaming either breaks publishing. The environment's
+    # required reviewer is the human gate before anything irreversible.
+    environment: release
+    permissions:
+      id-token: write  # npm trusted publishing (OIDC); provenance comes with it
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/pkg
+
+      # npm >= 11.5.1 does the OIDC exchange itself; Node 22 is above the
+      # 22.14.0 trusted publishing needs.
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v5.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # Idempotent: a version already on npmjs is skipped, so a re-run after a
+      # partial failure publishes only what is missing. Only a clear 404 means
+      # unpublished; any other answer stops the job rather than guess. A
+      # prerelease goes to `next` so it never becomes what a bare install
+      # resolves.
+      - name: Publish to npm
+        run: |
+          for tgz in "$RUNNER_TEMP"/pkg/*.tgz; do
+            manifest=$(tar -xOzf "$tgz" package/package.json)
+            name=$(jq -r .name <<< "$manifest")
+            version=$(jq -r .version <<< "$manifest")
+            if ! [[ $name =~ ^@mnmal-ai/[a-z0-9-]+$ && $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::$tgz carries an unexpected name or version"
+              exit 1
+            fi
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 "https://registry.npmjs.org/${name/\//%2f}/$version") || true
+            case "$code" in
+              200) echo "$name@$version is already on npmjs — skipping"; continue ;;
+              404) ;;
+              *) echo "::error::registry lookup for $name@$version answered '$code'"; exit 1 ;;
+            esac
+            case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
+            npx --yes npm@11.21.0 publish "$tgz" --access public --tag "$tag" --ignore-scripts
+          done
+
+  release:
+    name: Tag & GitHub release
+    runs-on: ubuntu-latest
+    needs: [detect-release, publish]
+    if: github.ref == 'refs/heads/main' && needs.detect-release.outputs.is_release == 'true'
+    permissions:
+      contents: write  # tag + GitHub release
+    env:
+      VERSION: ${{ needs.detect-release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Create git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Idempotent: skip if the tag is already on origin.
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+            echo "Tag $VERSION already on origin — skipping push"
+          else
+            git tag "$VERSION"
+            git push origin "$VERSION"
+          fi
+
+      # A tag alone carries no GitHub release, and GitHub's inferred "Latest"
+      # would pick the old, higher v3.13.0 tag. Mark each release Latest
+      # explicitly.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Idempotent: a re-run leaves an existing release, and its label, alone.
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            echo "Release $VERSION already exists — skipping"
+          else
+            gh release create "$VERSION" --verify-tag --latest --title "$VERSION" --generate-notes
+          fi

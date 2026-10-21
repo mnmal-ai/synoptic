@@ -1,0 +1,30 @@
+{
+  "name": "@mnmal-ai/cortext-codex",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "description": "Local Codex skin for Cortext: cold-start, inbox seams and shared coordination skills.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnmal-ai/synoptic.git",
+    "directory": "packages/cortext-codex"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "test": "node --test --test-isolation=none test/*.test.js",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "sync-version": "node scripts/sync-version.mjs",
+    "version": "node scripts/sync-version.mjs"
+  },
+  "devDependencies": {
+    "@mnmal-ai/synoptic": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=26.2.0"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "cortext",
+  "version": "1.0.0-alpha.0",
+  "description": "Cortext — the Claude Code skin for the cortext coordination capability. /substrate-setup wires HTTP-only hooks — SessionStart (Concepts, Memory, Open Work, Rules, Inbox) plus Stop/UserPromptSubmit inbox checks at the session seams — a per-machine substrate MCP server, a versioned conventions fragment, and baseline AgentRules. Gracefully degrades when server-side recall is unavailable. Optional agent-identity signing (SUBSTRATE_AGENT_KEY_PATH/KEY_ID) gives per-project write attribution, the agent mailbox, and identity-gated read postures.",
+  "author": {
+    "name": "mnmal-ai"
+  },
+  "homepage": "https://github.com/mnmal-ai/synoptic",
+  "repository": "https://github.com/mnmal-ai/synoptic",
+  "types": "./types/index.d.ts",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/cold-start.mjs\"",
+            "timeout": 12,
+            "statusMessage": "Loading synoptic cold-start from Substrate…"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inbox-stop.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking agent inbox…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inbox-prompt.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

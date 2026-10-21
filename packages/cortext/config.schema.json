@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "namespace": {
+      "default": "cortext",
+      "type": "string",
+      "minLength": 1
+    },
+    "architectureNamespace": {
+      "default": "architecture",
+      "type": "string",
+      "minLength": 1
+    },
+    "compactRetention": {
+      "default": 7,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "autoCompactIntervalMs": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "auth": {
+      "default": {
+        "reads": "open",
+        "writes": "open",
+        "deletes": "identity"
+      },
+      "type": "object",
+      "properties": {
+        "reads": {
+          "default": "open",
+          "type": "string",
+          "enum": [
+            "open",
+            "identity"
+          ]
+        },
+        "writes": {
+          "default": "open",
+          "type": "string",
+          "enum": [
+            "open",
+            "identity"
+          ]
+        },
+        "deletes": {
+          "default": "identity",
+          "type": "string",
+          "enum": [
+            "open",
+            "identity"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,1 @@
+{ "modules": ["./inbox-bridge.mjs"] }

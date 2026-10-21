@@ -1,0 +1,30 @@
+node_modules/
+dist/
+# Exception: the cortext-opencode skin ships its tsdown bundle as a committed,
+# byte-deterministic artifact (same convention as cortext-plugin/hooks/*.mjs)
+# — the npm tarball and any file-path
+# consumer run exactly what is reviewed here.
+!packages/cortext-opencode/dist/
+
+# Machine-local Claude Code settings. Identity rides in settings.local.json
+# `env`; `.mcp.json` holds machine-local absolute paths.
+.claude/settings.local.json
+.mcp.json
+!packages/cortext-codex/.mcp.json
+
+# Codex identity and endpoint settings are machine-local; the plugin is tracked.
+.codex/cortext.local.json
+.codex/config.toml
+
+# Written by the Claude Code engine when it loads the cortext plugin's hooks
+# module (the API types for the editor); machine-local, rewritten on every load.
+packages/cortext-plugin/.claude-plugin/types/
+.turbo/
+*.log
+*.tsbuildinfo
+
+# Machine-local OpenCode project config (cortext-opencode identity lives here)
+.opencode/
+
+# Internal plans, specs and review notes live outside the repo (__docs__/<repo>/).
+docs/superpowers/

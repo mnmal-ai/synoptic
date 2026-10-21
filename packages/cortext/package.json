@@ -1,0 +1,83 @@
+{
+  "name": "@mnmal-ai/cortext",
+  "version": "1.0.0-alpha.0",
+  "description": "Cortext: the agent-neutral coordination context store for Substrate (Todos, Decisions, SessionLogs, AgentRules, Memory, Concepts, Councils, …) plus architecture findings. One package carrying two plugins: the coordinator that registers the namespaces, and the kernel plugin that owns their Postgres invariants.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnmal-ai/synoptic.git",
+    "directory": "packages/cortext"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./bootstrap": {
+      "import": "./dist/bootstrap.js",
+      "types": "./dist/bootstrap.d.ts"
+    },
+    "./kernel": {
+      "import": "./dist/kernel.js",
+      "types": "./dist/kernel/index.d.ts"
+    },
+    "./kernel-bootstrap": {
+      "import": "./dist/kernel-bootstrap.js",
+      "types": "./dist/kernel/bootstrap.d.ts"
+    }
+  },
+  "substrate": {
+    "plugins": [
+      {
+        "name": "kernel",
+        "tier": "kernel",
+        "entry": "./dist/kernel-bootstrap.js",
+        "configSchema": "./kernel.config.schema.json",
+        "defaultConfig": "./kernel.default-config.json"
+      },
+      {
+        "name": "coordinator",
+        "tier": "coordinator",
+        "configBasename": "cortext",
+        "entry": "./dist/bootstrap.js",
+        "configSchema": "./config.schema.json",
+        "defaultConfig": "./default-config.json"
+      }
+    ]
+  },
+  "files": [
+    "dist",
+    "default-config.json",
+    "config.schema.json",
+    "kernel.default-config.json",
+    "kernel.config.schema.json"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.dts.json",
+    "test": "vitest run",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "postgres": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "@mnmal-ai/substrate": ">=1.0.0-alpha.0 <2.0.0"
+  },
+  "devDependencies": {
+    "@mnmal-ai/substrate": "catalog:",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=26.2.0"
+  }
+}

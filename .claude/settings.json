@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(substrate-admin list:*)",
+      "Bash(substrate-admin register:*)",
+      "Bash(substrate-admin revoke:*)"
+    ]
+  },
+  "env": {
+    "SYNOPTIC_AGENT_NAME": "synoptic-claude"
+  }
+}

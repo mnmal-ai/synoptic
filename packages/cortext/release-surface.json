@@ -1,0 +1,1521 @@
+{
+  "contractVersion": ">=1.0.0-alpha.0 <2.0.0",
+  "types": {
+    "AgentIdentity": {
+      "active": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "broadcastEligible": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "description": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "displayName": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "host": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "kid": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "roaming": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      }
+    },
+    "AgentMessage": {
+      "ackedAt": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": true,
+        "indexed": true,
+        "required": false,
+        "type": "date"
+      },
+      "ackedBy": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "inReplyTo": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "AgentMessage"
+      },
+      "instance": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "recipient": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "AgentIdentity"
+      },
+      "shortId": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": true,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "number"
+      },
+      "status": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "acked",
+          "read",
+          "unread"
+        ]
+      },
+      "subject": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      }
+    },
+    "AgentRule": {
+      "active": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "boolean"
+      },
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "category": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string",
+        "enum": [
+          "communication",
+          "git",
+          "investigation",
+          "migration-patterns",
+          "permissions",
+          "process",
+          "scope-discipline",
+          "side-findings",
+          "style",
+          "testing",
+          "tooling",
+          "verification"
+        ]
+      },
+      "expressesConcept": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "Concept"
+      },
+      "pinned": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "rationale": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "rule": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "severity": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "must",
+          "should"
+        ]
+      },
+      "synopsis": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      }
+    },
+    "AnchorIntent": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "authoredBy": {
+        "kind": "struct",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "synopsis": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "Concept": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "description": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "kind": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "name": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "synopsis": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      }
+    },
+    "ConceptLink": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "fromConcept": {
+        "kind": "crossRef",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "target": "Concept"
+      },
+      "kind": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "note": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "toConcept": {
+        "kind": "crossRef",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "target": "Concept"
+      }
+    },
+    "CouncilAdvisor": {
+      "councilSessionId": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "CouncilSession"
+      },
+      "recommendation": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "response": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "role": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "CouncilSession": {
+      "agreement": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "blindSpots": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "context": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "date": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "date"
+      },
+      "disagreement": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "options": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "question": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "sessionLogId": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "SessionLog"
+      },
+      "slug": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "verdict": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "verdictAlignment": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "Decision": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "choice": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "establishesConcept": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "Concept"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "rationale": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "revisitWhen": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "sessionId": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "SessionLog"
+      },
+      "status": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "active",
+          "deferred",
+          "open",
+          "superseded"
+        ]
+      },
+      "supersedes": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "Decision"
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      },
+      "topic": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "HostInstall": {
+      "authorityNote": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "authorityState": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "ok",
+          "unknown",
+          "warn"
+        ]
+      },
+      "fragmentDigest": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "fragmentState": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string",
+        "enum": [
+          "absent",
+          "current",
+          "missing",
+          "source",
+          "stale",
+          "uncomparable",
+          "undigested"
+        ]
+      },
+      "fragmentVersion": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "harness": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "host": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "hostReported": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "key": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "kid": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "mcpJsonNote": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "mcpJsonState": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "ok",
+          "unknown",
+          "warn"
+        ]
+      },
+      "pinNote": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "pinState": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "ok",
+          "unknown",
+          "warn"
+        ]
+      },
+      "pluginVersion": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "refreshedAt": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "date"
+      },
+      "settingsEnv": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "json"
+      },
+      "settingsNote": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "settingsState": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "ok",
+          "unknown",
+          "warn"
+        ]
+      }
+    },
+    "Memory": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "description": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "name": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "synopsis": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      },
+      "type": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "SessionLog": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "branch": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "decisionsCount": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "number"
+      },
+      "packages": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "startedAt": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "date"
+      },
+      "summary": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "synopsis": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      }
+    },
+    "Skill": {
+      "active": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "boolean"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "description": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "name": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "version": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "Todo": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "boolean"
+      },
+      "area": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      },
+      "blockedBy": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "body": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "implementsDecision": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "Decision"
+      },
+      "notes": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "owner": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "AgentIdentity"
+      },
+      "priority": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string",
+        "enum": [
+          "high",
+          "low",
+          "medium"
+        ]
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "resolution": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "completed",
+          "duplicate",
+          "obsolete",
+          "superseded",
+          "unspecified",
+          "wont_do"
+        ]
+      },
+      "revisitWhen": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "status": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string",
+        "enum": [
+          "blocked",
+          "closed",
+          "deferred",
+          "in_progress",
+          "open"
+        ]
+      },
+      "tags": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "list<string>"
+      },
+      "targetDate": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "date"
+      },
+      "title": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "type": "string"
+      }
+    }
+  },
+  "api": {
+    "cortext": {
+      "exports": [
+        "./bootstrap:CortextBootstrapConfig",
+        "./bootstrap:CortextBootstrapConfigSchema",
+        "./bootstrap:bootstrap",
+        "./kernel-bootstrap:bootstrap",
+        "./kernel:AGENT_MESSAGE_STATUS_VOCAB",
+        "./kernel:ARCHITECTURE_NAMESPACE",
+        "./kernel:CORTEXT_COORDINATOR_NAME",
+        "./kernel:CORTEXT_NAMESPACE",
+        "./kernel:Finding",
+        "./kernel:INVARIANT_OBJECTS",
+        "./kernel:InvariantObject",
+        "./kernel:PluginNamespace",
+        "./kernel:REPAIR_ENV_VAR",
+        "./kernel:RepairOutcome",
+        "./kernel:SUBSTRATE_CONTRACT_RANGE",
+        "./kernel:TODO_LIFECYCLE_VOCAB",
+        "./kernel:TODO_PRIORITY_VOCAB",
+        "./kernel:TODO_RESOLUTION_VOCAB",
+        "./kernel:UntargetableReason",
+        "./kernel:VOCAB_CONSTRAINTS",
+        "./kernel:VocabConstraint",
+        "./kernel:auditNamespaceCoverage",
+        "./kernel:auditObjects",
+        "./kernel:cortextBaselineMigration",
+        "./kernel:countDuplicateHostInstallKeys",
+        "./kernel:countDuplicateKids",
+        "./kernel:createCortextKernelPlugin",
+        "./kernel:findingMessage",
+        "./kernel:repairIfRequested",
+        "./kernel:repairInvariants",
+        "./kernel:repairOutcomeMessage",
+        "./kernel:repairRequested",
+        "./kernel:reportInvariantAudit",
+        "./kernel:rescopeHostInstallKeyIndex",
+        "./kernel:rescopeKidUniqueIndex",
+        "./kernel:rescopeRecipientIndex",
+        "./kernel:rescopeVocabConstraint",
+        "./kernel:resolveCortextNamespaces",
+        "./kernel:scopedNamespace",
+        ".:AGENT_MESSAGE_STATUS_VOCAB",
+        ".:AGENT_RULE_CATEGORY_VOCAB",
+        ".:AGENT_RULE_SEVERITY_ALIASES",
+        ".:AGENT_RULE_SEVERITY_VOCAB",
+        ".:ARCHITECTURE_TYPE_NAMES",
+        ".:CLAUDE_TYPE_NAMES",
+        ".:ClosedTodoText",
+        ".:CompactResult",
+        ".:DECISION_STATUS_ALIASES",
+        ".:DECISION_STATUS_VOCAB",
+        ".:DEFAULT_AUTH",
+        ".:HOST_INSTALL_CHECK_STATES",
+        ".:HOST_INSTALL_FRAGMENT_STATES",
+        ".:ReleaseClass",
+        ".:ReleaseSurface",
+        ".:SurfaceChange",
+        ".:SurfaceField",
+        ".:TODO_RESOLUTION_ALIASES",
+        ".:TODO_STATUS_ALIASES",
+        ".:TODO_STATUS_IMPLIES",
+        ".:TodoResolution",
+        ".:buildArchitectureNamespace",
+        ".:buildAuthPolicies",
+        ".:buildClaudeNamespace",
+        ".:buildReleaseSurface",
+        ".:bumpClass",
+        ".:classSatisfies",
+        ".:classifySurfaceChange",
+        ".:createCortextPlugin",
+        ".:inferTodoResolution",
+        ".:isMonotonicAuth",
+        ".:registerCompactRoute",
+        ".:registerOnboardRoute",
+        ".:runCompact"
+      ],
+      "dtsDigest": "fbe0cb78"
+    }
+  },
+  "surfaceFormat": 2
+}

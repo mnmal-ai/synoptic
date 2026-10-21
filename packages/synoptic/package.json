@@ -1,0 +1,44 @@
+{
+  "name": "@mnmal-ai/synoptic",
+  "version": "1.0.0-alpha.0",
+  "description": "Synoptic host library — agent-onboarding pipeline, cold-start projector, the Cortext capability contract, and cross-agent handoff. Harness-neutral; the cortext CC plugin and other skins consume it.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnmal-ai/synoptic.git",
+    "directory": "packages/synoptic"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.js"
+    },
+    "./handoff": {
+      "import": "./src/handoff.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=26.2.0"
+  },
+  "dependencies": {
+    "@mnmal-ai/context-render": "workspace:*"
+  }
+}

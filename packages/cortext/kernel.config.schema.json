@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CortextKernel operator configuration",
+  "description": "No operator-overridable knobs today. The plugin contributes a static migration list; reserved for future schema-level controls if needed.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

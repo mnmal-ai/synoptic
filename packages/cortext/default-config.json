@@ -1,0 +1,10 @@
+{
+  "namespace": "cortext",
+  "architectureNamespace": "architecture",
+  "compactRetention": 7,
+  "auth": {
+    "reads": "open",
+    "writes": "open",
+    "deletes": "identity"
+  }
+}
