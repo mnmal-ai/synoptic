@@ -49,7 +49,8 @@ function nextFence(open, line) {
 }
 
 /** ATX heading: 1-6 `#` followed by a space. */
-const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+// The text starts at a non-space, so `\s+` and the capture cannot share characters.
+const HEADING_RE = /^(#{1,6})\s+(\S.*)?$/;
 
 /**
  * Flatten ATX headings to bold so stored content cannot forge document
@@ -70,7 +71,7 @@ export function flattenHeadings(text) {
       if (wasOpen !== null || open !== null) return line;
       const m = HEADING_RE.exec(line);
       if (m === null) return line;
-      const heading = m[2].trim();
+      const heading = (m[2] ?? '').trim();
       // A heading with no text is structure with nothing to emphasise; drop it
       // rather than emitting an empty `****`.
       return heading.length === 0 ? '' : `**${heading}**`;
