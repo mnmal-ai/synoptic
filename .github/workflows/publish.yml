@@ -247,7 +247,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Idempotent: skip if the tag is already on origin.
           if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
             echo "Tag $VERSION already on origin — skipping push"
           else
@@ -255,9 +254,6 @@ jobs:
             git push origin "$VERSION"
           fi
 
-      # A tag alone carries no GitHub release, and GitHub's inferred "Latest"
-      # would pick the old, higher v3.13.0 tag. Mark each release Latest
-      # explicitly.
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -266,5 +262,6 @@ jobs:
           if gh release view "$VERSION" > /dev/null 2>&1; then
             echo "Release $VERSION already exists — skipping"
           else
-            gh release create "$VERSION" --verify-tag --latest --title "$VERSION" --generate-notes
+            case "$VERSION" in *-*) LABEL=--prerelease ;; *) LABEL=--latest ;; esac
+            gh release create "$VERSION" --verify-tag "$LABEL" --title "$VERSION" --generate-notes
           fi
