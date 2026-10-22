@@ -953,3 +953,9 @@ function renderAgentRulesSalient(
     skimTiers: salientMode === 'full' ? ['skim'] : ['salient', 'skim']
   });
 }
+
+/** Cost-ranked category order, then `pinned`, then shortId. */
+export function compareRules(a, b) {
+  const d = categoryRank(a.category ?? 'uncategorised') - categoryRank(b.category ?? 'uncategorised');
+  return d !== 0 ? d : compareWithinCategory(a, b);
+}

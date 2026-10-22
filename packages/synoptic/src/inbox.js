@@ -6,7 +6,6 @@
 // project-scoped query path: AgentMessage has no project field; an inbox is
 // scoped by addressee, orthogonal to which repo the session is in.
 
-import { fromRow, renderMessageBlock } from './inbox-push.js';
 import { substrateQuery } from './substrate-http.js';
 
 /** One page of unread mail. A full page renders as "50+": the read does not
@@ -83,20 +82,14 @@ export async function loadInbox({
 }
 
 /**
- * Render the `## Inbox` block. Empty/none → '' (a lean cold-start only shows
- * mail when there is mail).
+ * The inbox as one count line. Bodies are not rendered: mid-turn push and the
+ * Stop check deliver them. Empty → ''.
  */
-export function renderInbox(messages, { ns = 'cortext', kid } = {}) {
+export function renderInbox(messages, { ns = 'cortext' } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) return '';
-  const lines = [`## Inbox (${unreadCount(messages.length)} unread)`, ''];
-  lines.push(
-    `Addressed to \`${kid}\`. Ack with \`${ns}/ackAgentMessage { id }\` (or ` +
-      `\`${ns}/markAgentMessageRead\`); reply via \`${ns}/sendAgentMessage ` +
-      `{ to: '<kid>', subject, body, inReplyTo? }\`. Transitions are recipient-only.`,
-    ''
+  const ids = messages.map((m) => `#${m.shortId}`).join(', ');
+  return (
+    `Inbox: ${unreadCount(messages.length)} unread — ${ids}. Close with \`${ns}/ackAgentMessage\` / ` +
+    `\`${ns}/markAgentMessageRead\`, reply with \`${ns}/sendAgentMessage\`.`
   );
-  for (const m of messages) {
-    lines.push(...renderMessageBlock(fromRow(m)));
-  }
-  return lines.join('\n').trimEnd();
 }
