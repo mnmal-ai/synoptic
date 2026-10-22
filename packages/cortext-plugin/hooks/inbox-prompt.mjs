@@ -145,20 +145,6 @@ function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
 }
 
 //#endregion
-//#region ../synoptic/src/inbox-push.js
-/** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
-function sanitizeText(text) {
-	if (!text) return text;
-	const str = String(text);
-	let result = "";
-	for (let i = 0; i < str.length; i++) {
-		const code = str.charCodeAt(i);
-		result += code <= 31 || code === 127 || code === 133 || code === 8232 || code === 8233 ? " " : str[i];
-	}
-	return result;
-}
-
-//#endregion
 //#region ../synoptic/src/projection-audit.js
 /**
 * Residue for one response: fields substrate reported as undeclared that the call
@@ -331,6 +317,20 @@ async function loadInbox({ substrateUrl, namespace = "cortext", agentKid, fetchI
 }
 
 //#endregion
+//#region ../synoptic/src/inbox-push.js
+/** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
+function sanitizeText(text) {
+	if (!text) return text;
+	const str = String(text);
+	let result = "";
+	for (let i = 0; i < str.length; i++) {
+		const code = str.charCodeAt(i);
+		result += code <= 31 || code === 127 || code === 133 || code === 8232 || code === 8233 ? " " : str[i];
+	}
+	return result;
+}
+
+//#endregion
 //#region ../synoptic/src/inbox-hooks.js
 const LIST_CAP = 5;
 const SUBJECT_CAP = 120;
@@ -416,8 +416,6 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_AGENT_NAMESPACES",
 	"SYNOPTIC_PROJECT_SCOPE",
 	"SYNOPTIC_COLD_START_MAX_BYTES",
-	"SYNOPTIC_COLD_START_MEMORY",
-	"SYNOPTIC_COLD_START_SALIENT",
 	"SYNOPTIC_INBOX_STOP_CHECK",
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",

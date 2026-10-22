@@ -145,43 +145,6 @@ function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
 }
 
 //#endregion
-//#region ../synoptic/src/inbox-push.js
-/** A substrate AgentMessage row (with `_metadata`) as a flat message. */
-function fromRow(row) {
-	return {
-		id: row.id,
-		shortId: row.shortId,
-		subject: row.subject,
-		body: row.body ?? null,
-		inReplyTo: row.inReplyTo ?? null,
-		tags: row.tags ?? null,
-		from: row._metadata?.createdBy?.id ?? "unknown sender",
-		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
-		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
-	};
-}
-const URGENT_TAG = "priority:urgent";
-/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
-function toWatchMessage(row, { kid, urgentFrom }) {
-	const m = fromRow(row);
-	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
-	return {
-		type: "message",
-		...m,
-		fromSelf: m.from === kid,
-		urgent: tagged && urgentFrom.includes(m.from)
-	};
-}
-/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
-function readInboxKnobs(env) {
-	return {
-		push: env.SYNOPTIC_INBOX_PUSH !== "off",
-		wake: env.SYNOPTIC_INBOX_WAKE === "on",
-		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
-	};
-}
-
-//#endregion
 //#region ../synoptic/src/projection-audit.js
 /**
 * Residue for one response: fields substrate reported as undeclared that the call
@@ -308,6 +271,43 @@ async function resolveIdentityId({ substrateUrl, namespace = "cortext", agentKid
 		},
 		fields: { id: true }
 	} }, { fetchImpl }))[`${namespace}/AgentIdentity`] ?? [])[0]?.id ?? null;
+}
+
+//#endregion
+//#region ../synoptic/src/inbox-push.js
+/** A substrate AgentMessage row (with `_metadata`) as a flat message. */
+function fromRow(row) {
+	return {
+		id: row.id,
+		shortId: row.shortId,
+		subject: row.subject,
+		body: row.body ?? null,
+		inReplyTo: row.inReplyTo ?? null,
+		tags: row.tags ?? null,
+		from: row._metadata?.createdBy?.id ?? "unknown sender",
+		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
+		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
+	};
+}
+const URGENT_TAG = "priority:urgent";
+/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
+function toWatchMessage(row, { kid, urgentFrom }) {
+	const m = fromRow(row);
+	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
+	return {
+		type: "message",
+		...m,
+		fromSelf: m.from === kid,
+		urgent: tagged && urgentFrom.includes(m.from)
+	};
+}
+/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
+function readInboxKnobs(env) {
+	return {
+		push: env.SYNOPTIC_INBOX_PUSH !== "off",
+		wake: env.SYNOPTIC_INBOX_WAKE === "on",
+		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+	};
 }
 
 //#endregion
@@ -542,8 +542,6 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_AGENT_NAMESPACES",
 	"SYNOPTIC_PROJECT_SCOPE",
 	"SYNOPTIC_COLD_START_MAX_BYTES",
-	"SYNOPTIC_COLD_START_MEMORY",
-	"SYNOPTIC_COLD_START_SALIENT",
 	"SYNOPTIC_INBOX_STOP_CHECK",
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",
