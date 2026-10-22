@@ -119,7 +119,7 @@ test('config restricts settings to context keys and respects explicit process va
   assert.equal(env.PATH, '/good');
   assert.equal(env.NODE_OPTIONS, undefined);
   assert.equal(env.SUBSTRATE_URL, '');
-  assert.equal(env.MEMORY_K, '8');
+  assert.equal(env.MEMORY_K, undefined);
   writeFileSync(join(cwd, '.codex/cortext.local.json'), '{malformed');
   assert.throws(() => loadConfig(cwd, {}), /Invalid/);
 });

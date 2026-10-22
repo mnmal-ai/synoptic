@@ -14,8 +14,7 @@ const LOCAL_KEYS = new Set([
   'SYNOPTIC_COLD_START_MAX_BYTES',
   'SYNOPTIC_HOST_REPORT',
   'SYNOPTIC_INBOX_STOP_CHECK',
-  'SYNOPTIC_INBOX_PROMPT_CHECK',
-  'RULE_SALIENCE'
+  'SYNOPTIC_INBOX_PROMPT_CHECK'
 ]);
 
 /** One settings source for hooks and MCP. Never read another harness's identity. */
@@ -39,7 +38,7 @@ export function loadConfig(startDir, processEnv = process.env, readFile = readFi
   // Never combine a process kid with a settings key, or vice versa.
   const processIdentity = IDENTITY_KEYS.some((key) => processEnv[key] !== undefined);
   for (const [key, value] of Object.entries(config.env ?? {})) {
-    if (!LOCAL_KEYS.has(key) && !/^MEMORY_[A-Z0-9_]+$/.test(key)) continue;
+    if (!LOCAL_KEYS.has(key)) continue;
     if (typeof value !== 'string') throw new Error(`Cortext setting ${key} must be a string`);
     if (processIdentity && IDENTITY_KEYS.includes(key)) continue;
     if (env[key] === undefined) env[key] = value;

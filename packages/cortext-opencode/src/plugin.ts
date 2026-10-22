@@ -34,7 +34,7 @@
 //   installs is one self-contained file.
 // - Env-driven, like the Claude hooks: SUBSTRATE_URL, SUBSTRATE_NAMESPACE (default
 //   `cortext`), SYNOPTIC_PROJECT_SCOPE=all (cross-project), SUBSTRATE_AGENT_*
-//   signing, MEMORY_* tunables. Unconfigured reads degrade to the offline
+//   signing. Unconfigured reads degrade to the offline
 //   note `runColdStart` renders — never an exception.
 // - V2 identity also comes from plugin config: an object plugin entry
 //   `{ package, options: { kid, key } }` in opencode.json(c) delivers
