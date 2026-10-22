@@ -64,6 +64,20 @@ describe('findDanglingImports', () => {
     expect(findDanglingImports({ cwd: '/repo', readFile })).toEqual([]);
   });
 
+  it('checks CLAUDE.local.md, where /substrate-setup puts the fragment import', () => {
+    const out = findDanglingImports({
+      cwd: '/r',
+      readFile: fs({ '/r/CLAUDE.local.md': '@.claude/substrate-conventions.md\n' })
+    });
+    expect(out).toEqual([
+      {
+        target: '.claude/substrate-conventions.md',
+        path: '/r/.claude/substrate-conventions.md',
+        declaredIn: '/r/CLAUDE.local.md'
+      }
+    ]);
+  });
+
   it('reports a first-level import that does not resolve', () => {
     const readFile = fs({ '/repo/CLAUDE.md': '@/shared/CLAUDE.md\n' });
     const [d] = findDanglingImports({ cwd: '/repo', readFile });

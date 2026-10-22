@@ -19,7 +19,7 @@
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
     "sync-version": "node scripts/sync-fragment-version.mjs",
-    "version": "node scripts/sync-fragment-version.mjs && git add fragments/substrate-conventions.md .claude-plugin/plugin.json ../cortext-opencode/instructions/substrate-conventions.md ../../.claude/substrate-conventions.md ../../.claude-plugin/marketplace.json",
+    "version": "node scripts/sync-fragment-version.mjs && git add fragments/substrate-conventions.md .claude-plugin/plugin.json ../cortext-opencode/instructions/substrate-conventions.md ../../.claude-plugin/marketplace.json",
     "clean": "rm -rf hooks/*.mjs"
   },
   "devDependencies": {

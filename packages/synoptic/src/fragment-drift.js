@@ -144,7 +144,7 @@ export function renderFragmentDrift(result) {
       return (
         '> ⚠️  **This repo has an agent identity but no conventions fragment.** ' +
         '`.claude/substrate-conventions.md` is absent, so the conventions every other onboarded repo ' +
-        'reads are not in your context. Run `/substrate-setup` to install it and its `CLAUDE.md` import.\n'
+        'reads are not in your context. Run `/substrate-setup` to install it and its `CLAUDE.local.md` import.\n'
       );
     case 'stale': {
       const behind = releasesBehind(result.installed.version, result.plugin.version);

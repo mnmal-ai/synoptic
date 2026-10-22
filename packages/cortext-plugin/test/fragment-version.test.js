@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -60,9 +60,11 @@ describe('conventions fragment version marker', () => {
 describe('installed fragment copy at the repo root', () => {
   const repoRoot = join(root, '../..');
   const source = readFileSync(join(root, 'fragments/substrate-conventions.md'), 'utf8');
-  const installed = readFileSync(join(repoRoot, '.claude/substrate-conventions.md'), 'utf8');
+  const installedPath = join(repoRoot, '.claude/substrate-conventions.md');
 
-  it('is byte-identical to the plugin-owned source', () => {
+  // The copy is untracked, so a fresh clone or CI has none to compare.
+  it.skipIf(!existsSync(installedPath))('is byte-identical to the plugin-owned source', () => {
+    const installed = readFileSync(installedPath, 'utf8');
     expect(
       installed,
       "this repo's .claude/substrate-conventions.md has drifted from " +

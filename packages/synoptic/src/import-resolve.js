@@ -72,39 +72,41 @@ export function resolveImport(target, fromFile) {
 }
 
 /**
- * Walk a CLAUDE.md's imports one level deep and return the ones that do not
+ * Walk the imports of CLAUDE.md and CLAUDE.local.md one level deep and return the ones that do not
  * resolve, each with the file that declared it.
  *
- * Returns `[]` when the root file itself is absent: a repo with no CLAUDE.md
+ * Returns `[]` when both root files are absent: a repo with neither
  * is not a consumer, and is a different fact from one whose imports are
  * broken. Saying nothing there is the same call `fragmentDriftWarning` makes
  * about a repo that never onboarded.
  */
 export function findDanglingImports({ cwd, readFile }) {
-  const root = `${cwd}/CLAUDE.md`;
-  const rootText = readFile(root);
-  if (rootText === null) return [];
-
+  // CLAUDE.local.md is untracked and is where /substrate-setup puts the
+  // fragment import, so a repo's tracked CLAUDE.md never names Cortext.
+  const roots = [`${cwd}/CLAUDE.md`, `${cwd}/CLAUDE.local.md`];
   const dangling = [];
-  const seen = new Set([root]);
+  const seen = new Set(roots);
 
-  for (const target of parseImports(rootText)) {
-    const path = resolveImport(target, root);
-    if (seen.has(path)) continue;
-    seen.add(path);
-    const text = readFile(path);
-    if (text === null) {
-      dangling.push({ target, path, declaredIn: root });
-      continue;
-    }
-    // One level down. A file that resolved may still import something that
-    // does not — which is precisely how the ten-day outage was shaped.
-    for (const nested of parseImports(text)) {
-      const nestedPath = resolveImport(nested, path);
-      if (seen.has(nestedPath)) continue;
-      seen.add(nestedPath);
-      if (readFile(nestedPath) === null) {
-        dangling.push({ target: nested, path: nestedPath, declaredIn: path });
+  for (const root of roots) {
+    const rootText = readFile(root);
+    if (rootText === null) continue;
+    for (const target of parseImports(rootText)) {
+      const path = resolveImport(target, root);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const text = readFile(path);
+      if (text === null) {
+        dangling.push({ target, path, declaredIn: root });
+        continue;
+      }
+      // One level down: a file that resolved may still import something that does not.
+      for (const nested of parseImports(text)) {
+        const nestedPath = resolveImport(nested, path);
+        if (seen.has(nestedPath)) continue;
+        seen.add(nestedPath);
+        if (readFile(nestedPath) === null) {
+          dangling.push({ target: nested, path: nestedPath, declaredIn: path });
+        }
       }
     }
   }
