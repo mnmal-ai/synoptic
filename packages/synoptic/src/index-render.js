@@ -28,23 +28,22 @@ export function renderRuleIndex(rules, { ns = 'cortext', project }) {
   const musts = all.filter((r) => r?.severity === 'must').sort(compareRules);
   const pinned = all.filter((r) => r?.severity !== 'must' && r?.pinned === true).sort(compareRules);
   const rest = all.length - musts.length - pinned.length;
-  const scope = project ? `\`project\` = \`${project}\` or null` : '`project` = null';
+  const scope = project ? `\`project\` in [\`${project}\`, null]` : '`project` = null';
 
   const lines = [
     `## Binding rules — ${musts.length} \`must\``,
     '',
-    `Apply silently. Full text, rationale and triggers are on the row: query \`${ns}/AgentRule\` by shortId.`,
+    `Apply silently. Full text on the row: query \`${ns}/AgentRule\` by shortId.`,
     '',
     ...musts.map(ruleLine)
   ];
-  if (pinned.length > 0) lines.push('', `**Always-on (${pinned.length}):**`, ...pinned.map(ruleLine));
+  if (pinned.length > 0)
+    lines.push('', `**Always-on (${pinned.length}):**`, ...pinned.map(ruleLine));
   lines.push(
     '',
-    '## Everything else is a query',
-    '',
-    `- ${rest} more advisory rules — query \`${ns}/AgentRule\` (active, ${scope}).`,
-    `- Current focus: newest unarchived \`${ns}/AnchorIntent\` for ${scope}.`,
-    `- Open work, memory, concepts: \`${ns}/Todo\`, \`recall\` (\`type: "Memory"\`, \`namespace: "${ns}"\`), \`${ns}/Concept\`.`
+    `Everything else is a query (${scope}): ${rest} more rules \`${ns}/AgentRule\`, ` +
+      `focus \`${ns}/AnchorIntent\`, open work \`${ns}/Todo\`, memory \`recall\` ` +
+      `(\`type: "Memory"\`), concepts \`${ns}/Concept\`.`
   );
   return lines.join('\n');
 }

@@ -78,7 +78,7 @@ describe('renderInbox', () => {
       { kid: 'me@Host' }
     );
     expect(out).toBe(
-      'Inbox: 2 unread — #7, #8. Close with `cortext/ackAgentMessage` / `cortext/markAgentMessageRead`, reply with `cortext/sendAgentMessage`.'
+      'Inbox: 2 unread — #7, #8 (close or reply via `cortext/ackAgentMessage`, `markAgentMessageRead`, `sendAgentMessage`).'
     );
     expect(out).not.toContain('line one');
   });

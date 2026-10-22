@@ -17,11 +17,11 @@ test('renders every must and pinned rule exactly once', () => {
   for (const r of rules.filter((r) => r.severity !== 'must' && !r.pinned)) {
     assert.ok(!out.includes(r.synopsis), `unpinned should #${r.shortId} leaked`);
   }
-  assert.match(out, /20 more advisory rules/);
+  assert.match(out, /20 more rules/);
 });
 
 test('renders a literal synopsis byte-for-byte', () => {
-  const pipe = 'Never pipe a command whose exit code matters — `cmd | tail` reports tail\'s.';
+  const pipe = "Never pipe a command whose exit code matters — `cmd | tail` reports tail's.";
   const out = renderRuleIndex(
     [
       { shortId: 21, category: 'git', severity: 'must', synopsis: FOOTER_21 },
