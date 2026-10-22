@@ -30,6 +30,28 @@ describe('substrateQuery', () => {
     const fetchImpl = mockFetch(() => jsonResponse(500, {}));
     await expect(substrateQuery('https://h:3100', {}, { fetchImpl })).rejects.toThrow();
   });
+
+  it('hands the per-frame _pagination map to onPagination', async () => {
+    const pagination = { 'cortext/Todo': { hasMore: true, nextCursor: 'c1' } };
+    const fetchImpl = mockFetch(() =>
+      jsonResponse(200, { data: { 'cortext/Todo': [{ id: 't1' }] }, _pagination: pagination })
+    );
+    let seen;
+    const data = await substrateQuery(
+      'https://h:3100',
+      { 'cortext/Todo': { params: { limit: 1 }, fields: { id: true } } },
+      { fetchImpl, onPagination: (p) => (seen = p) }
+    );
+    expect(seen).toEqual(pagination);
+    expect(data['cortext/Todo']).toEqual([{ id: 't1' }]);
+  });
+
+  it('passes an empty map to onPagination when the server sends none', async () => {
+    const fetchImpl = mockFetch(() => jsonResponse(200, { data: {} }));
+    let seen;
+    await substrateQuery('https://h:3100', {}, { fetchImpl, onPagination: (p) => (seen = p) });
+    expect(seen).toEqual({});
+  });
 });
 
 describe('recall', () => {
