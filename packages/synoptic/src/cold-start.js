@@ -71,8 +71,7 @@ export function truncateToBudget(text, maxBytes) {
 // Pure ASCII: the degenerate-budget fallback byte-slices the pointer itself.
 const COLD_START_POINTER =
   '\n<!-- truncated for a hook-output ceiling: the sections below the cut ' +
-  'are PRESENT, not empty -- pull them with query (cortext/AgentRule ' +
-  'for rules, cortext/Memory for memory, cortext/Todo for open work) -->\n';
+  'are PRESENT, not empty -- pull the rules with query (cortext/AgentRule) -->\n';
 
 /**
  * Build the full cold-start markdown. Never throws.

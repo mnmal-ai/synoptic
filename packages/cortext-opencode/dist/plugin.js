@@ -2382,7 +2382,8 @@ async function loadInbox({ substrateUrl, namespace = "cortext", agentKid, fetchI
 */
 function renderInbox(messages, { ns = "cortext" } = {}) {
 	if (!Array.isArray(messages) || messages.length === 0) return "";
-	const ids = messages.map((m) => `#${m.shortId}`).join(", ");
+	const shown = messages.slice(0, 5).map((m) => `#${m.shortId}`);
+	const ids = messages.length > 5 ? `${shown.join(", ")}, …` : shown.join(", ");
 	return `Inbox: ${unreadCount(messages.length)} unread — ${ids} (close or reply via \`${ns}/ackAgentMessage\`, \`markAgentMessageRead\`, \`sendAgentMessage\`).`;
 }
 
@@ -2576,7 +2577,7 @@ function truncateToBudget(text, maxBytes) {
 		pointer: COLD_START_POINTER
 	});
 }
-const COLD_START_POINTER = "\n<!-- truncated for a hook-output ceiling: the sections below the cut are PRESENT, not empty -- pull them with query (cortext/AgentRule for rules, cortext/Memory for memory, cortext/Todo for open work) -->\n";
+const COLD_START_POINTER = "\n<!-- truncated for a hook-output ceiling: the sections below the cut are PRESENT, not empty -- pull the rules with query (cortext/AgentRule) -->\n";
 /**
 * Build the full cold-start markdown. Never throws.
 * @returns {Promise<string>}
@@ -3232,7 +3233,7 @@ const INBOX_TIMEOUT_MS = 3e3;
 const COLD_START_TIMEOUT_MS = SESSION_START_BUDGET_MS;
 /** Left in the compaction transcript so the summary records where live store
 *  state lives instead of trusting the snapshot. */
-const COMPACTION_POINTER = "Synoptic cold-start (Concepts / Agent Memory / Open Work / Agent Rules) is injected at the next dispatch; re-query it rather than trusting this summary for store state.";
+const COMPACTION_POINTER = "Synoptic cold-start rule index (binding and always-on AgentRules, plus pointers) is injected at the next dispatch; query the store rather than trusting this summary for store state.";
 /** This skin's own version, recorded in HostInstall. `dist/plugin.js` sits one
 *  level below `package.json`, both in the source tree and in an npm install. */
 const OWN_VERSION = (() => {

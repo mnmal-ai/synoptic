@@ -105,7 +105,7 @@ const COLD_START_TIMEOUT_MS = SESSION_START_BUDGET_MS;
 /** Left in the compaction transcript so the summary records where live store
  *  state lives instead of trusting the snapshot. */
 const COMPACTION_POINTER =
-  'Synoptic cold-start (Concepts / Agent Memory / Open Work / Agent Rules) is injected at the next dispatch; re-query it rather than trusting this summary for store state.';
+  'Synoptic cold-start rule index (binding and always-on AgentRules, plus pointers) is injected at the next dispatch; query the store rather than trusting this summary for store state.';
 
 /** This skin's own version, recorded in HostInstall. `dist/plugin.js` sits one
  *  level below `package.json`, both in the source tree and in an npm install. */

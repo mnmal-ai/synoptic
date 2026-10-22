@@ -345,3 +345,12 @@ describe('instance on the from line', () => {
     );
   });
 });
+
+describe('renderInbox stays bounded', () => {
+  it('lists at most five ids, then an ellipsis', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...ROW, id: `u${i}`, shortId: 900 + i }));
+    const out = renderInbox(rows, { kid: 'me@Host' });
+    expect(out).toContain('50+ unread — #900, #901, #902, #903, #904, …');
+    expect(out).not.toContain('#905');
+  });
+});

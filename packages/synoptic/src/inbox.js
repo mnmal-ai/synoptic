@@ -87,6 +87,8 @@ export async function loadInbox({
  */
 export function renderInbox(messages, { ns = 'cortext' } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) return '';
-  const ids = messages.map((m) => `#${m.shortId}`).join(', ');
+  // Bounded so a full inbox cannot push the cold-start past its budget.
+  const shown = messages.slice(0, 5).map((m) => `#${m.shortId}`);
+  const ids = messages.length > 5 ? `${shown.join(', ')}, …` : shown.join(', ');
   return `Inbox: ${unreadCount(messages.length)} unread — ${ids} (close or reply via \`${ns}/ackAgentMessage\`, \`markAgentMessageRead\`, \`sendAgentMessage\`).`;
 }
