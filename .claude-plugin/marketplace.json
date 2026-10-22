@@ -10,7 +10,7 @@
         "source": "git-subdir",
         "url": "mnmal-ai/synoptic",
         "path": "packages/cortext-plugin",
-        "ref": "v1.0.0-alpha.2"
+        "ref": "v1.0.0-alpha.3"
       },
       "description": "Session cold-start, the agent inbox and /substrate-setup onboarding for Claude Code, backed by a Substrate server you run. Set SUBSTRATE_URL to it.",
       "author": {
