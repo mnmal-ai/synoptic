@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.3+99787976 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.3+9d0bf8e1 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
 
 # Substrate interaction conventions
 
@@ -184,6 +184,8 @@ Each row also carries that cold-start's own checks: `pinState`, `mcpJsonState`, 
 Memory is scoped by the `project` field on each row (repo basename), **not** by which directory the file sits in. Cross-cutting rows use `project: null`.
 
 **Reading:** memory is **not preloaded**; the cold-start carries no memory section. When a task touches prior work, call `recall` with `namespace`, a topic `query` and `type: "Memory"` (or `"SessionLog"` / `"Decision"`; the tool defaults to Decision), scoped with `where: { project: { in: ["<repo>", null] } }`. Or query `<ns>/Memory` by `name`.
+
+**Hits carry handles, not bodies** (substrate ≥ 1.0.0-alpha.4; older servers return the whole row). Each hit's `row` is `id` plus the handle fields it has (`name`, `title`, `topic`, `synopsis`, `description`), which is usually enough to decide. Ask for the body only on hits you will read: `rowFields: { body: true }` (or `true` for the whole row) on the MCP tool and the HTTP route, `fields: { id: true, row: { body: true } }` on the `recall/Hit` frame.
 
 **Writing:** `cortext/createMemory`. Recall first: update an existing row covering the same fact rather than creating a duplicate.
 
