@@ -84,11 +84,12 @@ export function planCachePrune({ versions, installedVersion, servedVersion, keep
     }
   }
 
-  // Fill the remaining budget with the newest versions, so the rollback target
-  // is the most recent one rather than an arbitrary survivor.
+  // Fill the remaining budget with the newest versions BELOW the installed one,
+  // so the rollback target is the previous release. A version sorting above the
+  // installed one is from a retired line after a version-line reset, never a rollback.
   for (const v of ordered) {
     if (keepSet.size >= Math.max(keep, keepSet.size === 0 ? 1 : keepSet.size)) break;
-    if (!keepSet.has(v)) {
+    if (!keepSet.has(v) && compare(v, installedVersion) < 0) {
       keepSet.add(v);
       protectedReason[v] = 'rollback';
     }

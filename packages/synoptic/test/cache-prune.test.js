@@ -90,6 +90,31 @@ test('ordering is numeric, so 1.10.0 outranks 1.9.0 as the survivor', () => {
   assert.deepEqual(p.remove, ['1.2.0']);
 });
 
+test('after a version-line reset the rollback is the previous release, not the old line', () => {
+  // The line went 2.16.0 -> 1.0.0-alpha.*, so the old line sorts ABOVE what is
+  // installed. A rollback must sort below the installed version.
+  const p = planCachePrune({
+    versions: ['2.15.0', '2.16.0', '1.0.0-alpha.0', '1.0.0-alpha.1'],
+    installedVersion: '1.0.0-alpha.1',
+    servedVersion: null,
+    compare
+  });
+  assert.deepEqual(p.keep, ['1.0.0-alpha.1', '1.0.0-alpha.0']);
+  assert.equal(p.protectedReason['1.0.0-alpha.0'], 'rollback');
+  assert.deepEqual(p.remove.sort(), ['2.15.0', '2.16.0']);
+});
+
+test('no version below the installed one means no rollback is kept', () => {
+  const p = planCachePrune({
+    versions: ['2.16.0', '1.0.0-alpha.0'],
+    installedVersion: '1.0.0-alpha.0',
+    servedVersion: null,
+    compare
+  });
+  assert.deepEqual(p.keep, ['1.0.0-alpha.0']);
+  assert.deepEqual(p.remove, ['2.16.0']);
+});
+
 test('a non-version directory name is a prune candidate', () => {
   // The resolver cannot deliberately choose something that is not a version.
   const p = planCachePrune({

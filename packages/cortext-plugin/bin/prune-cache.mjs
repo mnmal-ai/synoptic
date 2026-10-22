@@ -45,7 +45,7 @@ function planCachePrune({ versions, installedVersion, servedVersion, keep = 2, c
 	}
 	for (const v of ordered) {
 		if (keepSet.size >= Math.max(keep, keepSet.size === 0 ? 1 : keepSet.size)) break;
-		if (!keepSet.has(v)) {
+		if (!keepSet.has(v) && compare(v, installedVersion) < 0) {
 			keepSet.add(v);
 			protectedReason[v] = "rollback";
 		}
