@@ -1611,9 +1611,13 @@ function withTimeout$1(timeoutMs) {
 *
 * `onDiagnostics` is the raw escape hatch, for callers that need the per-type
 * unknown sets to do their own cross-type comparison.
+*
+* `onPagination` receives the server's per-frame `_pagination` map
+* (`{ [key]: { hasMore, nextCursor } }`, `{}` when absent). A caller whose
+* answer depends on completeness pages on `nextCursor` until `hasMore` is false.
 */
 async function substrateQuery(substrateUrl, payload, opts = {}) {
-	const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, expectUnknown = [], onUnexpectedProjection = null, onDiagnostics = null, onFrameFailure = null } = opts;
+	const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, expectUnknown = [], onUnexpectedProjection = null, onDiagnostics = null, onFrameFailure = null, onPagination = null } = opts;
 	const { signal, done } = withTimeout$1(timeoutMs);
 	try {
 		const res = await fetchImpl(`${substrateUrl}/substrate/v1/query`, {
@@ -1635,6 +1639,7 @@ async function substrateQuery(substrateUrl, payload, opts = {}) {
 				if (residue.length > 0) onUnexpectedProjection(residue);
 			}
 		} catch {}
+		if (onPagination !== null) onPagination(json._pagination ?? {});
 		return json.data ?? {};
 	} finally {
 		done();

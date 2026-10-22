@@ -24,6 +24,10 @@ function withTimeout(timeoutMs) {
  *
  * `onDiagnostics` is the raw escape hatch, for callers that need the per-type
  * unknown sets to do their own cross-type comparison.
+ *
+ * `onPagination` receives the server's per-frame `_pagination` map
+ * (`{ [key]: { hasMore, nextCursor } }`, `{}` when absent). A caller whose
+ * answer depends on completeness pages on `nextCursor` until `hasMore` is false.
  */
 export async function substrateQuery(substrateUrl, payload, opts = {}) {
   const {
@@ -32,7 +36,8 @@ export async function substrateQuery(substrateUrl, payload, opts = {}) {
     expectUnknown = [],
     onUnexpectedProjection = null,
     onDiagnostics = null,
-    onFrameFailure = null
+    onFrameFailure = null,
+    onPagination = null
   } = opts;
   const { signal, done } = withTimeout(timeoutMs);
   try {
@@ -68,6 +73,8 @@ export async function substrateQuery(substrateUrl, payload, opts = {}) {
     } catch {
       /* audit is best-effort */
     }
+    // Outside the best-effort block: a caller paging for completeness must see its own errors.
+    if (onPagination !== null) onPagination(json._pagination ?? {});
     return json.data ?? {};
   } finally {
     done();
