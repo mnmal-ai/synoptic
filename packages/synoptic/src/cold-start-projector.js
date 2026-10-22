@@ -37,9 +37,9 @@ function hookBlock(capabilityName) {
   return [
     '## Cold-start',
     '',
-    `The ${capabilityName} cold-start view (Concepts / Agent Memory / Open Work / Agent Rules)`,
-    'is **injected automatically** at session start by the Synoptic hook — read it before',
-    'acting. The hook re-runs after any compaction.'
+    `The ${capabilityName} cold-start rule index (binding and always-on AgentRules, one line`,
+    'each, plus pointers to everything else) is **injected automatically** at session start',
+    'by the Synoptic hook — read it before acting. The hook re-runs after any compaction.'
   ].join('\n');
 }
 

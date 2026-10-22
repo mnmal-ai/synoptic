@@ -1,8 +1,8 @@
 # @mnmal-ai/cortext-opencode — Cortext for OpenCode
 
 The OpenCode skin for the [Cortext](../cortext/README.md) coordination
-capability: the same synoptic cold-start (Concepts, Agent Memory, Open Work,
-Agent Rules, Inbox) the Claude Code skin injects, delivered through a
+capability: the same synoptic cold-start (the binding-rule index, session line
+and inbox count) the Claude Code skin injects, delivered through a
 `context` session hook on first dispatch per session (OpenCode 2.x
 `Plugin.define({ id, setup })`; a V1 `server()` entrypoint is bundled for
 OpenCode 1.x compat).

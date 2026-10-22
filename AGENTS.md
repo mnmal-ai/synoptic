@@ -8,7 +8,7 @@ The agent-coordination host. It ships **Cortext**, an agent-neutral workflow and
 |---|---|---|
 | `packages/synoptic` | `@mnmal-ai/synoptic` | Harness-neutral host library: onboarding pipeline, cold-start projector, capability contract, handoff |
 | `packages/cortext` | `@mnmal-ai/cortext` | Both Substrate plugins in one package. The coordinator plugin (`src/`) is the `cortext` namespace (Todos, Decisions, SessionLogs, AgentRules, Memory, Concepts, Councils); the kernel plugin `cortext-kernel` (`src/kernel/`, exported as `@mnmal-ai/cortext/kernel`) carries the schema constraints, migrations and body invariants. The manifest's `substrate.plugins` lists both |
-| `packages/context-render` | `@mnmal-ai/context-render` | Type-generic index-and-pull rendering, body folding, budget trim, RRF ranking and rule tiering (must / pinned / salient / skim). Zero deps, no Node built-ins (both enforced by its tests). Synoptic wraps it with the cortext adapters in `render.js` |
+| `packages/context-render` | `@mnmal-ai/context-render` | Type-generic index-and-pull rendering, body folding, budget trim, RRF ranking and rule tiering (must / pinned / salient / skim). Zero deps, no Node built-ins (both enforced by its tests). Synoptic uses its budget trim for hook-output ceilings |
 | `packages/cortext-plugin` | *(not npm)* | The Claude Code skin for cortext. `private: true`, distributed through the `mnmal-ai` marketplace in `.claude-plugin/marketplace.json` |
 | `packages/cortext-opencode` | `@mnmal-ai/cortext-opencode` | The OpenCode skin: cold-start injection via `experimental.chat.system.transform`, zero-dep committed `dist/plugin.js`. Published to npm because OpenCode installs plugins through Bun |
 | `packages/cortext-codex` | *(not npm)* | Local Codex delivery |
