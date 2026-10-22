@@ -140,8 +140,8 @@ test('SessionStart uses the shared renderer, injects conventions and makes signe
   assert.equal(result.code, 0);
   const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
   assert.match(context, /Conventions/);
-  assert.match(context, /Agent Memory/);
-  assert.match(context, /Review the pinned spec/);
+  assert.match(context, /## Binding rules/);
+  assert.match(context, /Inbox: 1 unread — #42/);
   assert.doesNotMatch(context, /CLAUDE\.md|fragment.*missing/i);
   const lookup = requests.find((r) => r.payload['cortext/AgentIdentity']);
   assert.equal(lookup.payload['cortext/AgentIdentity'].params.where.kid.eq, 'test-codex@Box');
