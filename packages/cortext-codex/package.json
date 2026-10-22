@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/cortext-codex",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "private": true,
   "description": "Local Codex skin for Cortext: cold-start, inbox seams and shared coordination skills.",
   "license": "Apache-2.0",
