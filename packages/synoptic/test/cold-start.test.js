@@ -1,187 +1,33 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { runColdStart, truncateToBudget } from '../src/cold-start.js';
-import { renderMustDigest } from '../src/render.js';
 
 function jsonOk(body) {
   return { ok: true, status: 200, json: () => Promise.resolve(body) };
 }
 
-// Router handling multi-key /substrate/v1/query payloads, the recall/Hit frame, and
-// embed-stats. Recall is a frame, not a kernel route, so an
-// unavailable embedder is a 200 with the key absent from `data`, not a 503.
+// Router for multi-key /substrate/v1/query payloads; any other route is a test failure.
 function route(handlers) {
   return (url, init) => {
     if (url.endsWith('/substrate/v1/query')) {
       const payload = JSON.parse(init.body);
-      if ('recall/Hit' in payload) {
-        const { type } = payload['recall/Hit'].params;
-        const rows = handlers.recall?.[type];
-        return Promise.resolve(
-          rows === undefined
-            ? jsonOk({
-                data: {},
-                errors: [
-                  { path: ['recall/Hit'], code: 'embedder_unavailable', message: 'no embedder' }
-                ]
-              })
-            : jsonOk({ data: { 'recall/Hit': rows } })
-        );
-      }
       const data = {};
       for (const key of Object.keys(payload)) data[key] = handlers.query?.[key] ?? [];
       return Promise.resolve(jsonOk({ data }));
     }
-    if (url.endsWith('/substrate/v1/embed-stats'))
-      return Promise.resolve(jsonOk(handlers.embedStats ?? { enabled: false }));
     throw new Error(`unexpected ${url}`);
   };
 }
 
-// Most of these tests exercise the preloaded memory section, which is the
-// `full` rollback. The pointer tests at the end clear it.
 const base = {
-  memoryMode: 'full',
   substrateUrl: 'https://h:3100',
   namespace: 'claude',
   projectSlug: 'demo',
   nowMs: Date.UTC(2026, 5, 4)
 };
 
+const mustRule = { shortId: 21, category: 'git', severity: 'must', synopsis: 'Footer rule.' };
+
 describe('runColdStart', () => {
-  it('emits a hybrid Agent Memory section when recall is available', async () => {
-    const fetchImpl = route({
-      query: {
-        'claude/Concept': [{ name: 'Todo', description: 'work item', kind: 'type' }],
-        'claude/AnchorIntent': [
-          {
-            id: 'a1',
-            shortId: '7',
-            synopsis: 'build plugin',
-            authoredBy: { kind: 'agent' },
-            _metadata: { createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }
-          }
-        ],
-        'claude/SessionLog': [],
-        'claude/Memory': [
-          {
-            id: 'm1',
-            type: 'user',
-            name: 'pref',
-            description: 'likes concise',
-            _metadata: { updatedAt: '2026-06-03T00:00:00Z' }
-          }
-        ],
-        'claude/Decision': [],
-        'claude/Todo': [{ shortId: '12', title: 'ship it', status: 'open', priority: 'high' }],
-        'claude/AgentRule': [{ shortId: '3', rule: 'use branches', category: 'git' }]
-      },
-      recall: { Memory: [{ row: { id: 'm1' }, score: 0.9 }], SessionLog: [], Decision: [] }
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Concepts');
-    expect(out).toContain('## Agent Memory');
-    // `hybrid` is not the marker for this branch. Reaching
-    // renderUnified means recall ANSWERED; whether both arms ran is a separate
-    // fact this fixture does not establish, and the header does not assert
-    // it. `Mode: RRF fusion` is the unified-branch marker — see the arms
-    // section at the bottom of this file for the header itself.
-    expect(out).toContain('Mode: RRF fusion');
-    expect(out).toContain('## Open Work');
-    expect(out).toContain('## Agent Rules');
-    expect(out).toContain('#12 ship it'); // todo rendered
-  });
-
-  it('emits structural Agent Memory when recall is refused everywhere', async () => {
-    const fetchImpl = route({
-      query: {
-        'claude/Concept': [],
-        'claude/AnchorIntent': [
-          { id: 'a1', synopsis: 'x', _metadata: { createdAt: '2026-06-01T00:00:00Z' } }
-        ],
-        'claude/SessionLog': [],
-        'claude/Memory': [
-          {
-            id: 'm1',
-            type: 'user',
-            name: 'pref',
-            description: 'd',
-            body: 'full body',
-            _metadata: { updatedAt: '2026-06-03T00:00:00Z' }
-          }
-        ],
-        'claude/Decision': [],
-        'claude/Todo': [],
-        'claude/AgentRule': []
-      },
-      recall: {} // every type refused
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Agent Memory');
-    expect(out).toContain('from claude/Memory'); // structural render header
-    expect(out).not.toContain('hybrid recall'); // did NOT take the hybrid path
-  });
-
-  it('renders structural memory when there is no anchor', async () => {
-    const fetchImpl = route({
-      query: {
-        'claude/Concept': [],
-        'claude/AnchorIntent': [],
-        'claude/SessionLog': [],
-        'claude/Memory': [
-          {
-            id: 'm1',
-            type: 'feedback',
-            name: 'note',
-            description: 'd',
-            _metadata: { updatedAt: '2026-06-03T00:00:00Z' }
-          }
-        ],
-        'claude/Todo': [],
-        'claude/AgentRule': []
-      },
-      recall: {}
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Agent Memory');
-    expect(out).toContain('from claude/Memory');
-  });
-
-  it('a failed Memory read degrades to a comment and keeps the must rules and Open Work', async () => {
-    const query = {
-      'claude/Concept': [{ name: 'Todo', description: 'work item', kind: 'type' }],
-      'claude/AnchorIntent': [],
-      'claude/SessionLog': [],
-      'claude/Todo': [{ id: 't1', shortId: 7, title: 'still here', status: 'open' }],
-      'claude/AgentRule': [
-        { id: 'r1', shortId: 1, rule: 'binding rule text', severity: 'must', active: true }
-      ]
-    };
-    const inner = route({ query, recall: {} });
-    const fetchImpl = (url, init) => {
-      const body = init?.body ?? '';
-      // The Memory candidate read, and only it: its own frame, no Todo beside it.
-      if (body.includes('claude/Memory') && !body.includes('claude/Todo')) {
-        return Promise.reject(new Error('Memory read timed out'));
-      }
-      return inner(url, init);
-    };
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('<!-- agent memory unavailable: Memory read timed out -->');
-    expect(out).not.toContain('<!-- substrate offline');
-    expect(out).toContain('binding rule text');
-    expect(out).toContain('## Concepts');
-  });
-
-  it('an anchor failure still fails the document, as designed', async () => {
-    const inner = route({ query: {}, recall: {} });
-    const fetchImpl = (url, init) =>
-      (init?.body ?? '').includes('claude/AnchorIntent')
-        ? Promise.reject(new Error('anchor down'))
-        : inner(url, init);
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('<!-- substrate offline: anchor down');
-  });
-
   it('emits an offline comment and never throws when the server is unreachable', async () => {
     const fetchImpl = () => Promise.reject(new Error('ECONNREFUSED'));
     const out = await runColdStart({ ...base, fetchImpl });
@@ -193,18 +39,9 @@ describe('runColdStart', () => {
     expect(out).toContain('<!-- substrate offline: SUBSTRATE_URL not set');
   });
 });
-
 describe('runColdStart — Inbox (AgentMessage)', () => {
   const KID = 'substrate-claude@Desk';
-  const emptyContext = {
-    'claude/Concept': [],
-    'claude/AnchorIntent': [],
-    'claude/SessionLog': [],
-    'claude/Memory': [],
-    'claude/Decision': [],
-    'claude/Todo': [],
-    'claude/AgentRule': []
-  };
+  const rulesOnly = { 'claude/AgentRule': [mustRule] };
   const unreadMessage = {
     shortId: '6',
     subject: 'recall calibration',
@@ -217,38 +54,30 @@ describe('runColdStart — Inbox (AgentMessage)', () => {
     }
   };
 
-  it('renders an Inbox section first when unread mail exists', async () => {
+  it('renders one inbox count line, without bodies, after the rules', async () => {
     const fetchImpl = route({
       query: {
-        ...emptyContext,
-        'claude/Concept': [{ name: 'Todo', description: 'work item', kind: 'type' }],
+        ...rulesOnly,
         'claude/AgentIdentity': [{ id: 'me-row-id' }],
         'claude/AgentMessage': [unreadMessage]
-      },
-      recall: {}
+      }
     });
     const out = await runColdStart({ ...base, agentKid: KID, fetchImpl });
-    expect(out).toContain('## Inbox (1 unread)');
-    expect(out).toContain('#6');
-    expect(out).toContain('recall calibration');
-    expect(out).toContain('app-claude@Desk'); // sender surfaced
-    expect(out).toContain('bge-m3'); // body surfaced
-    expect(out).toContain('ackAgentMessage'); // usage hint
-    // Unread mail is the most actionable cold-start signal — it leads.
-    expect(out.indexOf('## Inbox')).toBeLessThan(out.indexOf('## Concepts'));
+    expect(out).toContain('Inbox: 1 unread — #6 (');
+    expect(out).not.toContain('bge-m3');
+    expect(out.indexOf('#21 (git)')).toBeLessThan(out.indexOf('Inbox:'));
   });
 
   it('renders nothing when the inbox is empty', async () => {
     const fetchImpl = route({
       query: {
-        ...emptyContext,
+        ...rulesOnly,
         'claude/AgentIdentity': [{ id: 'me-row-id' }],
         'claude/AgentMessage': []
-      },
-      recall: {}
+      }
     });
     const out = await runColdStart({ ...base, agentKid: KID, fetchImpl });
-    expect(out).not.toContain('## Inbox');
+    expect(out).not.toContain('Inbox:');
   });
 
   it('skips the inbox silently when no agent kid is configured', async () => {
@@ -256,271 +85,92 @@ describe('runColdStart — Inbox (AgentMessage)', () => {
     const fetchImpl = (url, init) => {
       if (url.endsWith('/substrate/v1/query') && init.body.includes('AgentIdentity'))
         askedForIdentity = true;
-      return route({ query: emptyContext, recall: {} })(url, init);
+      return route({ query: rulesOnly })(url, init);
     };
     // null = explicitly no identity. (undefined would fall through to the
     // SUBSTRATE_AGENT_KEY_ID env default, which is set on dev boxes.)
     const out = await runColdStart({ ...base, agentKid: null, fetchImpl });
-    expect(out).not.toContain('## Inbox');
+    expect(out).not.toContain('Inbox:');
     expect(askedForIdentity).toBe(false);
   });
 
   it('skips the inbox silently when the kid has no directory row', async () => {
     const fetchImpl = route({
-      query: {
-        ...emptyContext,
-        'claude/AgentIdentity': [],
-        'claude/AgentMessage': [unreadMessage]
-      },
-      recall: {}
+      query: { ...rulesOnly, 'claude/AgentIdentity': [], 'claude/AgentMessage': [unreadMessage] }
     });
     const out = await runColdStart({ ...base, agentKid: KID, fetchImpl });
-    expect(out).not.toContain('## Inbox');
+    expect(out).not.toContain('Inbox:');
   });
 
-  it('degrades to a terse comment when the inbox fetch fails, without losing other sections', async () => {
-    const inner = route({
-      query: {
-        ...emptyContext,
-        'claude/Concept': [{ name: 'Todo', description: 'work item', kind: 'type' }]
-      },
-      recall: {}
-    });
+  it('degrades to a terse comment when the inbox fetch fails, and the rules still render', async () => {
+    const inner = route({ query: rulesOnly });
     const fetchImpl = (url, init) => {
-      // The open-work query also resolves this session's AgentIdentity, so
-      // "any body mentioning AgentIdentity" would take open-work down too. The
-      // inbox's lookup is the one that asks for an identity and NOTHING ELSE.
-      const body = init.body;
-      if (
-        url.endsWith('/substrate/v1/query') &&
-        body.includes('AgentIdentity') &&
-        !body.includes('/Todo')
-      ) {
+      if (url.endsWith('/substrate/v1/query') && init.body.includes('AgentIdentity'))
         return Promise.reject(new Error('boom'));
-      }
       return inner(url, init);
     };
     const out = await runColdStart({ ...base, agentKid: KID, fetchImpl });
     expect(out).toContain('<!-- inbox unavailable');
-    expect(out).toContain('## Concepts'); // rest of the cold-start survived
+    expect(out).toContain('#21 (git) Footer rule.');
   });
 });
 
-// ---- what must survive truncation has to FIT the truncation ----
-//
-// The harness renders only ~2 KB inline and persists the rest, so a full must
-// block would reach the reader as part of one rule: served, ranked, never read.
-//
-// The digest carries the `synopsis` of each must rule, which is capped at two
-// sentences BECAUSE it is the retrieval surface. Full
-// bodies still render further down; nothing is gutted.
-test('must-digest carries every must rule and fits a small render window', () => {
-  const musts = [
-    { shortId: 21, category: 'git', severity: 'must', synopsis: 'Footer is one line.' },
-    { shortId: 23, category: 'git', severity: 'must', synopsis: 'Body to a file; verify.' },
-    { shortId: 54, category: 'identity', severity: 'must', synopsis: 'Sign as yourself.' }
-  ];
-  const out = renderMustDigest(musts, 'cortext');
-  for (const m of musts) {
-    expect(out, `#${m.shortId} must appear in the digest`).toContain(`#${m.shortId}`);
-    expect(out).toContain(m.synopsis);
-  }
-  expect(Buffer.byteLength(out, 'utf8')).toBeLessThan(2048);
-});
-
-test('must-digest says the full text exists elsewhere, so a partial read is not mistaken for all of it', () => {
-  const out = renderMustDigest(
-    [{ shortId: 3, category: 'git', severity: 'must', synopsis: 'Branch then PR.' }],
-    'cortext'
-  );
-  expect(out).toMatch(/full text/i);
-});
-
-test('must-digest renders nothing when there are no must rules', () => {
-  expect(renderMustDigest([], 'cortext')).toBe('');
-});
-
-test('a rule with no synopsis is named rather than silently dropped', () => {
-  // Dropping it would make the digest lie about how many rules bind — the
-  // exact "absence mistaken for nothing there" failure the manifest exists for.
-  const out = renderMustDigest(
-    [{ shortId: 99, category: 'x', severity: 'must', synopsis: null }],
-    'cortext'
-  );
-  expect(out).toContain('#99');
-  expect(out).toMatch(/no synopsis/i);
-});
-
-// ---- the Agent Memory header must reflect the probe, not the branch ----
-//
-// Reaching the unified render means recall ANSWERED, not that both arms ran.
-// These drive the header
-// from `GET /substrate/v1/embed-stats` instead.
-
-const armsBase = {
-  query: {
-    'claude/Concept': [],
-    'claude/AnchorIntent': [
-      { id: 'a1', synopsis: 'build plugin', _metadata: { createdAt: '2026-06-01T00:00:00Z' } }
-    ],
-    'claude/SessionLog': [],
-    'claude/Memory': [
-      { id: 'm1', type: 'user', name: 'pref', _metadata: { updatedAt: '2026-06-03T00:00:00Z' } }
-    ],
-    'claude/Decision': [],
-    'claude/Todo': [],
-    'claude/AgentRule': []
-  },
-  recall: { Memory: [{ row: { id: 'm1' }, score: 0.9 }], SessionLog: [], Decision: [] }
-};
-
-const declaredEverywhere = ['Memory', 'SessionLog', 'Decision'].map((type) => ({
-  namespace: 'claude',
-  type
-}));
-
-describe('runColdStart recall arms header', () => {
-  it('claims hybrid only when embed-stats reports both arms wired', async () => {
-    const fetchImpl = route({
-      ...armsBase,
-      embedStats: {
-        enabled: true,
-        embeddedTypes: declaredEverywhere,
-        lexicalEnabled: true,
-        lexicalTypes: declaredEverywhere
-      }
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Agent Memory (hybrid recall — RRF, unified)');
-  });
-
-  it('says dense arm only — not hybrid — when the lexical arm is reported off', async () => {
-    const fetchImpl = route({
-      ...armsBase,
-      embedStats: {
-        enabled: true,
-        embeddedTypes: declaredEverywhere,
-        lexicalEnabled: false,
-        lexicalTypes: []
-      }
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Agent Memory (recall — RRF, dense arm only)');
-    expect(out).not.toContain('hybrid recall');
-  });
-
-  // An empty-but-successful recall leaves `recallRows` as `[]`, which is
-  // not null, so `recallAvailable` is true and the unified branch renders over
-  // nothing. The realistic instance is a fresh store's FIRST session, where
-  // /substrate-setup has authored an AnchorIntent before any SessionLog exists —
-  // the worst audience for a header claiming hybrid recall over an empty
-  // section. Reachability is pinned here rather than argued in a comment.
-  it('states the empty scope instead of heading an empty section', async () => {
-    const fetchImpl = route({
+describe('runColdStart — rule index', () => {
+  it('asks the store for nothing but the inbox and the rules', async () => {
+    const asked = [];
+    const inner = route({
       query: {
-        'claude/AnchorIntent': [
-          {
-            id: 'a1',
-            shortId: '7',
-            synopsis: 'first session in a brand-new store',
-            authoredBy: { kind: 'agent' },
-            _metadata: { createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }
-          }
-        ]
-      },
-      recall: { Memory: [], SessionLog: [], Decision: [] },
-      embedStats: {
-        enabled: true,
-        embeddedTypes: declaredEverywhere,
-        lexicalEnabled: true,
-        lexicalTypes: declaredEverywhere
+        'claude/AgentRule': [mustRule],
+        'claude/AgentIdentity': [{ id: 'me' }],
+        'claude/AgentMessage': []
       }
     });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('No Memory, SessionLog or Decision rows in scope');
-    expect(out).toContain('no rows to fuse');
-    // The diagnostics still render — they are what tells a new operator that
-    // recall is wired and simply had nothing to return.
-    expect(out).toContain('Recall arms:');
-  });
-
-  // The two arms can disagree about project scope; the render must not assert
-  // the structural arm's answer for both. Pinned end to end, because the wiring
-  // between buildScoredByType and renderUnified is where the count would
-  // silently revert to a single number.
-  it('drops out-of-scope semantic hits and reports the split', async () => {
-    const fetchImpl = route({
-      query: {
-        'claude/AnchorIntent': [
-          {
-            id: 'a1',
-            shortId: '7',
-            synopsis: 'scope check',
-            authoredBy: { kind: 'agent' },
-            _metadata: { createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }
-          }
-        ],
-        'claude/Memory': [
-          {
-            id: 'local',
-            type: 'user',
-            name: 'mine',
-            description: 'in scope',
-            project: 'demo',
-            _metadata: { updatedAt: '2026-06-03T00:00:00Z' }
-          }
-        ]
-      },
-      recall: {
-        Memory: [
-          { row: { id: 'foreign', type: 'user', name: 'theirs', project: 'app' }, score: 0.99 },
-          { row: { id: 'shared', type: 'user', name: 'fleet', project: null }, score: 0.9 }
-        ],
-        SessionLog: [],
-        Decision: []
-      },
-      embedStats: {
-        enabled: true,
-        embeddedTypes: declaredEverywhere,
-        lexicalEnabled: true,
-        lexicalTypes: declaredEverywhere
-      }
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).not.toContain('theirs');
-    expect(out).toContain('Scope filter: dropped 1 semantic hit from other projects (app 1)');
-    expect(out).toContain('1 for this project, 1 cross-cutting');
-  });
-
-  // The structural fallback renders BECAUSE recall did not fuse, and must say
-  // so. Wired from the choke point, so the two branches cannot drift apart.
-  it('the structural fallback says recall was unavailable, and carries the arms line', async () => {
-    const fetchImpl = route({
-      ...armsBase,
-      // A type absent from the recall map is answered as a REFUSED frame, which
-      // is what an unavailable embedder looks like on the wire.
-      recall: {},
-      embedStats: {
-        enabled: true,
-        embeddedTypes: declaredEverywhere,
-        lexicalEnabled: true,
-        lexicalTypes: declaredEverywhere
-      }
-    });
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('semantic recall was unavailable');
-    expect(out).toContain('Recall arms:');
-    expect(out).not.toContain('RRF fusion');
-  });
-
-  it('says arms unverified when the probe cannot be read, and still renders', async () => {
     const fetchImpl = (url, init) => {
-      if (url.endsWith('/substrate/v1/embed-stats')) return Promise.reject(new Error('probe down'));
-      return route(armsBase)(url, init);
+      if (url.endsWith('/substrate/v1/query')) asked.push(...Object.keys(JSON.parse(init.body)));
+      return inner(url, init);
     };
-    const out = await runColdStart({ ...base, fetchImpl });
-    expect(out).toContain('## Agent Memory (recall — RRF, arms unverified)');
-    expect(out).toContain('### Top recall');
+    await runColdStart({ ...base, agentKid: 'k@Box', fetchImpl });
+    expect(new Set(asked)).toEqual(
+      new Set(['claude/AgentRule', 'claude/AgentIdentity', 'claude/AgentMessage'])
+    );
+  });
+
+  it('places rules, then pointers, then the session line, then the inbox', async () => {
+    const fetchImpl = route({
+      query: {
+        'claude/AgentRule': [mustRule],
+        'claude/AgentIdentity': [{ id: 'me' }],
+        'claude/AgentMessage': [{ shortId: 9 }]
+      }
+    });
+    const out = await runColdStart({
+      ...base,
+      agentKid: 'k@Box',
+      sessionId: '125f8d22-0044',
+      fetchImpl
+    });
+    const at = (s) => out.indexOf(s);
+    expect(at('#21 (git)')).toBeGreaterThan(-1);
+    expect(at('#21 (git)')).toBeLessThan(at('Everything else is a query'));
+    expect(at('Everything else is a query')).toBeLessThan(at('Session `125f8d22`'));
+    expect(at('Session `125f8d22`')).toBeLessThan(at('Inbox:'));
+  });
+
+  it('a rejected AgentRule frame is reported by the projection audit, not rendered as zero rules', async () => {
+    const fetchImpl = (url, init) => {
+      const payload = JSON.parse(init.body);
+      if ('claude/AgentRule' in payload)
+        return Promise.resolve(
+          jsonOk({
+            data: {},
+            errors: [{ path: ['claude/AgentRule'], code: 'unknown_field', message: 'nope' }]
+          })
+        );
+      return route({ query: {} })(url, init);
+    };
+    const out = await runColdStart({ ...base, agentKid: null, fetchImpl });
+    expect(out).toContain('claude/AgentRule');
+    expect(out).not.toContain('## Binding rules — 0');
   });
 });
 
@@ -673,114 +323,5 @@ describe('runColdStart reports HostInstall', () => {
     expect(withFailure.split('HostInstall not recorded').length - 1).toBe(1);
     expect(withFailure).not.toContain('INCOMPLETE');
     expect(withFailure.replace(/<!-- HostInstall not recorded:[^\n]*\n/, '')).toBe(plain);
-  });
-});
-
-// ---- the memory section is a pointer by default ----
-//
-// Memory has a recall surface of its own, so the cold-start does not preload
-// it. The anchor line and its staleness warning stay: they ask for a re-author,
-// and the anchor still ranks the rules.
-
-function recording(handlers) {
-  const inner = route(handlers);
-  const calls = [];
-  const fetchImpl = (url, init) => {
-    calls.push({ url, keys: init?.body ? Object.keys(JSON.parse(init.body)) : [] });
-    return inner(url, init);
-  };
-  return { fetchImpl, calls };
-}
-
-describe('runColdStart memory pointer', () => {
-  const pointer = { ...base, memoryMode: undefined };
-  const staleAnchor = {
-    id: 'a1',
-    shortId: '7',
-    synopsis: 'thin the cold-start',
-    authoredBy: { kind: 'agent' },
-    _metadata: { createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }
-  };
-
-  it('renders a pointer and issues no memory reads by default', async () => {
-    const { fetchImpl, calls } = recording({ ...armsBase, embedStats: { enabled: true } });
-    const out = await runColdStart({ ...pointer, fetchImpl, env: {} });
-    expect(out).toContain('## Agent Memory — not preloaded');
-    expect(out).toContain('Anchor: AnchorIntent #a1');
-    expect(out).toContain('recall');
-    expect(out).toContain('type: "Memory"');
-    expect(out).not.toContain('Top recall');
-    expect(calls.some((c) => c.url.endsWith('/substrate/v1/embed-stats'))).toBe(false);
-    expect(calls.some((c) => c.keys.includes('recall/Hit'))).toBe(false);
-    expect(calls.some((c) => c.keys.includes('claude/Memory'))).toBe(false);
-  });
-
-  it('keeps the stale-anchor warning', async () => {
-    const fetchImpl = route({
-      ...armsBase,
-      query: {
-        ...armsBase.query,
-        'claude/AnchorIntent': [staleAnchor],
-        'claude/SessionLog': Array.from({ length: 20 }, (_, i) => ({
-          id: `s${i}`,
-          _metadata: { createdAt: '2026-06-02T00:00:00Z' }
-        }))
-      }
-    });
-    const out = await runColdStart({ ...pointer, fetchImpl, env: {} });
-    expect(out).toContain('## Agent Memory — not preloaded');
-    expect(out).toMatch(/Anchor stale: .*re-author before continuing/);
-  });
-
-  it('says so when there is no anchor', async () => {
-    const fetchImpl = route({
-      ...armsBase,
-      query: { ...armsBase.query, 'claude/AnchorIntent': [], 'claude/SessionLog': [] }
-    });
-    const out = await runColdStart({ ...pointer, fetchImpl, env: {} });
-    expect(out).toContain('## Agent Memory — not preloaded');
-    expect(out).toContain('No anchor');
-  });
-
-  it('SYNOPTIC_COLD_START_MEMORY=full restores the preloaded section', async () => {
-    const fetchImpl = route({ ...armsBase, embedStats: { enabled: true } });
-    const out = await runColdStart({
-      ...pointer,
-      fetchImpl,
-      env: { SYNOPTIC_COLD_START_MEMORY: 'full' }
-    });
-    expect(out).not.toContain('not preloaded');
-    expect(out).toContain('Top recall');
-  });
-});
-
-// ---- salient should-rules render as headlines by default ----
-
-describe('runColdStart salient rule headlines', () => {
-  const salientRule = {
-    id: 'r41',
-    shortId: 41,
-    rule: 'Prefer batched payloads. **How to apply:** BODY-DETAIL-SENTINEL.',
-    synopsis: 'Batch mutate payloads.',
-    category: 'tooling',
-    severity: 'should',
-    active: true
-  };
-  const rulesRoute = () =>
-    route({ ...armsBase, query: { ...armsBase.query, 'claude/AgentRule': [salientRule] } });
-
-  it('renders a salient rule as one line by default', async () => {
-    const out = await runColdStart({ ...base, fetchImpl: rulesRoute(), env: {} });
-    expect(out).toContain('**#41** *(tooling)* — Batch mutate payloads.');
-    expect(out).not.toContain('BODY-DETAIL-SENTINEL');
-  });
-
-  it('SYNOPTIC_COLD_START_SALIENT=full restores the body', async () => {
-    const out = await runColdStart({
-      ...base,
-      fetchImpl: rulesRoute(),
-      env: { SYNOPTIC_COLD_START_SALIENT: 'full' }
-    });
-    expect(out).toContain('BODY-DETAIL-SENTINEL');
   });
 });

@@ -1,8 +1,8 @@
 # @mnmal-ai/cortext-opencode — Cortext for OpenCode
 
 The OpenCode skin for the [Cortext](../cortext/README.md) coordination
-capability: the same synoptic cold-start (Concepts, Agent Memory, Open Work,
-Agent Rules, Inbox) the Claude Code skin injects, delivered through a
+capability: the same synoptic cold-start (the binding-rule index, session line
+and inbox count) the Claude Code skin injects, delivered through a
 `context` session hook on first dispatch per session (OpenCode 2.x
 `Plugin.define({ id, setup })`; a V1 `server()` entrypoint is bundled for
 OpenCode 1.x compat).
@@ -92,7 +92,6 @@ OpenCode 1.x compat).
 | `SUBSTRATE_AGENT_KEY_PATH` / `SUBSTRATE_AGENT_KEY_ID` | Ed25519 identity for signed reads + mail | anonymous |
 | plugin-config `options.kid` / `options.key` | V2 object plugin entry identity — wins over the env pair, per-project, survives GUI launch where shell env does not. **All or nothing**: setting either uses the options pair only, never half from env | falls back to the env pair |
 | plugin-config `options.url` / `options.ns` | Override `SUBSTRATE_URL` / `SUBSTRATE_NAMESPACE` for the plugin, for a launch whose process env carries neither | the env values |
-| `MEMORY_*` / `RULE_SALIENCE` | Recall tunables, same as the Claude hooks | host defaults |
 | `SYNOPTIC_INBOX_PUSH` | `off` disables mid-turn push (V2); the prompt and end-of-turn seams carry on | on |
 | `SYNOPTIC_INBOX_WAKE` | `on` lets new mail start a turn in an idle session (6 per hour, 2 per thread) | off |
 | `SYNOPTIC_INBOX_URGENT_FROM` | Comma-separated kids whose `priority:urgent` mail may interrupt a turn (3 per hour, 20 s grace for a running tool) | unset |

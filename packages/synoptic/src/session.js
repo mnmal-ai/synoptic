@@ -21,13 +21,10 @@
 //
 // Delivery stays repo-scoped. Only provenance becomes session-scoped.
 //
-// ## Why `tags` and not a new field
+// ## The stamp
 //
-// `tags` is already client-settable, indexed and nullable on `AgentMessage`,
-// and null on every message written to date. A stamp there costs no schema
-// change, no cortext release and no runtime deploy — where a real field would
-// take the heaviest propagation path this repo has (npm tarball -> runtime
-// deploy). Deferred until the tag proves insufficient.
+// Sends carry it in `AgentMessage.instance` (cortext ≥2.8.0), set once and
+// indexed, so a reader can tell two writers sharing one kid apart.
 //
 // The stamp is therefore ADVISORY: client-supplied, so it can be omitted or
 // wrong, unlike `createdBy` which is signed. That is adequate for telling
@@ -78,29 +75,8 @@ export function sessionTag(sessionId) {
  * @returns {string} '' when there is nothing useful to say.
  */
 export function renderSessionBlock({ sessionId = null, kid = null } = {}) {
-  const tag = sessionTag(sessionId);
-  if (tag === null) return '';
+  const short = shortSessionId(sessionId);
+  if (short === null) return '';
   const who = kid === null || kid === '' ? 'this repo’s agent identity' : `\`${kid}\``;
-  return [
-    '## This session',
-    '',
-    `You are ${who}, session \`${shortSessionId(sessionId)}\`.`,
-    '',
-    `**That identity is shared.** It is bound to the repo, not to you — concurrent ` +
-      'sessions here sign identically, and `AgentMessage` has no sender field to ' +
-      'tell you apart (the sender is derived from the signing key). So when you ' +
-      'send, stamp it:',
-    '',
-    '```',
-    `tags: ["${tag}"]`,
-    '```',
-    '',
-    '**And say what you DID, not what you read.** The stamp is advisory — a ' +
-      'reader cannot verify it. What actually establishes that a message came ' +
-      'from a session that did the work is the message carrying the work: a ' +
-      'measurement, a file and line, a command and its output. A reply that ' +
-      'only restates what it was sent is indistinguishable from one written ' +
-      'by a session that has lost its context.',
-    ''
-  ].join('\n');
+  return `Session \`${short}\` as ${who} — stamp sends with \`instance: "session:${short}"\`.`;
 }

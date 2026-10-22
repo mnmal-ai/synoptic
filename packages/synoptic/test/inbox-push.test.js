@@ -71,29 +71,19 @@ describe('renderMessageBlock', () => {
   });
 });
 
-describe('renderInbox is unchanged by the refactor', () => {
-  it('matches the pre-refactor output byte for byte', () => {
+describe('renderInbox', () => {
+  it('renders one count line with shortIds, no bodies', () => {
     const out = renderInbox(
       [ROW, { ...ROW, id: 'u8', shortId: 8, inReplyTo: null, tags: null, body: '' }],
-      {
-        kid: 'me@Host'
-      }
+      { kid: 'me@Host' }
     );
     expect(out).toBe(
-      [
-        '## Inbox (2 unread)',
-        '',
-        "Addressed to `me@Host`. Ack with `cortext/ackAgentMessage { id }` (or `cortext/markAgentMessageRead`); reply via `cortext/sendAgentMessage { to: '<kid>', subject, body, inReplyTo? }`. Transitions are recipient-only.",
-        '',
-        '### #7 — hello (reply)',
-        '*from peer@Host, 2026-10-06*  [session:abc]',
-        '',
-        '> line one\n> line two',
-        '',
-        '### #8 — hello',
-        '*from peer@Host, 2026-10-06*'
-      ].join('\n')
+      'Inbox: 2 unread — #7, #8 (close or reply via `cortext/ackAgentMessage`, `markAgentMessageRead`, `sendAgentMessage`).'
     );
+    expect(out).not.toContain('line one');
+  });
+  it('renders nothing when empty', () => {
+    expect(renderInbox([], { kid: 'me@Host' })).toBe('');
   });
 });
 
@@ -353,5 +343,14 @@ describe('instance on the from line', () => {
     expect(out.split('\n').filter((l) => l.includes('forged') && !l.startsWith('*from'))).toEqual(
       []
     );
+  });
+});
+
+describe('renderInbox stays bounded', () => {
+  it('lists at most five ids, then an ellipsis', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...ROW, id: `u${i}`, shortId: 900 + i }));
+    const out = renderInbox(rows, { kid: 'me@Host' });
+    expect(out).toContain('50+ unread — #900, #901, #902, #903, #904, …');
+    expect(out).not.toContain('#905');
   });
 });

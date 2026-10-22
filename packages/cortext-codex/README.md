@@ -77,7 +77,7 @@ from the file. A partial or unreadable signing identity is diagnosed on stderr;
 MCP refuses anonymous startup. Hooks remain nonblocking.
 
 The loader never reads `.claude/settings.local.json` or OpenCode configuration.
-`MEMORY_*`, `RULE_SALIENCE`, `SYNOPTIC_PROJECT_SCOPE`,
+`SYNOPTIC_PROJECT_SCOPE`,
 `SYNOPTIC_COLD_START_MAX_BYTES`, `SYNOPTIC_HOST_REPORT`, `SUBSTRATE_AGENT_CAPABILITIES`,
 `SYNOPTIC_AGENT_NAMESPACES`, `SYNOPTIC_INBOX_PROMPT_CHECK`, and
 `SYNOPTIC_INBOX_STOP_CHECK` may also be set in the local `env` object. Unrelated
