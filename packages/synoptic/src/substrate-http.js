@@ -75,7 +75,7 @@ export async function substrateQuery(substrateUrl, payload, opts = {}) {
 }
 
 /**
- * Semantic recall. Returns rows[] when recall answered, or null when it did
+ * Semantic recall. Returns hits[] (`{ id, score }`) when recall answered, or null when it did
  * not (semantic unavailable) — the contract callers already depend on.
  *
  * ## Why this is a frame query and not `POST /substrate/v1/recall`
@@ -138,7 +138,7 @@ export async function recall(substrateUrl, opts = {}) {
   try {
     const data = await substrateQuery(
       substrateUrl,
-      { [key]: { params, fields: { id: true, score: true, row: true } } },
+      { [key]: { params, fields: { id: true, score: true } } },
       { fetchImpl, timeoutMs, onFrameFailure }
     );
     // Presence, not emptiness. `data[key] ?? []` would read a refusal — no

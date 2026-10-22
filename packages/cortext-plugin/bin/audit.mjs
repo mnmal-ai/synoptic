@@ -1982,7 +1982,7 @@ async function substrateQuery(substrateUrl, payload, opts = {}) {
 	}
 }
 /**
-* Semantic recall. Returns rows[] when recall answered, or null when it did
+* Semantic recall. Returns hits[] (`{ id, score }`) when recall answered, or null when it did
 * not (semantic unavailable) — the contract callers already depend on.
 *
 * ## Why this is a frame query and not `POST /substrate/v1/recall`
@@ -2034,8 +2034,7 @@ async function recall(substrateUrl, opts = {}) {
 			params,
 			fields: {
 				id: true,
-				score: true,
-				row: true
+				score: true
 			}
 		} }, {
 			fetchImpl,
