@@ -3,7 +3,7 @@
 // manifests, and both conventions markers must name the same version, or a
 // release ships skins that disagree about what tag they belong to (and the
 // audit's `skins` group compares the OpenCode skin against a fiction).
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -68,10 +68,14 @@ describe('one tag across the release set', () => {
   // /substrate-setup skips a source repo (resolver exit 2), so nothing but the
   // version script keeps the installed copy current. A stale marker here makes
   // the newer-version check fire on a repo that is actually current.
-  it("this repo's installed fragment is byte-identical to the source", () => {
-    const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
-    expect(read('.claude/substrate-conventions.md')).toBe(
-      read('packages/cortext-plugin/fragments/substrate-conventions.md')
-    );
-  });
+  // The copy is untracked, so a fresh clone or CI has none to compare.
+  it.skipIf(!existsSync(join(ROOT, '.claude/substrate-conventions.md')))(
+    "this repo's installed fragment is byte-identical to the source",
+    () => {
+      const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+      expect(read('.claude/substrate-conventions.md')).toBe(
+        read('packages/cortext-plugin/fragments/substrate-conventions.md')
+      );
+    }
+  );
 });

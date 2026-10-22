@@ -135,7 +135,9 @@ Print a capability summary block.
      around it by copying a file.
    - **Exit 2 means this repo is the source** (`packages/cortext-plugin/fragments/`
      exists). Its working tree is authoritative and may be ahead of the last
-     release. Leave it alone.
+     release, so copy `packages/cortext-plugin/fragments/substrate-conventions.md`
+     over `.claude/substrate-conventions.md` rather than installing from the
+     plugin cache. The `version` script keeps that copy in sync from then on.
 
    Why a command rather than an instruction: `${CLAUDE_PLUGIN_ROOT}` is **bound
    at session start** — a session running when the plugin updated keeps
@@ -151,7 +153,11 @@ Print a capability summary block.
    version**. Both halves are needed: same version + different digest is an
    install; a lower version is a refusal.
 
-2. Ensure `<repo>/CLAUDE.md` contains the line `@.claude/substrate-conventions.md` (append it once if absent; never modify other lines). This is the only edit made to the user's CLAUDE.md.
+2. Import it from the repo's **untracked** `CLAUDE.local.md`, so contributors who don't use Cortext never load it:
+   - Ensure `<repo>/CLAUDE.local.md` contains the line `@.claude/substrate-conventions.md` (create the file, or append the line once if absent; never modify other lines).
+   - Ensure `<repo>/.gitignore` lists both `CLAUDE.local.md` and `.claude/substrate-conventions.md` (append whichever is missing).
+   - If `<repo>/CLAUDE.md` still has the line `@.claude/substrate-conventions.md` from an older setup, remove that one line and touch nothing else.
+   - If `git ls-files --error-unmatch .claude/substrate-conventions.md` succeeds, the fragment is still tracked: run `git rm --cached .claude/substrate-conventions.md` and tell the user to commit the untracking with the `.gitignore` and `CLAUDE.md` changes on a branch.
 
 ## Step 4 — wire the substrate MCP server (project `.mcp.json`, identity-ready)
 

@@ -13,7 +13,7 @@ The agent-coordination host. It ships **Cortext**, an agent-neutral workflow and
 | `packages/cortext-opencode` | `@mnmal-ai/cortext-opencode` | The OpenCode skin: cold-start injection via `experimental.chat.system.transform`, zero-dep committed `dist/plugin.js`. Published to npm because OpenCode installs plugins through Bun |
 | `packages/cortext-codex` | *(not npm)* | Local Codex delivery |
 
-This repo is the single source of the cold-start machinery and of the `substrate-conventions.md` fragment, including the copy in `.claude/`.
+This repo is the single source of the cold-start machinery and of the `substrate-conventions.md` fragment. The copy in `.claude/` is an untracked install, as in every consumer.
 
 ## Checks
 

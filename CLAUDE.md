@@ -1,9 +1,8 @@
 @AGENTS.md
-@.claude/substrate-conventions.md
 
 # synoptic: Claude Code notes
 
-`.claude/substrate-conventions.md` is the Substrate interaction fragment this repo publishes, installed here as in any consumer. Per-project `cortext/*` rows written from here use `project: "synoptic"`.
+`.claude/substrate-conventions.md` is the Substrate interaction fragment this repo publishes, installed here as in any consumer: untracked, and imported from an untracked `CLAUDE.local.md` by `/substrate-setup`. Per-project `cortext/*` rows written from here use `project: "synoptic"`.
 
 ## Claude Code plugin
 
