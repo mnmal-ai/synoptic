@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/cortext",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "description": "Cortext: the agent-neutral coordination context store for Substrate (Todos, Decisions, SessionLogs, AgentRules, Memory, Concepts, Councils, …) plus architecture findings. One package carrying two plugins: the coordinator that registers the namespaces, and the kernel plugin that owns their Postgres invariants.",
   "license": "Apache-2.0",
   "repository": {
