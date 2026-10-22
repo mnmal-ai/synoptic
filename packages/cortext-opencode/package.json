@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/cortext-opencode",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "Cortext — the OpenCode skin: cold-start injection via experimental.chat.system.transform, bundling the @mnmal-ai/synoptic host into a committed dist artifact. Installed as an OpenCode plugin (\"plugin\": [\"@mnmal-ai/cortext-opencode\"]). Published to npm, not the Claude marketplace.",
   "license": "Apache-2.0",
   "repository": {

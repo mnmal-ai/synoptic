@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/context-render",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "Type-generic index-and-pull rendering, body folding, budget trim and RRF ranking for agent context documents",
   "license": "Apache-2.0",
   "repository": {
