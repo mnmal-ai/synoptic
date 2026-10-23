@@ -32,7 +32,7 @@ import {
 } from './kernel/index.js';
 import { installMailboxMutations } from './mailbox.js';
 import { CORTEXT_NL_RULINGS } from './nl-rulings.js';
-import { identitySelfOnly, operatorOnly } from './participants.js';
+import { identityCreateGuard, identitySelfOnly, operatorOnly } from './participants.js';
 
 /**
  * Decision lifecycle states this vocabulary DOCUMENTS. ADVISORY, not enforced,
@@ -863,11 +863,16 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // biome-ignore lint/style/noNonNullAssertion: deliberate internal-seam assertion, see above
         definition.types!.AgentMessage!.fields as Record<string, FieldDef>
       );
-      // AgentIdentity keeps its autoCRUD surface, but an edit is the row's own
-      // kid's or an operator's, and a delete is an operator's. Wrapped
+      // AgentIdentity keeps its autoCRUD surface, but a create may not claim
+      // another machine, an edit is the row's own kid's or an operator's, and
+      // a delete is an operator's. Wrapped
       // in place, so params, returns and policy stay exactly what autoCRUD
       // registered.
       for (const [name, wrap] of [
+        [
+          'createAgentIdentity',
+          (r: RegistryEntryResolver) => identityCreateGuard('createAgentIdentity', r)
+        ],
         [
           'updateAgentIdentity',
           (r: RegistryEntryResolver) => identitySelfOnly(ctx, 'updateAgentIdentity', r)

@@ -949,6 +949,90 @@ describe('row-level authority: mail participants and identity self-edits', () =>
     expect(jsonBody<PackEnvelope>(self).errors).toBeUndefined();
   });
 
+  it("host must stay the kid's machine, and only an operator may reactivate a retired row", async () => {
+    const { server, stop } = await setup();
+    cleanup = stop;
+    const notesId = await makeIdentity(server, NOTES);
+    const notesHost = NOTES.slice(NOTES.lastIndexOf('@') + 1);
+    expect(
+      errorCode(
+        await mutateAs(server, NOTES, {
+          'claude/updateAgentIdentity': {
+            params: { id: notesId, host: 'other-machine', roaming: true },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+    const sameHost = await mutateAs(server, NOTES, {
+      'claude/updateAgentIdentity': {
+        params: { id: notesId, host: notesHost.toUpperCase() },
+        fields: { id: true }
+      }
+    });
+    expect(jsonBody<PackEnvelope>(sameHost).errors).toBeUndefined();
+    expect(
+      errorCode(
+        await mutateAs(server, BYSTANDER, {
+          'claude/createAgentIdentity': {
+            params: { kid: 'fresh-claude@machine-a', host: 'machine-b' },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+
+    expect(
+      errorCode(
+        await mutateAs(server, BYSTANDER, {
+          'claude/createAgentIdentity': {
+            params: { kid: 'no-machine-kid', host: 'machine-b' },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+    // A row an operator filed on another machine cannot be made to vouch by its own kid.
+    const foreign = await mutateAsOperator(server, {
+      'claude/createAgentIdentity': {
+        params: { kid: 'moved-claude@host-a', host: 'machine-b' },
+        fields: { id: true }
+      }
+    });
+    const foreignId = (
+      jsonBody<PackEnvelope>(foreign).data['claude/createAgentIdentity'] as { id: string }
+    ).id;
+    expect(
+      errorCode(
+        await mutateAs(server, 'moved-claude@host-a', {
+          'claude/updateAgentIdentity': {
+            params: { id: foreignId, roaming: true },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+
+    const retire = await mutateAs(server, NOTES, {
+      'claude/updateAgentIdentity': { params: { id: notesId, active: false }, fields: { id: true } }
+    });
+    expect(jsonBody<PackEnvelope>(retire).errors).toBeUndefined();
+    expect(
+      errorCode(
+        await mutateAs(server, NOTES, {
+          'claude/updateAgentIdentity': {
+            params: { id: notesId, active: true },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+    const revived = await mutateAsOperator(server, {
+      'claude/updateAgentIdentity': { params: { id: notesId, active: true }, fields: { id: true } }
+    });
+    expect(jsonBody<PackEnvelope>(revived).errors).toBeUndefined();
+  });
+
   it('kid changes and identity deletes are operator-only, even on your own row', async () => {
     const { server, stop } = await setup();
     cleanup = stop;
