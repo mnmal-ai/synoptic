@@ -1,6 +1,6 @@
 {
   "name": "cortext",
-  "version": "1.0.0-alpha.7",
+  "version": "1.0.0-alpha.8",
   "description": "Cortext — the Claude Code skin for the cortext coordination capability. /substrate-setup wires HTTP-only hooks — SessionStart (binding-rule index, inbox count) plus Stop/UserPromptSubmit inbox checks at the session seams — a per-machine substrate MCP server, a versioned conventions fragment, and baseline AgentRules. Gracefully degrades when server-side recall is unavailable. Optional agent-identity signing (SUBSTRATE_AGENT_KEY_PATH/KEY_ID) gives per-project write attribution, the agent mailbox, and identity-gated read postures.",
   "author": {
     "name": "mnmal-ai"
