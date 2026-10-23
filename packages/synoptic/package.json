@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/synoptic",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "description": "Synoptic host library — agent-onboarding pipeline, cold-start projector, the Cortext capability contract, and cross-agent handoff. Harness-neutral; the cortext CC plugin and other skins consume it.",
   "license": "Apache-2.0",
   "repository": {
