@@ -516,6 +516,9 @@ function startWatcher(
     })) as typeof fetch;
   const sleep = abortableSleep(signal);
   let crashes = 0;
+  // Fixed once: a restart after a crash must still deliver mail that arrived
+  // while the watcher was down. Repeats are dropped by the bridge.
+  const since = new Date().toISOString();
   const run = (): void => {
     let wentLive = false;
     let watcher: Promise<unknown>;
@@ -524,7 +527,7 @@ function startWatcher(
         runWatcher({
           env: access.env,
           fetchImpl,
-          since: new Date().toISOString(),
+          since,
           namespace: access.env.SUBSTRATE_NAMESPACE ?? 'cortext',
           emit: (ev: WatchEvent) => {
             if (signal.aborted) return;

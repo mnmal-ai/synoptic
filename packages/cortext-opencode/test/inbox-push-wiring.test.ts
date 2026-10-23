@@ -10,6 +10,7 @@ type WatcherArgs = {
   env: Record<string, string | undefined>;
   emit: Emit;
   sleep: (ms: number) => Promise<void>;
+  since: string;
   fetchImpl: (url: string, init?: RequestInit) => Promise<unknown>;
   fail: (err: Error) => void;
 };
@@ -247,6 +248,20 @@ describe('watcher wiring', () => {
       watcher.calls[1]?.fail(new Error('again'));
       await vi.advanceTimersByTimeAsync(600_000);
       expect(watcher.calls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a restarted watcher keeps the first start time, so mail sent while it was down is delivered', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { cleanup } = await setup();
+      watcher.calls[0]?.fail(new Error('connection reset'));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(watcher.calls).toHaveLength(2);
+      expect(watcher.calls[1]?.since).toBe(watcher.calls[0]?.since);
+      cleanup();
     } finally {
       vi.useRealTimers();
     }
