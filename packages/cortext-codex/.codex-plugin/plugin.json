@@ -1,6 +1,6 @@
 {
   "name": "cortext",
-  "version": "1.0.0-alpha.5",
+  "version": "1.0.0-alpha.6",
   "description": "Shared Cortext state and agent mail for local Codex sessions.",
   "author": {
     "name": "mnmal-ai"
