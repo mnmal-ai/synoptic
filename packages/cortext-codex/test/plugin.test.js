@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, mcpInvocation } from '../src/config.js';
+import { CONFIG_PATH, gitTracks, loadConfig, mcpInvocation } from '../src/config.js';
 import { handleHook } from '../src/hook.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -373,4 +373,25 @@ test('substrate-run shares steps 1-5 with the Claude skill; only binary, identit
   const ours = steps('skills/substrate-run/SKILL.md');
   assert.ok(ours.length > 0);
   assert.equal(ours, steps('../cortext-plugin/skills/substrate-run/SKILL.md'));
+});
+
+test('a tracked .codex/cortext.local.json is refused, so a checkout cannot choose the MCP command', () => {
+  const cwd = workspace({ SUBSTRATE_URL: 'https://substrate.test' });
+  const tracked = () => true;
+  assert.throws(() => loadConfig(cwd, {}, undefined, tracked), /tracked by git/);
+  assert.equal(
+    loadConfig(cwd, {}, undefined, () => false).env.SUBSTRATE_URL,
+    'https://substrate.test'
+  );
+});
+
+test('gitTracks reads the real index', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'cortext-codex-git-'));
+  const git = (...args) => spawnSync('git', ['-C', cwd, ...args], { stdio: 'ignore' });
+  if (git('init', '-q').status !== 0) return;
+  mkdirSync(join(cwd, '.codex'));
+  writeFileSync(join(cwd, CONFIG_PATH), '{}');
+  assert.equal(gitTracks(cwd, CONFIG_PATH), false);
+  git('add', CONFIG_PATH);
+  assert.equal(gitTracks(cwd, CONFIG_PATH), true);
 });

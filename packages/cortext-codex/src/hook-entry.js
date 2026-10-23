@@ -18,7 +18,10 @@ try {
   const result = await handleHook(input, config, { version });
   if (result.warning) process.stderr.write(result.warning);
   process.stdout.write(result.output || '{}');
-} catch {
-  process.stderr.write('Cortext hook unavailable; check .codex/cortext.local.json settings.\n');
+} catch (error) {
+  // Config errors name fields and paths, never credential values.
+  const why =
+    error?.code === 'TRACKED' ? error.message : 'check .codex/cortext.local.json settings';
+  process.stderr.write(`Cortext hook unavailable; ${why}.\n`);
   process.stdout.write('{}');
 }

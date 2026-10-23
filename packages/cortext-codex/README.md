@@ -52,7 +52,9 @@ project to find `.codex/cortext.local.json`. So `.mcp.json` starts `sh`, which
 execs the installed `bin/substrate-mcp.mjs` under `${CODEX_HOME:-~/.codex}`.
 
 Create **gitignored** `<repo>/.codex/cortext.local.json` with the operator's
-endpoint, a distinct Codex identity, and an already installed MCP executable:
+endpoint, a distinct Codex identity, and an already installed MCP executable. The
+plugin refuses the file if git tracks it, because it names the executable the
+launcher spawns and the URL signed requests go to:
 
 ```json
 {
