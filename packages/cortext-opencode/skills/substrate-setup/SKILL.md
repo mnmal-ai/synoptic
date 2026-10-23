@@ -1,10 +1,11 @@
 ---
+name: substrate-setup
 description: Onboard this repo as a Cortext consumer under OpenCode. Probes the target Substrate, wires the substrate MCP server in opencode.json (identity-ready), installs the conventions instructions, and seeds baseline AgentRules. Run once per repo.
 ---
 
-# /substrate-setup (OpenCode) — onboard a cortext-opencode consumer
+# substrate-setup (OpenCode): onboard a cortext-opencode consumer
 
-Run these steps in order. This command is **idempotent** — re-running it never duplicates config entries or rules.
+Run these steps in order. This skill is **idempotent** — re-running it never duplicates config entries or rules.
 
 Steps 2, 5, 6, 8 are transport-agnostic and identical to the Claude skin's
 `/substrate-setup`; only the file paths and the MCP dialect differ. Where this
@@ -51,7 +52,7 @@ following and report it as ✓/✗:
 3. **Recall capability:** `GET <SUBSTRATE_URL>/substrate/v1/embed-stats` → `enabled`.
    `true` = hybrid cold-start; `false` = structural-only (degrades cleanly).
 4. **MCP package resolvable** (only if Step 4 uses the npx server form):
-   `npm view @mnmal-ai/substrate version`. It is public on npmjs.com, so a
+   `npm view @mnmal-ai/substrate@next version`. It is public on npmjs.com, so a
    failure here is a network or registry-mirror problem, not missing auth.
 
 Print a capability summary block.
@@ -67,7 +68,7 @@ Print a capability summary block.
      "$schema": "https://opencode.ai/config.json",
      "plugins": [
        {
-         "package": "@mnmal-ai/cortext-opencode",
+         "package": "@mnmal-ai/cortext-opencode@next",
          "options": {
            "kid": "<the Step-1 kid>",
            "key": "<the Step-1 key file>"
@@ -77,7 +78,7 @@ Print a capability summary block.
    }
    ```
 
-   The plain string form (`"plugins": ["@mnmal-ai/cortext-opencode"]`) also
+   The plain string form (`"plugins": ["@mnmal-ai/cortext-opencode@next"]`) also
    works — identity then comes from the env pair. **Keep exactly one entry
    per package**: as of opencode v2.0.24 the `plugins`
    arrays concatenate across global + project config and loads dedupe only
@@ -89,7 +90,19 @@ Print a capability summary block.
    npm plugins install automatically via Bun at startup (cached under
    `~/.cache/opencode/`). No registry auth is needed.
 
-2. Conventions need no step: the plugin injects them from its own package
+2. Install the skills. OpenCode loads no skills from a plugin package, so
+   copy them to the user skills directory, where every repo sees them. Bun
+   installs the plugin at startup, so restart opencode after step 1 first.
+   Re-run this after each plugin update; the copy does not track the package.
+
+   ```bash
+   PKG=$(ls -d ~/.cache/opencode/npm/@mnmal-ai/cortext-opencode@next/*/node_modules/@mnmal-ai/cortext-opencode | sort | tail -1)
+   mkdir -p ~/.config/opencode/skills && cp -R "$PKG/skills/." ~/.config/opencode/skills/
+   ```
+
+   That installs `council`, `todos`, `substrate-run` and this skill.
+
+3. Conventions need no step: the plugin injects them from its own package
    on every dispatch, so they track the installed version. If the
    repo has an older `.opencode/substrate-conventions.md` copy, delete it and its
    `"instructions"` entry; the session context names it while it is stale.
@@ -115,7 +128,7 @@ leaves empty:
     "servers": {
       "substrate": {
         "type": "local",
-        "command": ["npx", "-y", "@mnmal-ai/substrate", "mcp"],
+        "command": ["npx", "-y", "@mnmal-ai/substrate@next", "mcp"],
         "codemode": false,
         "environment": {
           "SUBSTRATE_URL": "<the url>",
@@ -212,6 +225,6 @@ set):
 ```
 
 Then summarise: SUBSTRATE_URL source, plugin entry, instructions copy, MCP
-server form, rules created vs skipped, recall tier, identity (per-project
+server form, skills installed, rules created vs skipped, recall tier, identity (per-project
 kid vs fleet default). Tell the user to restart opencode — config loads once
 at startup, and the cold-start injects on the first dispatch after that.

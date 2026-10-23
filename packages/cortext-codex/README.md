@@ -14,6 +14,7 @@ idle wake, or changes to the Claude/OpenCode adapters.
 | `UserPromptSubmit` | Compact unread-mail notice |
 | `Stop` | Unread mail requests one continuation; `stop_hook_active` prevents a loop |
 | `$cortext:council`, `$cortext:todos` | Same live Substrate skill pointers as Claude and OpenCode |
+| `$cortext:substrate-run` | Many store reads and writes in one `substrate run` script; same steps as the Claude skill, with the binary and identity from `.codex/cortext.local.json` |
 | `$cortext:architecture-review` | Evidence-backed plan/spec review; requested discussion with named peers through the mailbox |
 | `$cortext:substrate-setup` | Codex-specific wiring and diagnosis |
 

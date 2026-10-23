@@ -111,7 +111,7 @@ describe('wireMCP', () => {
     expect(parsed.mcp.servers.substrate.command).toEqual([
       'npx',
       '-y',
-      '@mnmal-ai/substrate',
+      '@mnmal-ai/substrate@next',
       'mcp'
     ]);
   });
@@ -124,7 +124,7 @@ describe('wireMCP', () => {
     const { mcpBin, ...noBin } = ID;
     const parsed = JSON.parse(wireMCP('kimi', noBin).content);
     expect(parsed.mcpServers.substrate.command).toBe('npx');
-    expect(parsed.mcpServers.substrate.args).toEqual(['-y', '@mnmal-ai/substrate', 'mcp']);
+    expect(parsed.mcpServers.substrate.args).toEqual(['-y', '@mnmal-ai/substrate@next', 'mcp']);
   });
 
   it('respects a custom server name', () => {
@@ -166,6 +166,6 @@ describe('wireMCP', () => {
     const { mcpBin, ...noBin } = ID;
     const parsed = JSON.parse(wireMCP('muse', noBin, { scope: 'user' }).content);
     expect(parsed.mcpServers.substrate.command).toBe('npx');
-    expect(parsed.mcpServers.substrate.args).toEqual(['-y', '@mnmal-ai/substrate', 'mcp']);
+    expect(parsed.mcpServers.substrate.args).toEqual(['-y', '@mnmal-ai/substrate@next', 'mcp']);
   });
 });

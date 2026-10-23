@@ -18,7 +18,7 @@ OpenCode 1.x compat).
      "$schema": "https://opencode.ai/config.json",
      "plugins": [
        {
-         "package": "@mnmal-ai/cortext-opencode",
+         "package": "@mnmal-ai/cortext-opencode@next",
          "options": {
            "kid": "synoptic-opencode@YourHost",
            "key": "/home/you/.config/substrate/keys/synoptic-opencode.key"
@@ -28,7 +28,7 @@ OpenCode 1.x compat).
    }
    ```
 
-   The plain string form (`"plugins": ["@mnmal-ai/cortext-opencode"]`) also
+   The plain string form (`"plugins": ["@mnmal-ai/cortext-opencode@next"]`) also
    works — identity then comes from the env pair. **Keep exactly one entry
    per package**: as of opencode v2.0.24 the `plugins`
    arrays concatenate across global + project config and loads dedupe only
@@ -40,7 +40,7 @@ OpenCode 1.x compat).
    public on npmjs.com, as is the `@mnmal-ai/substrate` dep; no token needed.
 
 2. MCP server — merge into the same `opencode.json` (see
-   `commands/substrate-setup.md` Step 4 for the full procedure). **The MCP server
+   `skills/substrate-setup/SKILL.md` Step 4 for the full procedure). **The MCP server
    must sign as the same identity as the plugin**: the plugin shows
    mail for its `options.kid`, and only that kid may ack it. With
    `options.kid`/`options.key`, give the MCP `environment` the same kid and
@@ -53,7 +53,7 @@ OpenCode 1.x compat).
        "servers": {
          "substrate": {
            "type": "local",
-           "command": ["npx", "-y", "@mnmal-ai/substrate", "mcp"],
+           "command": ["npx", "-y", "@mnmal-ai/substrate@next", "mcp"],
            "codemode": false,
            "environment": {
              "SUBSTRATE_URL": "https://substrate.example.com:3100",
@@ -77,10 +77,18 @@ OpenCode 1.x compat).
    version. An older hand-copied `.opencode/substrate-conventions.md` is named in
    the session context as stale; delete it and its `"instructions"` entry.
 
-4. Restart opencode (config loads once at startup). Or run `/substrate-setup`
-   (copy `commands/substrate-setup.md` to `.opencode/commands/`) for the guided
-   version of all of the above plus capability probing, AgentRule seeding,
-   identity provisioning, and the first anchor.
+4. Restart opencode (config loads once at startup), then install the
+   skills. OpenCode loads no skills from a plugin package, so copy them to the
+   user skills directory, and again after each plugin update:
+
+   ```bash
+   PKG=$(ls -d ~/.cache/opencode/npm/@mnmal-ai/cortext-opencode@next/*/node_modules/@mnmal-ai/cortext-opencode | sort | tail -1)
+   mkdir -p ~/.config/opencode/skills && cp -R "$PKG/skills/." ~/.config/opencode/skills/
+   ```
+
+   The `substrate-setup` skill is the guided version of all of the above plus
+   capability probing, AgentRule seeding, identity provisioning, and the
+   first anchor.
 
 ## Environment
 
@@ -105,8 +113,9 @@ OpenCode 1.x compat).
 | `Stop` inbox check (blocks once) | V2: a `session.execution.succeeded` event with unread mail queues one synthetic message carrying the same reason, with `resume: true`. Each message id nudges once. `SYNOPTIC_INBOX_STOP_CHECK=off` disables it |
 | Mid-turn push (`inbox-bridge`) | V2: the watcher runs in-process; new mail is steered into every busy session, allowlisted urgent mail preempts the most recently prompted session, and idle wake is opt-in. While the watcher is live the per-prompt summary is skipped; the end-of-turn nudge stays |
 | `skills/{council,todos}` | `skills/{council,todos}` — byte-identical pointer bodies (`test/skills-sync.test.ts` enforces) |
+| `skills/substrate-run` | `skills/substrate-run` — shared steps 1–5, own binary/identity and permission steps (`test/skills-sync.test.ts` enforces) |
 | `fragments/substrate-conventions.md` | `instructions/substrate-conventions.md` — shared body, own marker (`test/instructions-sync.test.ts` enforces) |
-| `/substrate-setup` skill | `commands/substrate-setup.md` — opencode paths + MCP dialect |
+| `/substrate-setup` skill | `skills/substrate-setup` — opencode paths + MCP dialect |
 | SessionStart `compact` re-run | `compaction` session hook: drops the cache (next dispatch rebuilds) + leaves a pointer in the summary |
 | Fragment-drift watchdog | **Deferred** — the check reads the `.claude/` install path; see `src/plugin.ts` header |
 

@@ -45,9 +45,10 @@ a refusal names a missing identity rather than a broken script.
 The test: if you would otherwise make three or more MCP calls and pass ids from
 one call to the next, write a script.
 
-## 2. Write the script in the session scratchpad
+## 2. Write the script outside the repo
 
-Scripts are throwaway. Put them in the scratchpad directory, never in the repo.
+Scripts are throwaway. Put them in the session scratchpad directory, or a temp
+directory if the harness gives you none, never in the repo.
 
 ```ts
 import type { ScriptContext } from '@mnmal-ai/substrate/client';
@@ -87,7 +88,7 @@ Return counts, ids, short handles, a verdict. Never return whole rows "to look
 at". Filtering, grouping and joining belong in the script, because what it
 returns lands in your context.
 
-When the result is large, pass `--out <file>` (in the scratchpad). The report
+When the result is large, pass `--out <file>` (beside the script). The report
 goes to the file and stdout gets one line. Then read only what you need from
 the file.
 

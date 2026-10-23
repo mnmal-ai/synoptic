@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const TEXT = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'commands', 'substrate-setup.md'),
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'substrate-setup', 'SKILL.md'),
   'utf8'
 );
 
