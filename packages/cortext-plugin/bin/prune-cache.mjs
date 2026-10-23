@@ -13,13 +13,15 @@ import { fileURLToPath } from "node:url";
 * @param {object} p
 * @param {ReadonlyArray<string>} p.versions Directory names in the cache.
 * @param {string|null} p.installedVersion From `installed_plugins.json`.
+* @param {ReadonlyArray<string>} [p.alsoInstalled] Versions other install
+*   entries (another scope or project) run; kept, never deleted.
 * @param {string|null} p.servedVersion The version serving this session.
 * @param {number} [p.keep=2] How many to retain: installed plus rollbacks.
 * @param {(a: string, b: string) => number} p.compare
 * @returns {{ keep: Array<string>, remove: Array<string>, refusal: string|null,
 *             protectedReason: Record<string, string> }}
 */
-function planCachePrune({ versions, installedVersion, servedVersion, keep = 2, compare }) {
+function planCachePrune({ versions, installedVersion, alsoInstalled = [], servedVersion, keep = 2, compare }) {
 	const protectedReason = {};
 	if (installedVersion === null || installedVersion === void 0) return {
 		keep: [...versions],
@@ -37,6 +39,10 @@ function planCachePrune({ versions, installedVersion, servedVersion, keep = 2, c
 	const keepSet = /* @__PURE__ */ new Set();
 	keepSet.add(installedVersion);
 	protectedReason[installedVersion] = "installed";
+	for (const v of alsoInstalled) if (versions.includes(v) && !keepSet.has(v)) {
+		keepSet.add(v);
+		protectedReason[v] = "installed (another scope)";
+	}
 	if (servedVersion !== null && servedVersion !== void 0 && versions.includes(servedVersion)) {
 		if (!keepSet.has(servedVersion)) {
 			keepSet.add(servedVersion);
@@ -165,9 +171,13 @@ try {
 	process.exit(1);
 }
 let installedVersion = null;
+let alsoInstalled = [];
 try {
 	const e = JSON.parse(readFileSync(join(pluginsDir, "installed_plugins.json"), "utf8"))?.plugins?.["cortext@mnmal-ai"];
-	if (Array.isArray(e) && e.length > 0) installedVersion = e[0].version ?? null;
+	if (Array.isArray(e) && e.length > 0) {
+		installedVersion = e[0].version ?? null;
+		alsoInstalled = e.slice(1).map((x) => x?.version).filter((v) => typeof v === "string");
+	}
 } catch {}
 function selfRoot() {
 	try {
@@ -193,6 +203,7 @@ if (servedRoot !== null) {
 const plan = planCachePrune({
 	versions,
 	installedVersion,
+	alsoInstalled,
 	servedVersion,
 	keep,
 	compare: compareVersions

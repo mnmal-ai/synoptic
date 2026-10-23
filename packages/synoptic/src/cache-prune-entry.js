@@ -48,10 +48,19 @@ try {
 }
 
 let installedVersion = null;
+// Every install entry (one per scope or project) runs from its own version
+// directory, so every one is protected, not just the first.
+let alsoInstalled = [];
 try {
   const reg = JSON.parse(readFileSync(join(pluginsDir, 'installed_plugins.json'), 'utf8'));
   const e = reg?.plugins?.['cortext@mnmal-ai'];
-  if (Array.isArray(e) && e.length > 0) installedVersion = e[0].version ?? null;
+  if (Array.isArray(e) && e.length > 0) {
+    installedVersion = e[0].version ?? null;
+    alsoInstalled = e
+      .slice(1)
+      .map((x) => x?.version)
+      .filter((v) => typeof v === 'string');
+  }
 } catch {
   /* stays null -> the plan refuses, which is the point */
 }
@@ -97,6 +106,7 @@ if (servedRoot !== null) {
 const plan = planCachePrune({
   versions,
   installedVersion,
+  alsoInstalled,
   servedVersion,
   keep,
   compare: compareVersions
