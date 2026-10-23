@@ -35,13 +35,22 @@
  * @param {object} p
  * @param {ReadonlyArray<string>} p.versions Directory names in the cache.
  * @param {string|null} p.installedVersion From `installed_plugins.json`.
+ * @param {ReadonlyArray<string>} [p.alsoInstalled] Versions other install
+ *   entries (another scope or project) run; kept, never deleted.
  * @param {string|null} p.servedVersion The version serving this session.
  * @param {number} [p.keep=2] How many to retain: installed plus rollbacks.
  * @param {(a: string, b: string) => number} p.compare
  * @returns {{ keep: Array<string>, remove: Array<string>, refusal: string|null,
  *             protectedReason: Record<string, string> }}
  */
-export function planCachePrune({ versions, installedVersion, servedVersion, keep = 2, compare }) {
+export function planCachePrune({
+  versions,
+  installedVersion,
+  alsoInstalled = [],
+  servedVersion,
+  keep = 2,
+  compare
+}) {
   const protectedReason = {};
 
   if (installedVersion === null || installedVersion === undefined) {
@@ -76,6 +85,13 @@ export function planCachePrune({ versions, installedVersion, servedVersion, keep
   const keepSet = new Set();
   keepSet.add(installedVersion);
   protectedReason[installedVersion] = 'installed';
+
+  for (const v of alsoInstalled) {
+    if (versions.includes(v) && !keepSet.has(v)) {
+      keepSet.add(v);
+      protectedReason[v] = 'installed (another scope)';
+    }
+  }
 
   if (servedVersion !== null && servedVersion !== undefined && versions.includes(servedVersion)) {
     if (!keepSet.has(servedVersion)) {

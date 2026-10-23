@@ -202,3 +202,17 @@ test('render: KEEP reasons line up for versions longer than ten characters', () 
     .map((l) => l.indexOf('('));
   assert.equal(new Set(cols).size, 1);
 });
+
+test('every install entry is protected, not just the first', () => {
+  // A project install at 1.6.0 listed first, the user install at 1.9.0 after it.
+  const p = planCachePrune({
+    versions: V8,
+    installedVersion: '1.6.0',
+    alsoInstalled: ['1.9.0'],
+    servedVersion: '1.6.0',
+    compare
+  });
+  assert.ok(p.keep.includes('1.9.0'));
+  assert.ok(!p.remove.includes('1.9.0'));
+  assert.equal(p.protectedReason['1.9.0'], 'installed (another scope)');
+});
