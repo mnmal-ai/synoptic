@@ -162,6 +162,53 @@ export function identitySelfOnly(
   };
 }
 
+/**
+ * Todo create/update: `resolution` says why a CLOSED Todo stopped, so a live
+ * Todo carries none. A resolution with a live resulting status is refused,
+ * and moving a Todo back to a live status clears the one it had.
+ */
+export function todoResolutionGuard(
+  installCtx: NamespaceInstallContext,
+  name: string,
+  inner: RegistryEntryResolver,
+  statusAliases: Readonly<Record<string, string>>
+): RegistryEntryResolver {
+  const canon = (v: unknown): string => {
+    const s = String(v).trim().toLowerCase();
+    return statusAliases[s] ?? s;
+  };
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    const params = { ...(args.params ?? {}) };
+    const statusGiven = params.status !== undefined && params.status !== null;
+    let resulting: string | null = statusGiven ? canon(params.status) : null;
+    let current: Record<string, unknown> | null = null;
+    const id = rowId(args);
+    if (id !== undefined) {
+      const ds: Dataset = args.dataset ?? installCtx.dataset;
+      current = await resolveEntityRow(ds, 'Todo', id);
+      if (resulting === null && current !== null) resulting = canon(current.status);
+    }
+    if (resulting === null) resulting = 'open';
+    if (resulting === 'closed') return inner(ctx, args);
+    if (params.resolution !== undefined && params.resolution !== null) {
+      throw new ResolverFrameError(
+        'resolution_on_live_todo',
+        `${name}: 'resolution' is for closed Todos; this one would be '${resulting}'`,
+        { field: 'resolution' }
+      );
+    }
+    if (
+      statusGiven &&
+      current !== null &&
+      current.resolution != null &&
+      !('resolution' in params)
+    ) {
+      params.resolution = null;
+    }
+    return inner(ctx, { ...args, params });
+  };
+}
+
 /** AgentIdentity delete: operators only. Mail hangs off these rows. */
 export function operatorOnly(name: string, inner: RegistryEntryResolver): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {

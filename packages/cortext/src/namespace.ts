@@ -32,7 +32,12 @@ import {
 } from './kernel/index.js';
 import { installMailboxMutations } from './mailbox.js';
 import { CORTEXT_NL_RULINGS } from './nl-rulings.js';
-import { identityCreateGuard, identitySelfOnly, operatorOnly } from './participants.js';
+import {
+  identityCreateGuard,
+  identitySelfOnly,
+  operatorOnly,
+  todoResolutionGuard
+} from './participants.js';
 
 /**
  * Decision lifecycle states this vocabulary DOCUMENTS. ADVISORY, not enforced,
@@ -880,6 +885,16 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         [
           'deleteAgentIdentity',
           (r: RegistryEntryResolver) => operatorOnly('deleteAgentIdentity', r)
+        ],
+        [
+          'createTodo',
+          (r: RegistryEntryResolver) =>
+            todoResolutionGuard(ctx, 'createTodo', r, TODO_STATUS_ALIASES)
+        ],
+        [
+          'updateTodo',
+          (r: RegistryEntryResolver) =>
+            todoResolutionGuard(ctx, 'updateTodo', r, TODO_STATUS_ALIASES)
         ]
       ] as const) {
         const entry = ctx.registry.get(name);

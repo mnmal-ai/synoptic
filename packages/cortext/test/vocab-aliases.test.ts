@@ -170,6 +170,29 @@ describe('cortext vocabulary aliases', () => {
     expect(env.errors?.[0]?.code).toBe('conflicting_implication');
   });
 
+  it('refuses a resolution on a live Todo, and reopening clears it', async () => {
+    const { server, stop } = await setup();
+    cleanup = stop;
+    const live = await createTodo(server, { status: 'open', resolution: 'completed' });
+    expect(live.errors?.[0]?.code).toBe('resolution_on_live_todo');
+
+    const closed = await createTodo(server, { status: 'done' });
+    const id = (closed.data[`${NS}/createTodo`] as { id: string }).id;
+    const reopened = await call(server, '/substrate/v1/mutate', {
+      [`${NS}/updateTodo`]: {
+        params: { id, status: 'open' },
+        fields: { status: true, resolution: true }
+      }
+    });
+    expect(reopened.errors).toBeUndefined();
+    expect(reopened.data[`${NS}/updateTodo`]).toMatchObject({ status: 'open', resolution: null });
+
+    const stray = await call(server, '/substrate/v1/mutate', {
+      [`${NS}/updateTodo`]: { params: { id, resolution: 'wont_do' }, fields: { id: true } }
+    });
+    expect(stray.errors?.[0]?.code).toBe('resolution_on_live_todo');
+  });
+
   it('a live Todo has no resolution', async () => {
     const { server, stop } = await setup();
     cleanup = stop;
