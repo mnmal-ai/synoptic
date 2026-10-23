@@ -732,6 +732,23 @@ describe('registerCompactRoute', () => {
     expect(result.sessionsArchived).toBe(1);
   });
 
+  it.each([['{"dryRun":"true"}'], ['{"dry_run":true}'], ['[true]']])(
+    'refuses a malformed body %s instead of running a live compaction',
+    async (raw) => {
+      harness = await setup(1);
+      await createSession(harness.server, 'a', 'ffffffff-0001-4000-8000-000000000001');
+      await createSession(harness.server, 'b', 'ffffffff-0002-4000-8000-000000000002');
+      const res = await harness.server.inject({
+        method: 'POST',
+        path: '/substrate/v1/plugins/cortext/compact',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(raw)
+      });
+      expect(res.status).toBe(400);
+      expect(jsonBody<{ code: string }>(res).code).toBe('bad_request');
+    }
+  );
+
   // The route runs as the system actor, so under gated writes it
   // checks its own caller: only an operator may compact.
   it('under gated writes, refuses a non-operator and admits an operator', async () => {

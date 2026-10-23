@@ -100,13 +100,28 @@ function refuseForeignHost(name: string, host: unknown, kid: unknown): void {
  * HostInstall rows.
  */
 export function identityCreateGuard(
+  installCtx: NamespaceInstallContext,
   name: string,
   inner: RegistryEntryResolver
 ): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {
-    if (!isOperator(ctx)) {
-      const params = args.params ?? {};
-      refuseForeignHost(name, params.host, params.kid);
+    const params = args.params ?? {};
+    if (!isOperator(ctx)) refuseForeignHost(name, params.host, params.kid);
+    // pg holds kid uniqueness with an index; the memory dataset has none, and
+    // a second row for one kid makes every send to it `ambiguous_recipient`.
+    if (typeof params.kid === 'string') {
+      const ds: Dataset = args.dataset ?? installCtx.dataset;
+      const { rows } = await ds.read('AgentIdentity', {
+        where: { kid: { eq: params.kid } },
+        limit: 1
+      });
+      if (rows.length > 0) {
+        throw new ResolverFrameError(
+          'duplicate_kid',
+          `${name}: an AgentIdentity row for '${params.kid}' already exists; update it instead`,
+          { field: 'kid' }
+        );
+      }
     }
     return inner(ctx, args);
   };

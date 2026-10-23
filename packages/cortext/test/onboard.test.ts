@@ -54,7 +54,10 @@ interface OnboardBody {
     ws: { path: string; namespace: string };
   };
   contextLoading: {
-    onSessionStart: { surfaceToUser: Array<string> };
+    onSessionStart: {
+      surfaceToUser: Array<string>;
+      query: Record<string, { params: unknown; fields: Record<string, boolean> }>;
+    };
   };
 }
 
@@ -236,6 +239,54 @@ describe('registerOnboardRoute', () => {
     // asserting an unimplemented filter is how a reader concludes the
     // vocabulary is load-bearing when it is not.
     expect(decisionLine).not.toMatch(/status/);
+  });
+
+  it('the session-start recipes run, skip archived rows and return the newest first', async () => {
+    const { server, stop } = await setup();
+    cleanup = stop;
+    const mutate = (payload: unknown) =>
+      server.inject({
+        method: 'POST',
+        path: '/substrate/v1/mutate',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(payload))
+      });
+    for (const [branch, archived] of [
+      ['old', false],
+      ['gone', true],
+      ['new', false]
+    ] as const) {
+      // Distinct createdAt values, so "newest first" is decidable.
+      await new Promise((r) => setTimeout(r, 5));
+      await mutate({
+        [`${NS}/createSessionLog`]: {
+          params: {
+            branch,
+            startedAt: '2026-10-23T00:00:00Z',
+            summary: branch,
+            decisionsCount: 0,
+            packages: [],
+            archived
+          },
+          fields: { id: true }
+        }
+      });
+    }
+    const body = jsonBody<OnboardBody>(await server.inject({ method: 'GET', path: PATH }));
+    const recipes = body.contextLoading.onSessionStart.query;
+    const frame = Object.fromEntries(
+      Object.entries(recipes).map(([type, q]) => [`${NS}/${type}`, q])
+    );
+    const res = jsonBody<{ data: Record<string, Array<{ branch?: string }>>; errors?: unknown }>(
+      await server.inject({
+        method: 'POST',
+        path: '/substrate/v1/query',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify(frame))
+      })
+    );
+    expect(res.errors).toBeUndefined();
+    expect(res.data[`${NS}/SessionLog`]?.map((r) => r.branch)).toEqual(['new', 'old']);
   });
 
   it('describes every registered type and its mutation family', async () => {

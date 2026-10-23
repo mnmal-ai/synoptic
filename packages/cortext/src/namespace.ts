@@ -442,9 +442,11 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // a repo and outlives any single session. Session-level attribution is
         // a different problem and deliberately not this field's job.
         //
-        // Claimable atomically without new machinery: `compareAndUpdate` on
-        // (owner: null -> me) is a compare-and-set by PK, so two agents racing
-        // for the same item cannot both win.
+        // Setting it is NOT an atomic claim: `updateTodo` is last-writer-wins,
+        // so two agents setting `owner` on one unclaimed item both succeed and
+        // the later write stands. Exclusive claims need a claim mutation built
+        // on `ds.conditionalUpdate(…, { owner: null }, { owner: me })`, added
+        // when something dispatches on this field.
         owner: field.crossRef(ns, 'AgentIdentity', {
           nullable: true,
           onDelete: 'set_null'
@@ -876,7 +878,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
       for (const [name, wrap] of [
         [
           'createAgentIdentity',
-          (r: RegistryEntryResolver) => identityCreateGuard('createAgentIdentity', r)
+          (r: RegistryEntryResolver) => identityCreateGuard(ctx, 'createAgentIdentity', r)
         ],
         [
           'updateAgentIdentity',
