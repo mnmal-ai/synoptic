@@ -83,7 +83,7 @@ The context:
 | `s.args` | The `--args` JSON object, frozen. `{}` when omitted |
 | `s.query(frame)` | One query frame. **Throws if any key you asked for is missing from `data`**: a rejected frame fails the run with the server's `errors` instead of reading as empty. Adds a warning when a result is truncated (`hasMore`) |
 | `s.queryAll(key, { params, fields })` | Every row of one key, paging until `hasMore` is false |
-| `s.recall({ query, namespace, type?, k?, threshold?, where?, row? })` | Hits, best first. `row` holds `id` plus the handle fields; pass `row: { body: true }` (or `true`) only on the call whose hits you will read |
+| `s.recall({ query, namespace, type, k?, threshold?, where?, row? })` | Hits, best first. `type` is required (e.g. `"Memory"`, `"Decision"`); the server refuses recall without it. `row` holds `id` plus the handle fields; pass `row: { body: true }` (or `true`) only on the call whose hits you will read |
 | `s.mutate(payload)` | One mutate payload. Throws by default, records without sending under `--dry-run`, sends under `--write`. Throws when the server refuses any frame |
 | `s.log(...)` | stderr only. The report owns stdout |
 | `s.kid`, `s.mode` | The signing kid and `read` / `dry-run` / `write` |
