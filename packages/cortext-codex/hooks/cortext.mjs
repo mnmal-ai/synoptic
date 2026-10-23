@@ -2576,26 +2576,44 @@ async function runColdStart(opts) {
 			}
 		})();
 		const rulesKey = `${namespace}/AgentRule`;
-		const rulesP = substrateQuery(substrateUrl, { [rulesKey]: {
-			params: {
-				where: {
-					...projectWhere(projectSlug),
-					active: { eq: true }
-				},
-				limit: 200
-			},
-			fields: {
-				shortId: true,
-				category: true,
-				severity: true,
-				pinned: true,
-				synopsis: true
+		const rulesP = (async () => {
+			const rows = [];
+			let cursor;
+			for (let page = 0; page < 20; page++) {
+				let pagination = {};
+				const data = await substrateQuery(substrateUrl, { [rulesKey]: {
+					params: {
+						where: {
+							...projectWhere(projectSlug),
+							active: { eq: true }
+						},
+						limit: 200,
+						...cursor !== void 0 ? { cursor } : {}
+					},
+					fields: {
+						shortId: true,
+						category: true,
+						severity: true,
+						pinned: true,
+						synopsis: true
+					}
+				} }, {
+					fetchImpl,
+					onUnexpectedProjection: (entries) => projectionAudit.record(entries),
+					onFrameFailure: (k, d) => projectionAudit.recordFailure(k, d),
+					onPagination: (p) => {
+						pagination = p;
+					}
+				});
+				if (!(rulesKey in data)) return data;
+				rows.push(...data[rulesKey]);
+				const { hasMore, nextCursor } = pagination[rulesKey] ?? {};
+				if (!hasMore) return { [rulesKey]: rows };
+				if (nextCursor === void 0) throw new Error(`${rulesKey}: hasMore with no nextCursor`);
+				cursor = nextCursor;
 			}
-		} }, {
-			fetchImpl,
-			onUnexpectedProjection: (entries) => projectionAudit.record(entries),
-			onFrameFailure: (k, d) => projectionAudit.recordFailure(k, d)
-		});
+			throw new Error(`${rulesKey}: more than 20 pages of rules`);
+		})();
 		const [data, inboxMd] = await Promise.all([rulesP, inboxP]);
 		await hostReportP;
 		const body = [
