@@ -1,7 +1,7 @@
 # Synoptic
 
 The agent-coordination **host**. Synoptic ships **Cortext** — an agent-neutral
-workflow/coordination capability delivered as a Substrate plugin — plus the harness
+workflow/coordination capability delivered as a [Substrate](https://github.com/mnmal-ai/substrate) plugin — plus the harness
 that onboards agents (Claude, Kimi, Codex, Gemini, …) to it.
 
 > Cortext is the neutral ground that normalises the namespaces + the domain
