@@ -174,6 +174,15 @@ async function renderColdStart(opts: {
   identity: { kid?: string | null; key?: string | null };
 }): Promise<string> {
   const auth = createAgentAuth(opts.env, opts.identity);
+  // All or nothing, as signing and inboxAccess do it: once the options name
+  // either half, env's kid is never borrowed for the inbox or HostInstall.
+  const optionsIdentity = Boolean(opts.identity.kid || opts.identity.key);
+  const kid = optionsIdentity ? opts.identity.kid : opts.env.SUBSTRATE_AGENT_KEY_ID;
+  const {
+    SUBSTRATE_AGENT_KEY_ID: _envKid,
+    SUBSTRATE_AGENT_KEY_PATH: _envKey,
+    ...envRest
+  } = opts.env;
   const doc = await runColdStart({
     substrateUrl: opts.substrateUrl,
     namespace: opts.namespace,
@@ -182,7 +191,8 @@ async function renderColdStart(opts: {
     fetchImpl: makeSignedFetch(auth.getAuthHeader),
     // The kid this session signs with, so the inbox and HostInstall see the
     // identity configured in the plugin options as well as one from env.
-    agentKid: opts.identity.kid ?? opts.env.SUBSTRATE_AGENT_KEY_ID,
+    // null, not undefined: runColdStart defaults an undefined kid to env's.
+    agentKid: kid ?? null,
     cwd: opts.cwd,
     pluginRoot: null,
     readFile: readOrNull,
@@ -194,11 +204,13 @@ async function renderColdStart(opts: {
     hostReport: opts.env.SYNOPTIC_HOST_REPORT !== 'off',
     // An identity set in the plugin options counts as set, as it does for
     // signing; the snapshot records only whether each key is present.
-    env: {
-      ...opts.env,
-      ...(opts.identity.kid ? { SUBSTRATE_AGENT_KEY_ID: opts.identity.kid } : {}),
-      ...(opts.identity.key ? { SUBSTRATE_AGENT_KEY_PATH: opts.identity.key } : {})
-    },
+    env: optionsIdentity
+      ? {
+          ...envRest,
+          ...(opts.identity.kid ? { SUBSTRATE_AGENT_KEY_ID: opts.identity.kid } : {}),
+          ...(opts.identity.key ? { SUBSTRATE_AGENT_KEY_PATH: opts.identity.key } : {})
+        }
+      : opts.env,
     authWarning: auth.warning ?? null
   });
   // SYNOPTIC_COLD_START_MAX_BYTES applies here as in every other skin.
@@ -346,6 +358,7 @@ function createInboxSeams(
   noteFor: (sessionID: string) => Promise<string>;
   seen: (sessionID: string) => void;
   onTurnEnd: (sessionID: string, synthetic: Synthetic) => Promise<void>;
+  forget: (sessionID: string) => void;
 } {
   const prompted = new Set<string>();
   const sessions = new Set<string>();
@@ -420,7 +433,14 @@ function createInboxSeams(
     }
   }
 
-  return { onPrompt, noteFor, seen: (id) => sessions.add(id), onTurnEnd };
+  /** A deleted session's state, dropped so a long-lived server does not keep it forever. */
+  function forget(sessionID: string): void {
+    for (const c of [prompted, sessions, armed]) c.delete(sessionID);
+    notes.delete(sessionID);
+    nudged.delete(sessionID);
+  }
+
+  return { onPrompt, noteFor, seen: (id) => sessions.add(id), onTurnEnd, forget };
 }
 
 /** V1 entrypoint (OpenCode 1.x object-entrypoint shape). */
@@ -674,6 +694,15 @@ async function setup(ctx: PluginContext): Promise<() => void> {
         for await (const ev of ctx.event.subscribe({ signal: abort.signal })) {
           failures = 0;
           bridge?.onEvent(ev as { type: string; data?: { sessionID?: string } });
+          if (ev.type === 'session.deleted') {
+            const gone = (ev as { data?: { sessionID?: string } }).data?.sessionID;
+            if (gone !== undefined) {
+              store.invalidate(gone);
+              inbox.forget(gone);
+              children.delete(gone);
+            }
+            continue;
+          }
           if (ev.type !== 'session.execution.succeeded') continue;
           // An urgent notice queued at this turn end already resumes it.
           if (bridge?.takeResumed(ev.data.sessionID)) continue;

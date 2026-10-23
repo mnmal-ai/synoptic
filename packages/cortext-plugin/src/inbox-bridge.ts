@@ -20,6 +20,7 @@ const SKEW_MS = 60_000;
 
 // What the hooks share. Module variables reset on every reload; what must survive one lives in $.state.
 type Bridge = {
+  ns: string; // SUBSTRATE_NAMESPACE, so a pushed row names the mutations that close it
   turnId: string | undefined;
   interactive: boolean;
   waking: boolean;
@@ -64,7 +65,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   const { value: ids = [] } = await $.state.get(DELIVERED);
   if (ids.includes(m.id)) return;
   await $.session.append({
-    message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m) }] }
+    message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
@@ -101,6 +102,7 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 
 export const register: Register = (on) => {
   const b: Bridge = {
+    ns: 'cortext',
     turnId: undefined,
     interactive: false,
     waking: false,
@@ -115,6 +117,7 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e);
     b.interactive = e.isInteractive;
+    b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
     const bootAt = await $.clock.now();
     const promptCheck = await originalPromptCheck($); // restored when the watcher drops
 

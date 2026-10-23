@@ -314,10 +314,34 @@ test('the MCP server finds its launcher without a plugin-root variable', () => {
     readFileSync(join(ROOT, '.agents/plugins/marketplace.json'), 'utf8')
   ).name;
   assert.match(script, new RegExp(`/plugins/cache/${market}/cortext"`));
-  // The NEWEST cached version, not the first glob match: 2.13.1 sorts before
-  // 2.9.0 lexically.
-  assert.match(script, /sort -V \| tail -n 1/);
   assert.match(script, /\/bin\/substrate-mcp\.mjs/);
+});
+
+test('the MCP launcher runs the newest cached version, a release above its prereleases', () => {
+  const { args } = JSON.parse(readFileSync(join(ROOT, '.mcp.json'), 'utf8')).mcpServers[
+    'cortext-substrate'
+  ];
+  const market = JSON.parse(
+    readFileSync(join(ROOT, '.agents/plugins/marketplace.json'), 'utf8')
+  ).name;
+  const home = mkdtempSync(join(tmpdir(), 'cortext-codex-home-'));
+  // 2.13.1 sorts before 2.9.0 lexically; 1.0.0 sorts below its prereleases under plain sort -V.
+  for (const [cache, versions, want] of [
+    ['a', ['2.9.0', '2.13.1'], '2.13.1'],
+    ['b', ['1.0.0-alpha.8', '1.0.0-alpha.10', '1.0.0'], '1.0.0'],
+    ['c', ['1.0.0-alpha.8', '1.0.0-alpha.10'], '1.0.0-alpha.10']
+  ]) {
+    const root = join(home, cache, 'plugins/cache', market, 'cortext');
+    for (const v of versions) {
+      mkdirSync(join(root, v, 'bin'), { recursive: true });
+      writeFileSync(join(root, v, 'bin/substrate-mcp.mjs'), `console.log(${JSON.stringify(v)});`);
+    }
+    const out = spawnSync('sh', args, {
+      env: { ...process.env, CODEX_HOME: join(home, cache) },
+      encoding: 'utf8'
+    });
+    assert.equal(out.stdout.trim(), want);
+  }
 });
 
 test('MCP launcher uses the same settings identity and keeps stdio clean', async () => {
