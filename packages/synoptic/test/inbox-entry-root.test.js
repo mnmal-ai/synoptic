@@ -57,7 +57,11 @@ test('inbox-prompt-entry started in a subdirectory reads the repo root settings'
 
 test('inbox-stop-entry given a subdirectory cwd reads the repo root settings', async () => {
   const { sub } = repoWithBrokenIdentity();
-  const { stderr } = await spawnFrom('inbox-stop-entry.js', sub, JSON.stringify({ cwd: sub }));
+  const { stderr } = await spawnFrom(
+    'inbox-stop-entry.js',
+    sub,
+    JSON.stringify({ hook_event_name: 'Stop', cwd: sub })
+  );
   assert.match(stderr, /agent identity misconfigured/);
 });
 
