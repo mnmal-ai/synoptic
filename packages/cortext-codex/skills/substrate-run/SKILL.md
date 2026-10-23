@@ -118,10 +118,13 @@ The script re-reads the store on the write run, so it acts on the current state
 rather than on what the dry run saw.
 
 Transactions are per call and per op-key. Within one `s.mutate` payload, each
-array op-key is its own transaction and the single-frame op-keys share one, so
-one op-key can be refused (for example `policy_denied`) while its siblings
-land. Separate `s.mutate` calls are separate transactions. For writes that must
-land together, put them in one array under one op-key.
+array op-key is its own transaction, so one can be refused (for example
+`policy_denied`) while the others land. The single-frame op-keys share one
+transaction, and newer substrate runtimes roll all of them back when any one
+is refused (`frame_rolled_back`), so never count on one single-frame op-key
+landing while a sibling fails. Separate `s.mutate` calls are separate
+transactions: use them for writes that must stay independent, and one array
+under one op-key for writes that must land together.
 
 ## 5. Read the report
 
