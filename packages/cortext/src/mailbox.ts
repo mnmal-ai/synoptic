@@ -38,7 +38,6 @@ import type {
 } from '@mnmal-ai/substrate/sdk';
 import {
   and,
-  applyUpdatePatch,
   createResolverWithEdges,
   deleteResolver,
   denyAll,
@@ -434,20 +433,34 @@ function transitionResolver(
       );
     }
 
-    if (isNoOp(message.status)) return message;
-
-    // The metadata-COALESCE write tail is the SDK's applyUpdatePatch — same
-    // one-round-trip idiom as updateResolver, single-sourced.
-    // Bypassing updateResolver itself is deliberate: ackedAt is serverSet and
-    // would be rejected by its client-field guard; here it is system-stamped.
-    const at = ctx.now.toISOString();
-    return applyUpdatePatch(
-      ds,
-      TYPE,
-      message.id,
-      { status: target, ...stamp(actor, at) },
-      ctx,
-      args.onWrite
+    // Compare-and-set on the status this read saw: two sessions sharing a kid
+    // can transition one message concurrently, and an unconditional write let
+    // a mark-read land after an ack and move it back to `read`. On a miss the
+    // row is re-read, so the loser re-checks against the winner's status.
+    // Bypassing updateResolver is deliberate: ackedAt is serverSet and would
+    // be rejected by its client-field guard; here it is system-stamped.
+    let current: Row | null = message;
+    for (let attempt = 0; attempt < 3 && current !== null; attempt++) {
+      if (isNoOp(current.status)) return current;
+      const { matched, row } = await ds.conditionalUpdate(
+        TYPE,
+        current.id as string,
+        { status: current.status },
+        { status: target, ...stamp(actor, ctx.now.toISOString()) },
+        actor,
+        ctx.now
+      );
+      if (matched && row !== null) {
+        args.onWrite?.({ ns: ds.namespace, type: TYPE, id: row.id, operation: 'update', row });
+        return row;
+      }
+      current = await resolveEntityRow(ds, TYPE, message.id as string);
+    }
+    if (current === null) return null;
+    throw new ResolverFrameError(
+      'conflict',
+      `${name}: the message kept changing while it was being transitioned; retry`,
+      { id: message.id }
     );
   };
 }
