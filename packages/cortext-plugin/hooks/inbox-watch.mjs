@@ -61,14 +61,22 @@ function mint(kid, key, ns, capabilities, aud) {
 		exp
 	};
 }
-/** The origin a token for `url` names as its `aud`; throws rather than mint a token without one. */
+const LOOPBACK = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|\[::1\])$/;
+/**
+* The origin a token for `url` names as its `aud`. Throws rather than mint a
+* token without one, or one bound for plain http to a non-loopback host, where
+* the network can read it. Same rule as substrate-client's `tokenAudience`.
+*/
 function audienceOf(url) {
 	const raw = typeof url === "object" && url !== null && "url" in url ? url.url : url;
+	let parsed;
 	try {
-		return new URL(String(raw)).origin;
+		parsed = new URL(String(raw));
 	} catch {
 		throw new Error(`cannot mint an agent token without an audience: '${raw}' is not a URL`);
 	}
+	if (parsed.protocol === "https:" || parsed.protocol === "http:" && LOOPBACK.test(parsed.hostname)) return parsed.origin;
+	throw new Error(`refusing to send an agent token to ${parsed.origin}: use https, or plain http only to a loopback host`);
 }
 function misconfigured(detail) {
 	return {
@@ -152,6 +160,7 @@ function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
 		if (header === null) return fetchImpl(url, init);
 		return fetchImpl(url, {
 			...init,
+			redirect: "error",
 			headers: {
 				...init.headers,
 				authorization: header
