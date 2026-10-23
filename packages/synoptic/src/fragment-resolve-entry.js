@@ -22,10 +22,17 @@
 //
 // Arg-wiring only; the decision table lives in the tested pure module.
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { readMarker } from './fragment-drift.js';
+import { dirname, join } from 'node:path';
+import { bodyMatchesMarker, readMarker } from './fragment-drift.js';
 import {
   isFragmentSourceRepo,
   renderResolution,
@@ -97,7 +104,13 @@ if (servedRoot !== null) {
 
 // 4. What the consumer repo currently has.
 const installedText = readOrNull(join(targetDir, '.claude', 'substrate-conventions.md'));
-const installedFragment = installedText === null ? null : readMarker(installedText);
+// A body that no longer hashes to its own marker (a crash mid-write, a local
+// edit) is not current whatever line 1 says, so it is reinstalled.
+const installedMarker = installedText === null ? null : readMarker(installedText);
+const installedFragment =
+  installedMarker !== null && !bodyMatchesMarker(installedText)
+    ? { ...installedMarker, digest: null }
+    : installedMarker;
 
 const result = resolveFragmentSource({
   candidates,
@@ -114,7 +127,12 @@ if (result.action === 'refuse') process.exit(1);
 
 if (result.action === 'install' && flags.apply === true) {
   const dest = join(targetDir, '.claude', 'substrate-conventions.md');
-  writeFileSync(dest, result.chosen.text, 'utf8');
+  mkdirSync(dirname(dest), { recursive: true });
+  // Written beside the destination, then renamed: a crash leaves the old file
+  // or the new one, never half of either.
+  const tmp = `${dest}.tmp-${process.pid}`;
+  writeFileSync(tmp, result.chosen.text, 'utf8');
+  renameSync(tmp, dest);
   console.log(`  -> wrote ${dest}`);
 } else if (result.action === 'install') {
   console.log('  (dry run — pass --apply to write)');

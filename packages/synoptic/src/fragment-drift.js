@@ -38,6 +38,7 @@
  * else.
  */
 
+import { createHash } from 'node:crypto';
 import { compareVersions } from './fragment-resolve.js';
 
 /** `<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — ... -->` */
@@ -57,6 +58,23 @@ export function readMarker(text) {
   const match = MARKER_RE.exec(String(text ?? '').split('\n', 1)[0] ?? '');
   if (!match) return null;
   return { version: match[1], digest: match[2] ?? null };
+}
+
+/**
+ * Whether the body after line 1 still hashes to the digest its marker claims
+ * (sha256, first 8 hex, as the stamper computes it). A crash mid-write or a
+ * local edit keeps line 1 intact, so the marker alone would read as current.
+ * True when the marker carries no digest: there is nothing to check against.
+ *
+ * @param {string} text
+ */
+export function bodyMatchesMarker(text) {
+  const t = String(text ?? '');
+  const marker = readMarker(t);
+  if (marker === null || marker.digest === null) return true;
+  const newline = t.indexOf('\n');
+  const body = newline === -1 ? '' : t.slice(newline + 1);
+  return createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 8) === marker.digest;
 }
 
 /**
@@ -89,7 +107,7 @@ export function compareFragments({ installed, plugin }) {
   if (installedMarker.digest === null) {
     return { state: 'undigested', installed: installedMarker, plugin: pluginMarker };
   }
-  if (installedMarker.digest !== pluginMarker.digest) {
+  if (installedMarker.digest !== pluginMarker.digest || !bodyMatchesMarker(installed)) {
     return { state: 'stale', installed: installedMarker, plugin: pluginMarker };
   }
   // Byte-identical body. A differing version here is cosmetic by construction.

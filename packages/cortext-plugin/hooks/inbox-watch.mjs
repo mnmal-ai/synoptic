@@ -342,13 +342,18 @@ function readInboxKnobs(env) {
 
 //#endregion
 //#region ../synoptic/src/inbox-watch.js
+const SSE_BUFFER_MAX = 1048576;
 /** Incremental text/event-stream parser. */
 function parseSse() {
 	let buf = "";
 	return (chunk) => {
-		buf += chunk.replace(/\r\n/g, "\n");
+		buf = (buf + chunk).replace(/\r\n/g, "\n");
+		const heldCr = buf.endsWith("\r");
+		if (heldCr) buf = buf.slice(0, -1);
+		buf = buf.replace(/\r/g, "\n");
 		const blocks = buf.split("\n\n");
-		buf = blocks.pop() ?? "";
+		buf = (blocks.pop() ?? "") + (heldCr ? "\r" : "");
+		if (buf.length > SSE_BUFFER_MAX) buf = "";
 		const out = [];
 		for (const block of blocks) {
 			let event = "message";
@@ -401,7 +406,7 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 		break;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		if (/^substrate\/query 40[13]$/.test(message)) return disabled(`identity lookup failed: ${message}`);
+		if (/^substrate\/query 40[13]$/.test(message) || /^refusing to send an agent token/.test(message)) return disabled(`identity lookup failed: ${message}`);
 		emit({
 			type: "status",
 			state: "reconnecting",

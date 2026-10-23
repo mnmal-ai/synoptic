@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { homedir, hostname } from "node:os";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 //#region ../synoptic/src/apply-onboard.js
@@ -50,21 +50,49 @@ function planActions(plan, ctx) {
 * surface the rest. Returns a summary; the identity script + prime hint are for
 * the operator to act on.
 */
+/** The plan's target paths that already exist, which are skipped rather than written. */
+function existingTargets(plan, ctx) {
+	return plan.files.map((f) => resolvePath(f.path, ctx)).filter((p) => existsSync(p));
+}
+/**
+* Create `path` with `content` only if it does not exist, all at once: the
+* content goes to a temp file that is then hard-linked into place, and a link
+* refuses an existing target. A file created after the existence check is
+* therefore never clobbered, and a crash never leaves a partial file that later
+* runs would skip as "exists".
+* @returns {boolean} false when the target already existed.
+*/
+function createExclusive(path, content) {
+	const tmp = `${path}.tmp-${process.pid}`;
+	writeFileSync(tmp, content);
+	try {
+		linkSync(tmp, path);
+		return true;
+	} catch (err) {
+		if (err?.code === "EEXIST") return false;
+		throw err;
+	} finally {
+		unlinkSync(tmp);
+	}
+}
 function applyOnboard(plan, ctx) {
-	const existing = plan.files.map((f) => resolvePath(f.path, ctx)).filter((p) => existsSync(p));
 	const actions = planActions(plan, {
 		...ctx,
-		existing
+		existing: existingTargets(plan, ctx)
 	});
 	const written = [];
+	const skipped = [...actions.skipped];
 	for (const w of actions.writes) {
 		mkdirSync(dirname(w.path), { recursive: true });
-		writeFileSync(w.path, w.content);
-		written.push(w.path);
+		if (createExclusive(w.path, w.content)) written.push(w.path);
+		else skipped.push({
+			...w,
+			merge: false
+		});
 	}
 	return {
 		written,
-		skipped: actions.skipped,
+		skipped,
 		identityScript: actions.identityScript,
 		primeHint: actions.primeHint
 	};
@@ -631,10 +659,14 @@ if (flags.apply) {
 } else {
 	const a = planActions(plan, {
 		...ctx,
-		existing: []
+		existing: existingTargets(plan, ctx)
 	});
 	out("WOULD WRITE (dry-run — pass --apply to write):");
 	for (const w of a.writes) out(`  + ${w.path}`);
+	if (a.skipped.length) {
+		out("WOULD SKIP (exists — review/merge):");
+		for (const k of a.skipped) out(`  ~ ${k.path}${k.merge ? "  (structured merge)" : ""}`);
+	}
 	out("\nIDENTITY:\n");
 	out(a.identityScript);
 	if (a.primeHint) out(`PRIME: ${a.primeHint}`);

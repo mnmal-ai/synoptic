@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
 
 //#region ../synoptic/src/fragment-resolve.js
 /**
@@ -160,6 +161,45 @@ function renderResolution(result) {
 
 //#endregion
 //#region ../synoptic/src/fragment-drift.js
+/**
+* Cold-start detection for a stale installed conventions fragment.
+*
+* ## The gap this closes
+*
+* `fragments/substrate-conventions.md` is plugin-owned and installed into each
+* consumer's `.claude/`. The marker on line 1 carries a version AND a content
+* digest, and `/substrate-setup` reinstalls when the marker differs — but NOTHING
+* INITIATES THAT INSTALL. A copy goes stale the moment the plugin ships and
+* stays stale until someone happens to re-run onboarding.
+*
+* A stale copy can keep teaching retired frame keys — every cold start handing
+* the agent keys that fail on first use — with no check reporting it.
+*
+* ## Why it compares the DIGEST and not the version
+*
+* The marker is `vsynoptic-<version>+<sha8-of-body>`, and the two halves fail
+* differently:
+*
+*   - digest differs  -> the CONTENT differs. The agent is being taught
+*     something other than what the plugin ships. Substantive.
+*   - digest matches, version differs -> the content is byte-identical and only
+*     the stamp moved. Cosmetic.
+*
+* A copy two minor versions behind with an identical body is the worked
+* example. A check keyed on version would cry wolf there while saying
+* nothing useful, and a warning that fires on a correct install is a warning
+* people learn to skip. So version-only drift is recorded and NOT rendered.
+*
+* ## Why an unreadable plugin copy is louder than a stale one
+*
+* If the plugin's own fragment cannot be read, this check cannot run — and a
+* check that silently cannot run is the defect it exists to catch. Cortext
+* shipped exactly that bug one release earlier: the kernel audit emitted
+* only failure metrics, so a clean audit and an audit that never executed were
+* the same observation. Here, "I could not compare" is therefore REPORTED,
+* where "they match" is silent. Silence means compared-and-equal, and nothing
+* else.
+*/
 /** `<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — ... -->` */
 const MARKER_RE = /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
 /**
@@ -178,6 +218,22 @@ function readMarker(text) {
 		version: match[1],
 		digest: match[2] ?? null
 	};
+}
+/**
+* Whether the body after line 1 still hashes to the digest its marker claims
+* (sha256, first 8 hex, as the stamper computes it). A crash mid-write or a
+* local edit keeps line 1 intact, so the marker alone would read as current.
+* True when the marker carries no digest: there is nothing to check against.
+*
+* @param {string} text
+*/
+function bodyMatchesMarker(text) {
+	const t = String(text ?? "");
+	const marker = readMarker(t);
+	if (marker === null || marker.digest === null) return true;
+	const newline = t.indexOf("\n");
+	const body = newline === -1 ? "" : t.slice(newline + 1);
+	return createHash("sha256").update(body, "utf8").digest("hex").slice(0, 8) === marker.digest;
 }
 
 //#endregion
@@ -236,7 +292,11 @@ if (servedRoot !== null) {
 	servedVersion = text === null ? null : readMarker(text)?.version ?? null;
 }
 const installedText = readOrNull(join(targetDir, ".claude", "substrate-conventions.md"));
-const installedFragment = installedText === null ? null : readMarker(installedText);
+const installedMarker = installedText === null ? null : readMarker(installedText);
+const installedFragment = installedMarker !== null && !bodyMatchesMarker(installedText) ? {
+	...installedMarker,
+	digest: null
+} : installedMarker;
 const result = resolveFragmentSource({
 	candidates,
 	installedVersion,
@@ -252,7 +312,10 @@ if (result.action === "skip-source-repo") process.exit(2);
 if (result.action === "refuse") process.exit(1);
 if (result.action === "install" && flags.apply === true) {
 	const dest = join(targetDir, ".claude", "substrate-conventions.md");
-	writeFileSync(dest, result.chosen.text, "utf8");
+	mkdirSync(dirname(dest), { recursive: true });
+	const tmp = `${dest}.tmp-${process.pid}`;
+	writeFileSync(tmp, result.chosen.text, "utf8");
+	renameSync(tmp, dest);
 	console.log(`  -> wrote ${dest}`);
 } else if (result.action === "install") console.log("  (dry run — pass --apply to write)");
 process.exit(0);
