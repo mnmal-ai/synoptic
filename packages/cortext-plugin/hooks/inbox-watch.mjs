@@ -41,7 +41,7 @@ function claimList(raw) {
 function b64url(buf) {
 	return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function mint(kid, key, ns, capabilities) {
+function mint(kid, key, ns, capabilities, aud) {
 	const now = Math.floor(Date.now() / 1e3);
 	const exp = now + TTL_SECONDS;
 	const signingInput = `${b64url(Buffer.from(JSON.stringify({
@@ -50,6 +50,7 @@ function mint(kid, key, ns, capabilities) {
 		kid
 	}), "utf8"))}.${b64url(Buffer.from(JSON.stringify({
 		sub: kid,
+		aud,
 		iat: now,
 		exp,
 		ns,
@@ -59,6 +60,15 @@ function mint(kid, key, ns, capabilities) {
 		jwt: `${signingInput}.${b64url(sign(null, Buffer.from(signingInput, "utf8"), key))}`,
 		exp
 	};
+}
+/** The origin a token for `url` names as its `aud`; throws rather than mint a token without one. */
+function audienceOf(url) {
+	const raw = typeof url === "object" && url !== null && "url" in url ? url.url : url;
+	try {
+		return new URL(String(raw)).origin;
+	} catch {
+		throw new Error(`cannot mint an agent token without an audience: '${raw}' is not a URL`);
+	}
 }
 function misconfigured(detail) {
 	return {
@@ -110,12 +120,18 @@ function createAgentAuth(env, opts) {
 	const capabilities = opts.capabilities ?? claimList(env.SUBSTRATE_AGENT_CAPABILITIES) ?? DEFAULT_CAPABILITIES;
 	const ns = opts.namespaces ?? claimList(env.SYNOPTIC_AGENT_NAMESPACES) ?? DEFAULT_NAMESPACES;
 	if (capabilities.includes("*")) return misconfigured(`capabilities cannot be claimed as '*' — the capability gates do a bare \`includes\` with no wildcard branch, so a wildcard claim is refused everything. Enumerate them instead, e.g. SUBSTRATE_AGENT_CAPABILITIES=${DEFAULT_CAPABILITIES.join(",")}`);
-	let cached = null;
+	const cached = /* @__PURE__ */ new Map();
 	return {
-		getAuthHeader: () => {
+		/** @param {string|URL|Request} [url] The request URL; its origin is the token's `aud`. */
+		getAuthHeader: (url = env.SUBSTRATE_URL) => {
+			const aud = audienceOf(url);
 			const now = Math.floor(Date.now() / 1e3);
-			if (cached === null || cached.exp - REFRESH_SKEW <= now) cached = mint(kid, key, ns, capabilities);
-			return `Bearer ${cached.jwt}`;
+			let entry = cached.get(aud);
+			if (entry === void 0 || entry.exp - REFRESH_SKEW <= now) {
+				entry = mint(kid, key, ns, capabilities, aud);
+				cached.set(aud, entry);
+			}
+			return `Bearer ${entry.jwt}`;
 		},
 		warning: null,
 		/** What this identity CLAIMS — the request, never the grant. See `probeWhoami` for the grant. */
@@ -132,7 +148,7 @@ function createAgentAuth(env, opts) {
 */
 function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
 	return (url, init = {}) => {
-		const header = getAuthHeader();
+		const header = getAuthHeader(url);
 		if (header === null) return fetchImpl(url, init);
 		return fetchImpl(url, {
 			...init,

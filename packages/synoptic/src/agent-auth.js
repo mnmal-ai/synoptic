@@ -75,16 +75,26 @@ function b64url(buf) {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function mint(kid, key, ns, capabilities) {
+function mint(kid, key, ns, capabilities, aud) {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + TTL_SECONDS;
   const header = b64url(Buffer.from(JSON.stringify({ alg: 'EdDSA', typ: 'JWT', kid }), 'utf8'));
   const payload = b64url(
-    Buffer.from(JSON.stringify({ sub: kid, iat: now, exp, ns, capabilities }), 'utf8')
+    Buffer.from(JSON.stringify({ sub: kid, aud, iat: now, exp, ns, capabilities }), 'utf8')
   );
   const signingInput = `${header}.${payload}`;
   const sig = cryptoSign(null, Buffer.from(signingInput, 'utf8'), key);
   return { jwt: `${signingInput}.${b64url(sig)}`, exp };
+}
+
+/** The origin a token for `url` names as its `aud`; throws rather than mint a token without one. */
+function audienceOf(url) {
+  const raw = typeof url === 'object' && url !== null && 'url' in url ? url.url : url;
+  try {
+    return new URL(String(raw)).origin;
+  } catch {
+    throw new Error(`cannot mint an agent token without an audience: '${raw}' is not a URL`);
+  }
 }
 
 function misconfigured(detail) {
@@ -185,14 +195,20 @@ export function createAgentAuth(env, opts) {
     );
   }
 
-  let cached = null;
+  // One token per audience: substrate refuses a token whose `aud` is not the
+  // origin of the server it was sent to, and refuses one with no `aud` at all.
+  const cached = new Map();
   return {
-    getAuthHeader: () => {
+    /** @param {string|URL|Request} [url] The request URL; its origin is the token's `aud`. */
+    getAuthHeader: (url = env.SUBSTRATE_URL) => {
+      const aud = audienceOf(url);
       const now = Math.floor(Date.now() / 1000);
-      if (cached === null || cached.exp - REFRESH_SKEW <= now) {
-        cached = mint(kid, key, ns, capabilities);
+      let entry = cached.get(aud);
+      if (entry === undefined || entry.exp - REFRESH_SKEW <= now) {
+        entry = mint(kid, key, ns, capabilities, aud);
+        cached.set(aud, entry);
       }
-      return `Bearer ${cached.jwt}`;
+      return `Bearer ${entry.jwt}`;
     },
     warning: null,
     /** What this identity CLAIMS — the request, never the grant. See `probeWhoami` for the grant. */
@@ -207,7 +223,7 @@ export function createAgentAuth(env, opts) {
  */
 export function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
   return (url, init = {}) => {
-    const header = getAuthHeader();
+    const header = getAuthHeader(url);
     if (header === null) return fetchImpl(url, init);
     return fetchImpl(url, { ...init, headers: { ...init.headers, authorization: header } });
   };
