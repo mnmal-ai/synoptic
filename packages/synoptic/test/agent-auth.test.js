@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createAgentAuth, makeSignedFetch } from '../src/agent-auth.js';
 
+const URL_ = 'https://substrate.test:3100/substrate/v1/query';
+
 function makeKeyFiles() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const dir = mkdtempSync(join(tmpdir(), 'synoptic-auth-'));
@@ -35,7 +37,7 @@ function decodeJwt(bearer) {
 describe('createAgentAuth', () => {
   it('unconfigured → anonymous: null header, no warning', () => {
     const auth = createAgentAuth({});
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toBeNull();
   });
 
@@ -47,11 +49,12 @@ describe('createAgentAuth', () => {
     });
     expect(auth.warning).toBeNull();
 
-    const bearer = auth.getAuthHeader();
+    const bearer = auth.getAuthHeader(URL_);
     expect(bearer).toMatch(/^Bearer /);
     const { header, payload, signingInput, signature } = decodeJwt(bearer);
     expect(header).toEqual({ alg: 'EdDSA', typ: 'JWT', kid: 'claude-code@testhost' });
     expect(payload.sub).toBe('claude-code@testhost');
+    expect(payload.aud).toBe('https://substrate.test:3100');
     expect(payload.ns).toEqual(['*']);
     expect(payload.capabilities).toEqual(['read', 'mutate']);
     expect(payload.exp).toBeGreaterThan(payload.iat);
@@ -64,7 +67,28 @@ describe('createAgentAuth', () => {
       SUBSTRATE_AGENT_KEY_PATH: keyPath,
       SUBSTRATE_AGENT_KEY_ID: 'kid-1'
     });
-    expect(auth.getAuthHeader()).toBe(auth.getAuthHeader());
+    expect(auth.getAuthHeader(URL_)).toBe(auth.getAuthHeader(URL_));
+  });
+
+  it('mints one token per audience, each naming its own origin', () => {
+    const { keyPath } = makeKeyFiles();
+    const auth = createAgentAuth({
+      SUBSTRATE_AGENT_KEY_PATH: keyPath,
+      SUBSTRATE_AGENT_KEY_ID: 'kid-1'
+    });
+    const a = auth.getAuthHeader('https://a.test:3100/substrate/v1/query');
+    const b = auth.getAuthHeader(new URL('https://b.test/substrate/v1/whoami'));
+    expect(decodeJwt(a).payload.aud).toBe('https://a.test:3100');
+    expect(decodeJwt(b).payload.aud).toBe('https://b.test');
+    expect(auth.getAuthHeader('https://a.test:3100/substrate/v1/mutate')).toBe(a);
+  });
+
+  it('falls back to SUBSTRATE_URL for the audience, and refuses to mint without one', () => {
+    const { keyPath } = makeKeyFiles();
+    const env = { SUBSTRATE_AGENT_KEY_PATH: keyPath, SUBSTRATE_AGENT_KEY_ID: 'kid-1' };
+    const withUrl = createAgentAuth({ ...env, SUBSTRATE_URL: 'https://env.test:3100' });
+    expect(decodeJwt(withUrl.getAuthHeader()).payload.aud).toBe('https://env.test:3100');
+    expect(() => createAgentAuth(env).getAuthHeader()).toThrow(/without an audience/);
   });
 
   it('missing key file → null header + visible warning, never throws', () => {
@@ -72,7 +96,7 @@ describe('createAgentAuth', () => {
       SUBSTRATE_AGENT_KEY_PATH: '/nonexistent/agent.key',
       SUBSTRATE_AGENT_KEY_ID: 'kid-1'
     });
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain('agent identity misconfigured');
     expect(auth.warning).toContain('anonymous');
   });
@@ -85,18 +109,18 @@ describe('createAgentAuth', () => {
       SUBSTRATE_AGENT_KEY_PATH: keyPath,
       SUBSTRATE_AGENT_KEY_ID: 'kid-1'
     });
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain('agent identity misconfigured');
   });
 
   it('partial config (key without kid, kid without key) → warning, not silence', () => {
     const { keyPath } = makeKeyFiles();
     const keyOnly = createAgentAuth({ SUBSTRATE_AGENT_KEY_PATH: keyPath });
-    expect(keyOnly.getAuthHeader()).toBeNull();
+    expect(keyOnly.getAuthHeader(URL_)).toBeNull();
     expect(keyOnly.warning).toContain('agent identity misconfigured');
 
     const kidOnly = createAgentAuth({ SUBSTRATE_AGENT_KEY_ID: 'kid-1' });
-    expect(kidOnly.getAuthHeader()).toBeNull();
+    expect(kidOnly.getAuthHeader(URL_)).toBeNull();
     expect(kidOnly.warning).toContain('agent identity misconfigured');
   });
 
@@ -136,7 +160,7 @@ describe('createAgentAuth identity override (plugin options)', () => {
     const auth = createAgentAuth({}, { kid: 'plugin@host', key: keyPath });
     expect(auth.warning).toBeNull();
 
-    const bearer = auth.getAuthHeader();
+    const bearer = auth.getAuthHeader(URL_);
     expect(bearer).toMatch(/^Bearer /);
     const { header, payload, signingInput, signature } = decodeJwt(bearer);
     expect(header.kid).toBe('plugin@host');
@@ -149,7 +173,7 @@ describe('createAgentAuth identity override (plugin options)', () => {
 
   it('partial opts (kid without any key) → warning, not silence', () => {
     const auth = createAgentAuth({}, { kid: 'kid-only' });
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain('agent identity misconfigured');
   });
 });
@@ -174,6 +198,19 @@ describe('makeSignedFetch', () => {
       'content-type': 'application/json',
       authorization: 'Bearer tok-123'
     });
+  });
+
+  it('hands the request URL to the header provider, so the token names its audience', async () => {
+    const asked = [];
+    const fetchImpl = makeSignedFetch(
+      (url) => {
+        asked.push(url);
+        return 'Bearer t';
+      },
+      () => Promise.resolve({ ok: true })
+    );
+    await fetchImpl('https://h:3100/substrate/v1/query', {});
+    expect(asked).toEqual(['https://h:3100/substrate/v1/query']);
   });
 
   it('passes through untouched when the header provider yields null', async () => {
@@ -218,7 +255,7 @@ describe('createAgentAuth claim override', () => {
       createAgentAuth({
         SUBSTRATE_AGENT_KEY_PATH: keyPath,
         SUBSTRATE_AGENT_KEY_ID: 'k@h'
-      }).getAuthHeader()
+      }).getAuthHeader(URL_)
     );
     expect(c.capabilities).toEqual(['read', 'mutate']);
     expect(c.ns).toEqual(['*']);
@@ -232,7 +269,7 @@ describe('createAgentAuth claim override', () => {
         SUBSTRATE_AGENT_KEY_ID: 'k@h',
         SUBSTRATE_AGENT_CAPABILITIES: 'read, mutate ,admin',
         SYNOPTIC_AGENT_NAMESPACES: 'cortext,recall'
-      }).getAuthHeader()
+      }).getAuthHeader(URL_)
     );
     // Whitespace tolerated: an operator-typed env var will have it.
     expect(c.capabilities).toEqual(['read', 'mutate', 'admin']);
@@ -249,7 +286,7 @@ describe('createAgentAuth claim override', () => {
           SUBSTRATE_AGENT_CAPABILITIES: 'admin'
         },
         { capabilities: ['read'] }
-      ).getAuthHeader()
+      ).getAuthHeader(URL_)
     );
     expect(c.capabilities).toEqual(['read']);
   });
@@ -270,7 +307,7 @@ describe('createAgentAuth claim override', () => {
     // Refused LOUDLY, not silently corrected: someone who wrote this wants wider
     // access, and quietly substituting the defaults hands them a working token
     // that is not the one they asked for.
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain("cannot be claimed as '*'");
     expect(auth.warning).toContain('refused everything');
   });
@@ -286,7 +323,7 @@ describe('createAgentAuth claim override', () => {
           SUBSTRATE_AGENT_KEY_PATH: keyPath,
           SUBSTRATE_AGENT_KEY_ID: 'k@h',
           SUBSTRATE_AGENT_CAPABILITIES: raw
-        }).getAuthHeader()
+        }).getAuthHeader(URL_)
       );
       expect(c.capabilities).toEqual(['read', 'mutate']);
     }
@@ -312,7 +349,7 @@ describe('options identity is all or nothing', () => {
       { SUBSTRATE_AGENT_KEY_ID: 'env@h', SUBSTRATE_AGENT_KEY_PATH: keyPath },
       { kid: 'options@h' }
     );
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain('options.key');
   });
 
@@ -322,7 +359,7 @@ describe('options identity is all or nothing', () => {
       { SUBSTRATE_AGENT_KEY_ID: 'env@h' },
       { kid: 'options@h', key: keyPath }
     );
-    expect(decodeJwt(auth.getAuthHeader()).header.kid).toBe('options@h');
+    expect(decodeJwt(auth.getAuthHeader(URL_)).header.kid).toBe('options@h');
   });
 
   it('empty or null options fall back to the env pair', () => {
@@ -332,7 +369,7 @@ describe('options identity is all or nothing', () => {
         { SUBSTRATE_AGENT_KEY_ID: 'env@h', SUBSTRATE_AGENT_KEY_PATH: keyPath },
         opts
       );
-      expect(decodeJwt(auth.getAuthHeader()).header.kid).toBe('env@h');
+      expect(decodeJwt(auth.getAuthHeader(URL_)).header.kid).toBe('env@h');
     }
   });
 });
@@ -347,7 +384,7 @@ describe('key type', () => {
       SUBSTRATE_AGENT_KEY_ID: 'a@h',
       SUBSTRATE_AGENT_KEY_PATH: keyPath
     });
-    expect(auth.getAuthHeader()).toBeNull();
+    expect(auth.getAuthHeader(URL_)).toBeNull();
     expect(auth.warning).toContain('is a rsa key');
   });
 });
