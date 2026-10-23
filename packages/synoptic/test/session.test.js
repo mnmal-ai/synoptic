@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { renderSessionBlock, sessionTag, shortSessionId } from '../src/session.js';
+import { renderSessionBlock, shortSessionId } from '../src/session.js';
 
 test('shortSessionId takes the leading entropy of a UUID', () => {
   assert.equal(shortSessionId('125f8d22-0044-4e28-8aec-a80be97df2d5'), '125f8d22');
@@ -14,11 +14,6 @@ test('shortSessionId is null for absent or blank input', () => {
   assert.equal(shortSessionId(null), null);
   assert.equal(shortSessionId(undefined), null);
   assert.equal(shortSessionId('   '), null);
-});
-
-test('sessionTag is the wire form', () => {
-  assert.equal(sessionTag('125f8d22-0044-4e28-8aec-a80be97df2d5'), 'session:125f8d22');
-  assert.equal(sessionTag(null), null);
 });
 
 test('renderSessionBlock is one line naming the kid, the session and the instance stamp', () => {

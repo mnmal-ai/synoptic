@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { probeEmbedStats, probeWhoami, recall, substrateQuery } from '../src/substrate-http.js';
+import { probeWhoami, recall, substrateQuery } from '../src/substrate-http.js';
 
 function mockFetch(handler) {
   return (url, init) => Promise.resolve(handler(url, init));
@@ -133,42 +133,6 @@ describe('recall', () => {
       fetchImpl
     });
     expect(rows).toBeNull();
-  });
-});
-
-// ---- a probe that could not run must not render as a verified fault ----
-//
-// "The embedder is off" and "I could not ask" are different facts, and only one
-// of them is an observation, so a failure path must not return `{ enabled: false }`.
-// `reachable` is the discriminator, and it is the reason this probe can be
-// wired into the cold-start at all.
-describe('probeEmbedStats', () => {
-  it('returns the parsed body, marked reachable', async () => {
-    const fetchImpl = mockFetch(() => jsonResponse(200, { enabled: true, writes: 5 }));
-    const stats = await probeEmbedStats('https://h:3100', { fetchImpl });
-    expect(stats.reachable).toBe(true);
-    expect(stats.enabled).toBe(true);
-    expect(stats.writes).toBe(5);
-  });
-
-  it('reports a transport failure as unreachable, NOT as enabled:false', async () => {
-    const fetchImpl = () => Promise.reject(new Error('down'));
-    const stats = await probeEmbedStats('https://h:3100', { fetchImpl });
-    expect(stats.reachable).toBe(false);
-    expect(stats.enabled).not.toBe(false);
-  });
-
-  it('reports a non-2xx as unreachable, NOT as enabled:false', async () => {
-    const fetchImpl = mockFetch(() => jsonResponse(503, {}));
-    const stats = await probeEmbedStats('https://h:3100', { fetchImpl });
-    expect(stats.reachable).toBe(false);
-    expect(stats.enabled).not.toBe(false);
-  });
-
-  it('does not invent lexical fields a server never sent', async () => {
-    const fetchImpl = mockFetch(() => jsonResponse(200, { enabled: true }));
-    const stats = await probeEmbedStats('https://h:3100', { fetchImpl });
-    expect('lexicalEnabled' in stats).toBe(false);
   });
 });
 

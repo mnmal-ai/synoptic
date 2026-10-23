@@ -53,12 +53,6 @@ export function shortSessionId(sessionId) {
   return head.length === 0 ? null : head;
 }
 
-/** The tag an outgoing message carries. */
-export function sessionTag(sessionId) {
-  const short = shortSessionId(sessionId);
-  return short === null ? null : `session:${short}`;
-}
-
 /**
  * The cold-start block telling this session who it is and what to stamp.
  *

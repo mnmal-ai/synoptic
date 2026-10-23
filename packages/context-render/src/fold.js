@@ -101,7 +101,11 @@ export function cutAtLineBoundary(text, limit) {
   // Only honour the boundary if it retains a useful majority of the budget —
   // otherwise a body whose first line is enormous would collapse to almost
   // nothing on the strength of one early newline.
-  const kept = br > limit * 0.5 ? window.slice(0, br) : window;
+  let kept = br > limit * 0.5 ? window.slice(0, br) : window;
+  // A cut by UTF-16 position can split a surrogate pair; drop the orphaned
+  // high half rather than leave an unencodable character.
+  const last = kept.charCodeAt(kept.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) kept = kept.slice(0, -1);
   return { text: kept.trimEnd(), cut: s.length - kept.length };
 }
 

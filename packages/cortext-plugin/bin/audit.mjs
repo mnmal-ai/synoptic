@@ -921,9 +921,159 @@ function renderAudit(groups) {
 }
 
 //#endregion
+//#region ../synoptic/src/fragment-resolve.js
+/**
+* Parse `1.9.0` or `1.0.0-alpha.3` into `[major, minor, patch, ...prerelease]`,
+* numeric prerelease identifiers as numbers. Returns null for anything else.
+*/
+function parseVersion(text) {
+	const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(String(text ?? "").trim());
+	if (m === null) return null;
+	const pre = m[4] === void 0 ? [] : m[4].split(".").map((id) => /^\d+$/.test(id) ? Number(id) : id);
+	return [
+		Number(m[1]),
+		Number(m[2]),
+		Number(m[3]),
+		...pre
+	];
+}
+/**
+* Compare two version strings. Unparseable sorts below everything, so a
+* malformed directory name can never win a "highest available" contest.
+*
+* @returns {number} negative if a < b, 0 if equal, positive if a > b.
+*/
+function compareVersions(a, b) {
+	const pa = parseVersion(a);
+	const pb = parseVersion(b);
+	if (pa === null && pb === null) return 0;
+	if (pa === null) return -1;
+	if (pb === null) return 1;
+	for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+	if (pa.length === 3 || pb.length === 3) return pb.length - pa.length;
+	for (let i = 3; i < Math.min(pa.length, pb.length); i++) {
+		const x = pa[i];
+		const y = pb[i];
+		if (x === y) continue;
+		if (typeof x === "number" && typeof y === "number") return x - y;
+		if (typeof x === "number") return -1;
+		if (typeof y === "number") return 1;
+		return x < y ? -1 : 1;
+	}
+	return pa.length - pb.length;
+}
+/**
+* Is this repo the SOURCE of the fragment rather than a consumer of it?
+*
+* synoptic ships `packages/cortext-plugin/fragments/substrate-conventions.md` and
+* CLAUDE.md is explicit that when the repo and a plugin cache disagree, the
+* repo wins. Installing over it from a cache would discard whatever the working
+* tree has that the last release does not — which is exactly the state a repo
+* is in while authoring a fragment change.
+*
+* Detected by the file's presence rather than by repo name, so a fork or a
+* rename cannot silently turn the source into a consumer.
+*
+* @param {{ cwd: string, exists: (p: string) => boolean }} opts
+*/
+function isFragmentSourceRepo({ cwd, exists }) {
+	return exists(`${cwd}/packages/cortext-plugin/fragments/substrate-conventions.md`);
+}
+/**
+* Decide which fragment to install, or refuse and say why.
+*
+* Pure: every filesystem fact is passed in, so the whole decision table is
+* testable without a plugin cache on disk.
+*
+* @param {object} opts
+* @param {ReadonlyArray<{version: string, path: string, origin: string}>} opts.candidates
+*   Every fragment this machine could install, already read off disk.
+* @param {string|null} opts.installedVersion From `installed_plugins.json`.
+* @param {string|null} opts.servedVersion The version that served the skill
+*   (`CLAUDE_PLUGIN_ROOT`), for reporting a stale serving root.
+* @param {{version: string, digest: string|null}|null} opts.installedFragment
+*   The marker currently in the consumer repo, or null when absent.
+* @param {boolean} [opts.isSourceRepo=false]
+* @returns {{
+*   action: 'install'|'current'|'refuse'|'skip-source-repo',
+*   chosen: object|null,
+*   reason: string|null,
+*   report: Array<string>
+* }}
+*/
+function resolveFragmentSource(opts) {
+	const { candidates = [], installedVersion = null, servedVersion = null, installedFragment = null, isSourceRepo = false } = opts;
+	const report = [];
+	const newest = [...candidates].sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
+	report.push(`installed:      ${installedVersion ?? "(unknown)"}`);
+	report.push(`served skill:   ${servedVersion ?? "(unknown)"}` + (servedVersion !== null && installedVersion !== null && compareVersions(servedVersion, installedVersion) < 0 ? "   <- STALE: bound at session start, before the install" : ""));
+	report.push(`cache holds:    ${candidates.length} version(s)` + (candidates.length > 0 ? ` (newest ${newest.version}, oldest ${[...candidates].sort((a, b) => compareVersions(a.version, b.version))[0].version})` : ""));
+	report.push(`repo has:       ${installedFragment === null ? "(none — not yet a consumer)" : `v${installedFragment.version}+${installedFragment.digest ?? "(no digest)"}`}`);
+	if (isSourceRepo) return {
+		action: "skip-source-repo",
+		chosen: null,
+		reason: "this repo SHIPS the fragment (packages/cortext-plugin/fragments/) — its working tree is the authority and may legitimately be ahead of the last release. Installing over it from a plugin cache would discard unreleased edits.",
+		report
+	};
+	if (newest === null) return {
+		action: "refuse",
+		chosen: null,
+		reason: "no fragment found in any plugin directory. Nothing was written — a missing source is a broken install, not a reason to leave the repo untouched silently.",
+		report
+	};
+	const atInstalled = installedVersion === null ? null : candidates.find((c) => compareVersions(c.version, installedVersion) === 0) ?? null;
+	const chosen = atInstalled ?? newest;
+	if (installedFragment !== null && compareVersions(chosen.version, installedFragment.version) < 0) return {
+		action: "refuse",
+		chosen: null,
+		reason: `the repo already holds v${installedFragment.version}, NEWER than the best available v${chosen.version}. Installing would revert it. This machine's plugin cache is behind whatever produced the repo copy — refresh it rather than overwriting. (If the repo marker is genuinely wrong, delete the file and re-run; an absent copy has nothing to downgrade.)`,
+		report
+	};
+	if (installedVersion !== null && compareVersions(chosen.version, installedVersion) < 0) return {
+		action: "refuse",
+		chosen: null,
+		reason: `the best available fragment is v${chosen.version}, BELOW the installed v${installedVersion}. Installing it would be a downgrade — Step 3's "do not gate on the version being newer" rule is about digests within a version, and must not be read as permission to go backwards. Refresh the plugin cache and re-run.`,
+		report
+	};
+	if (installedVersion !== null && atInstalled === null && compareVersions(newest.version, installedVersion) > 0) report.push(`note:           cache is AHEAD of the install (${newest.version} > ${installedVersion}); using it, but nothing has validated it as this machine’s version`);
+	if (installedFragment !== null && installedFragment.digest === chosen.digest) return {
+		action: "current",
+		chosen,
+		reason: null,
+		report
+	};
+	return {
+		action: "install",
+		chosen,
+		reason: null,
+		report
+	};
+}
+
+//#endregion
+//#region ../synoptic/src/fragment-drift.js
+/** `<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — ... -->` */
+const MARKER_RE = /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
+/**
+* Parse line 1's marker.
+*
+* `digest: null` is a real and distinct answer, not a missing value: markers
+* predating the digest suffix (`vsynoptic-0.1.0`) carry a version and nothing to compare content with.
+*
+* @param {string} text
+* @returns {{ version: string, digest: string|null }|null}
+*/
+function readMarker(text) {
+	const match = MARKER_RE.exec(String(text ?? "").split("\n", 1)[0] ?? "");
+	if (!match) return null;
+	return {
+		version: match[1],
+		digest: match[2] ?? null
+	};
+}
+
+//#endregion
 //#region ../synoptic/src/fleet-fragments.js
-/** `<!-- substrate-conventions vsynoptic-1.11.0+cd38093c ... -->` */
-const MARKER_RE$1 = /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
 /**
 * Split a fragment the way the stamper does: line 1 is the marker, everything
 * after it is what the digest covers. Excluding the marker keeps the digest
@@ -936,7 +1086,7 @@ function readFragment(text) {
 	const s = String(text ?? "");
 	const nl = s.indexOf("\n");
 	if (nl === -1) return null;
-	const m = MARKER_RE$1.exec(s.slice(0, nl));
+	const m = MARKER_RE.exec(s.slice(0, nl));
 	if (m === null) return null;
 	return {
 		version: m[1],
@@ -1215,136 +1365,6 @@ function auditFleetFragments({ repos, best, digest, sourceRepo = null, sourceGit
 	return {
 		rows,
 		findings
-	};
-}
-
-//#endregion
-//#region ../synoptic/src/fragment-resolve.js
-/**
-* Parse `1.9.0` or `1.0.0-alpha.3` into `[major, minor, patch, ...prerelease]`,
-* numeric prerelease identifiers as numbers. Returns null for anything else.
-*/
-function parseVersion(text) {
-	const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(String(text ?? "").trim());
-	if (m === null) return null;
-	const pre = m[4] === void 0 ? [] : m[4].split(".").map((id) => /^\d+$/.test(id) ? Number(id) : id);
-	return [
-		Number(m[1]),
-		Number(m[2]),
-		Number(m[3]),
-		...pre
-	];
-}
-/**
-* Compare two version strings. Unparseable sorts below everything, so a
-* malformed directory name can never win a "highest available" contest.
-*
-* @returns {number} negative if a < b, 0 if equal, positive if a > b.
-*/
-function compareVersions(a, b) {
-	const pa = parseVersion(a);
-	const pb = parseVersion(b);
-	if (pa === null && pb === null) return 0;
-	if (pa === null) return -1;
-	if (pb === null) return 1;
-	for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
-	if (pa.length === 3 || pb.length === 3) return pb.length - pa.length;
-	for (let i = 3; i < Math.min(pa.length, pb.length); i++) {
-		const x = pa[i];
-		const y = pb[i];
-		if (x === y) continue;
-		if (typeof x === "number" && typeof y === "number") return x - y;
-		if (typeof x === "number") return -1;
-		if (typeof y === "number") return 1;
-		return x < y ? -1 : 1;
-	}
-	return pa.length - pb.length;
-}
-/**
-* Is this repo the SOURCE of the fragment rather than a consumer of it?
-*
-* synoptic ships `packages/cortext-plugin/fragments/substrate-conventions.md` and
-* CLAUDE.md is explicit that when the repo and a plugin cache disagree, the
-* repo wins. Installing over it from a cache would discard whatever the working
-* tree has that the last release does not — which is exactly the state a repo
-* is in while authoring a fragment change.
-*
-* Detected by the file's presence rather than by repo name, so a fork or a
-* rename cannot silently turn the source into a consumer.
-*
-* @param {{ cwd: string, exists: (p: string) => boolean }} opts
-*/
-function isFragmentSourceRepo({ cwd, exists }) {
-	return exists(`${cwd}/packages/cortext-plugin/fragments/substrate-conventions.md`);
-}
-/**
-* Decide which fragment to install, or refuse and say why.
-*
-* Pure: every filesystem fact is passed in, so the whole decision table is
-* testable without a plugin cache on disk.
-*
-* @param {object} opts
-* @param {ReadonlyArray<{version: string, path: string, origin: string}>} opts.candidates
-*   Every fragment this machine could install, already read off disk.
-* @param {string|null} opts.installedVersion From `installed_plugins.json`.
-* @param {string|null} opts.servedVersion The version that served the skill
-*   (`CLAUDE_PLUGIN_ROOT`), for reporting a stale serving root.
-* @param {{version: string, digest: string|null}|null} opts.installedFragment
-*   The marker currently in the consumer repo, or null when absent.
-* @param {boolean} [opts.isSourceRepo=false]
-* @returns {{
-*   action: 'install'|'current'|'refuse'|'skip-source-repo',
-*   chosen: object|null,
-*   reason: string|null,
-*   report: Array<string>
-* }}
-*/
-function resolveFragmentSource(opts) {
-	const { candidates = [], installedVersion = null, servedVersion = null, installedFragment = null, isSourceRepo = false } = opts;
-	const report = [];
-	const newest = [...candidates].sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
-	report.push(`installed:      ${installedVersion ?? "(unknown)"}`);
-	report.push(`served skill:   ${servedVersion ?? "(unknown)"}` + (servedVersion !== null && installedVersion !== null && compareVersions(servedVersion, installedVersion) < 0 ? "   <- STALE: bound at session start, before the install" : ""));
-	report.push(`cache holds:    ${candidates.length} version(s)` + (candidates.length > 0 ? ` (newest ${newest.version}, oldest ${[...candidates].sort((a, b) => compareVersions(a.version, b.version))[0].version})` : ""));
-	report.push(`repo has:       ${installedFragment === null ? "(none — not yet a consumer)" : `v${installedFragment.version}+${installedFragment.digest ?? "(no digest)"}`}`);
-	if (isSourceRepo) return {
-		action: "skip-source-repo",
-		chosen: null,
-		reason: "this repo SHIPS the fragment (packages/cortext-plugin/fragments/) — its working tree is the authority and may legitimately be ahead of the last release. Installing over it from a plugin cache would discard unreleased edits.",
-		report
-	};
-	if (newest === null) return {
-		action: "refuse",
-		chosen: null,
-		reason: "no fragment found in any plugin directory. Nothing was written — a missing source is a broken install, not a reason to leave the repo untouched silently.",
-		report
-	};
-	const atInstalled = installedVersion === null ? null : candidates.find((c) => compareVersions(c.version, installedVersion) === 0) ?? null;
-	const chosen = atInstalled ?? newest;
-	if (installedFragment !== null && compareVersions(chosen.version, installedFragment.version) < 0) return {
-		action: "refuse",
-		chosen: null,
-		reason: `the repo already holds v${installedFragment.version}, NEWER than the best available v${chosen.version}. Installing would revert it. This machine's plugin cache is behind whatever produced the repo copy — refresh it rather than overwriting. (If the repo marker is genuinely wrong, delete the file and re-run; an absent copy has nothing to downgrade.)`,
-		report
-	};
-	if (installedVersion !== null && compareVersions(chosen.version, installedVersion) < 0) return {
-		action: "refuse",
-		chosen: null,
-		reason: `the best available fragment is v${chosen.version}, BELOW the installed v${installedVersion}. Installing it would be a downgrade — Step 3's "do not gate on the version being newer" rule is about digests within a version, and must not be read as permission to go backwards. Refresh the plugin cache and re-run.`,
-		report
-	};
-	if (installedVersion !== null && atInstalled === null && compareVersions(newest.version, installedVersion) > 0) report.push(`note:           cache is AHEAD of the install (${newest.version} > ${installedVersion}); using it, but nothing has validated it as this machine’s version`);
-	if (installedFragment !== null && installedFragment.digest === chosen.digest) return {
-		action: "current",
-		chosen,
-		reason: null,
-		report
-	};
-	return {
-		action: "install",
-		chosen,
-		reason: null,
-		report
 	};
 }
 
@@ -3102,28 +3122,6 @@ function readSkinFacts({ home }) {
 		readFile: readOrNull,
 		compare: compareVersions
 	}) };
-}
-
-//#endregion
-//#region ../synoptic/src/fragment-drift.js
-/** `<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — ... -->` */
-const MARKER_RE = /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
-/**
-* Parse line 1's marker.
-*
-* `digest: null` is a real and distinct answer, not a missing value: markers
-* predating the digest suffix (`vsynoptic-0.1.0`) carry a version and nothing to compare content with.
-*
-* @param {string} text
-* @returns {{ version: string, digest: string|null }|null}
-*/
-function readMarker(text) {
-	const match = MARKER_RE.exec(String(text ?? "").split("\n", 1)[0] ?? "");
-	if (!match) return null;
-	return {
-		version: match[1],
-		digest: match[2] ?? null
-	};
 }
 
 //#endregion

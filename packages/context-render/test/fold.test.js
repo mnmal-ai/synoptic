@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeOpenFence, flattenHeadings } from '../src/fold.js';
+import { closeOpenFence, cutAtLineBoundary, flattenHeadings } from '../src/fold.js';
 
 describe('fences close only on their own kind', () => {
   it('closes an open ~~~ block with ~~~, and a ``` inside it is content', () => {
@@ -13,4 +13,10 @@ describe('fences close only on their own kind', () => {
     expect(out).toContain('## inside');
     expect(out).toContain('**outside**');
   });
+});
+
+it('cutAtLineBoundary never leaves half a surrogate pair', () => {
+  const { text } = cutAtLineBoundary(`a${'😀'.repeat(20)}`, 4);
+  const last = text.charCodeAt(text.length - 1);
+  expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
 });

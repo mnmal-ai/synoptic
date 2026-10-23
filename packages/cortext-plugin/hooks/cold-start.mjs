@@ -173,6 +173,43 @@ function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
 }
 
 //#endregion
+//#region ../context-render/src/fold.js
+/** Lines that open or close a fenced code block. */
+const FENCE_RE = /^\s*(`{3,}|~{3,})/;
+/**
+* Advance a fence state over one line. A fence closes only on the
+* SAME character, at least as long as its opener, as CommonMark has it: a
+* ``` line inside a ~~~ block is content, not a close. Treating any fence
+* line as a toggle got both cases wrong.
+*
+* @param {string|null} open the opener in force ('```', '~~~~', …), or null
+* @param {string} line
+* @returns {string|null} the opener in force after this line
+*/
+function nextFence(open, line) {
+	const m = FENCE_RE.exec(line);
+	if (m === null) return open;
+	const fence = m[1];
+	if (open === null) return fence;
+	return fence[0] === open[0] && fence.length >= open.length ? null : open;
+}
+/**
+* Close an unterminated code fence.
+*
+* A cut inside a fenced block leaves the fence open, and an open fence swallows
+* every following section of the document into one code block — turning a
+* budget trim into a rendering failure for content that was never truncated.
+*
+* @param {string} text
+* @returns {string}
+*/
+function closeOpenFence(text) {
+	let open = null;
+	for (const line of String(text ?? "").split("\n")) open = nextFence(open, line);
+	return open === null ? text : `${text}\n${open}`;
+}
+
+//#endregion
 //#region ../context-render/src/budget.js
 const encoder = new TextEncoder();
 /**
@@ -212,10 +249,10 @@ function truncateToBudget$1(text, budget = {}) {
 	let head = "";
 	for (const line of lines) {
 		const next = head === "" ? line : `${head}\n${line}`;
-		if (!fits(next + pointer)) break;
+		if (!fits(closeOpenFence(next) + pointer)) break;
 		head = next;
 	}
-	if (head !== "") return head + pointer;
+	if (head !== "") return closeOpenFence(head) + pointer;
 	if (!bytesOn) return fits(pointer) ? pointer : "";
 	return new TextDecoder().decode(encoder.encode(pointer).subarray(0, maxBytes), { stream: true });
 }

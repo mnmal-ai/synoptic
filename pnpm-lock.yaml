@@ -165,7 +165,7 @@ settings:
 catalogs:
   default:
     '@biomejs/biome':
-      specifier: ^2.5.15
+      specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
       specifier: 1.0.0-alpha.0

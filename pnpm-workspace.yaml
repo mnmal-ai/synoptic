@@ -2,7 +2,7 @@ packages:
   - "packages/*"
 
 catalog:
-  "@biomejs/biome": "^2.5.15"
+  "@biomejs/biome": "2.5.15"
   # cortext-opencode build-time types only (erased at bundle — the shipped
   # dist/plugin.js has zero runtime deps; @opencode/plugin's `define` is an
   # identity function that tsdown inlines). Public npm, not GitHub Packages.

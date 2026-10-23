@@ -42,7 +42,7 @@ import { createHash } from 'node:crypto';
 import { compareVersions } from './fragment-resolve.js';
 
 /** `<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — ... -->` */
-const MARKER_RE =
+export const MARKER_RE =
   /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
 
 /**
