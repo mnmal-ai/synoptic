@@ -17,6 +17,8 @@
 // appended saying the sections below the cut are PRESENT, not empty. A reader
 // who cannot tell a trimmed document from a short one will act on absence.
 
+import { closeOpenFence } from './fold.js';
+
 const encoder = new TextEncoder();
 
 /**
@@ -61,14 +63,16 @@ export function truncateToBudget(text, budget = {}) {
     (!bytesOn || byteLength(s) <= maxBytes) && (!tokensOn || countTokens(s) <= maxTokens);
   if (fits(text)) return text;
 
+  // A cut inside a code fence would leave it open and put the pointer inside
+  // the code block, so the fence is closed first and its closing line counts.
   const lines = text.split('\n');
   let head = '';
   for (const line of lines) {
     const next = head === '' ? line : `${head}\n${line}`;
-    if (!fits(next + pointer)) break;
+    if (!fits(closeOpenFence(next) + pointer)) break;
     head = next;
   }
-  if (head !== '') return head + pointer;
+  if (head !== '') return closeOpenFence(head) + pointer;
   // Not even one line fits beside the pointer. Return as much of the pointer as
   // the byte ceiling allows: a truncated notice still says "truncated", which
   // is the one thing that must survive.

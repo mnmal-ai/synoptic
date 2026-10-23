@@ -28,7 +28,6 @@ export const HARNESSES = {
       projectPath: '.mcp.json',
       userPath: '~/.claude.json',
       format: 'json',
-      envStyle: 'var-expansion',
       merge: false
     }
   },
@@ -41,7 +40,6 @@ export const HARNESSES = {
       projectPath: '.kimi-code/mcp.json',
       userPath: '~/.kimi-code/mcp.json',
       format: 'json',
-      envStyle: 'literal',
       merge: false
     }
   },
@@ -54,7 +52,6 @@ export const HARNESSES = {
       projectPath: '.cursor/mcp.json',
       userPath: '~/.cursor/mcp.json',
       format: 'json',
-      envStyle: 'literal',
       merge: false,
       toolCeiling: 40
     }
@@ -68,7 +65,6 @@ export const HARNESSES = {
       projectPath: '.gemini/settings.json',
       userPath: '~/.gemini/settings.json',
       format: 'json',
-      envStyle: 'literal',
       // The MCP block is one key inside a larger settings.json — emit a
       // fragment the caller merges, never a standalone overwrite.
       merge: true
@@ -86,7 +82,6 @@ export const HARNESSES = {
       projectPath: '.codex/config.toml',
       userPath: '~/.codex/config.toml',
       format: 'toml',
-      envStyle: 'literal',
       // Codex MCP lives in the shared config.toml under [mcp_servers.*] — a
       // fragment to merge into the existing TOML, plus an allowlist caveat.
       merge: true
@@ -105,7 +100,6 @@ export const HARNESSES = {
       format: 'opencode-json',
       // `{env:VAR}` interpolation refs, never `${VAR}` (not substituted) —
       // and never literals for the key path: opencode.json is committed.
-      envStyle: 'interpolation',
       // The MCP block is one key inside the larger opencode.json — emit a
       // fragment the caller merges, never a standalone overwrite.
       merge: true
@@ -129,7 +123,6 @@ export const HARNESSES = {
       userPath: '~/.config/muse/settings.json',
       format: 'muse-json',
       // Literals: the user settings file is machine-local, never committed.
-      envStyle: 'literal',
       // The MCP block is one key inside the larger settings.json — emit a
       // fragment the caller merges, never a standalone overwrite.
       merge: true

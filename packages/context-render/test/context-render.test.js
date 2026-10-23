@@ -369,3 +369,12 @@ describe('splitByTokens', () => {
     expect(() => splitByTokens([e('a', null)], { maxTokens: 10 })).toThrow(/tokens/);
   });
 });
+
+it('a cut inside a code fence closes the fence before the pointer, within the budget', () => {
+  const text = `## Rules\n\`\`\`\n${'x\n'.repeat(80)}\`\`\`\nafter\n`;
+  const out = truncateToBudget(text, { maxBytes: 120 });
+  expect(byteLength(out)).toBeLessThanOrEqual(120);
+  const fences = out.split('\n').filter((l) => l.startsWith('```')).length;
+  expect(fences % 2).toBe(0);
+  expect(out.indexOf('truncated')).toBeGreaterThan(out.lastIndexOf('```'));
+});

@@ -6,7 +6,6 @@
       "**",
       "!**/dist",
       "!**/hooks/*.mjs",
-      "!**/server/index.js",
       "!**/bin/resolve-fragment.mjs",
       "!**/bin/audit.mjs",
       "!**/bin/prune-cache.mjs",

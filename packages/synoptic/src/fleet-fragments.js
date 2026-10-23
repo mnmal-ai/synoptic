@@ -33,9 +33,7 @@
 // and a stronger one than staleness, because it means the file is lying about
 // what it is.
 
-/** `<!-- substrate-conventions vsynoptic-1.11.0+cd38093c ... -->` */
-const MARKER_RE =
-  /^<!-- substrate-conventions vsynoptic-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9a-f]{8}))?/;
+import { MARKER_RE } from './fragment-drift.js';
 
 /**
  * Split a fragment the way the stamper does: line 1 is the marker, everything

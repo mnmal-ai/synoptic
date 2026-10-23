@@ -158,42 +158,6 @@ export async function recall(substrateUrl, opts = {}) {
 }
 
 /**
- * GET /substrate/v1/embed-stats. Returns the parsed body plus `reachable: true`, or
- * `{ reachable: false, reason }` when the probe could not run.
- *
- * ## Why `reachable` and not the old `{ enabled: false }`
- *
- * This returned `{ enabled: false }` on every failure path — a timeout, a
- * dead box, a 503 and a server that genuinely has the embedder switched off
- * all produced the same object. That is the conflation `auditSemanticRecall`
- * already refuses one module over: *"recall does not answer" is a verified
- * fault; "the server is down" is a check that could not run, and those must
- * never render alike.*
- *
- * It cost nothing while nothing called this. It stops costing nothing the
- * moment the cold-start header reads it, because "dense arm off" would then be
- * printed on the evidence of a dropped connection — trading the overclaim this
- * probe was wired up to fix for an underclaim of equal dishonesty.
- *
- * The body is spread UNCHANGED: a field the server did not send stays absent,
- * so `describeRecallArms` can tell a server predating `lexicalEnabled` from one
- * reporting the arm off. Do not default the lexical fields in here.
- */
-export async function probeEmbedStats(substrateUrl, opts = {}) {
-  const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
-  const { signal, done } = withTimeout(timeoutMs);
-  try {
-    const res = await fetchImpl(`${substrateUrl}/substrate/v1/embed-stats`, { signal });
-    if (!res.ok) return { reachable: false, reason: `embed-stats ${res.status}` };
-    return { reachable: true, ...(await res.json()) };
-  } catch (err) {
-    return { reachable: false, reason: err?.name === 'AbortError' ? 'timeout' : 'unreachable' };
-  } finally {
-    done();
-  }
-}
-
-/**
  * GET /substrate/v1/whoami — what this credential ACTUALLY holds.
  *
  * ## Why the server has to be asked

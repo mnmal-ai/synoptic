@@ -204,7 +204,6 @@ const HARNESSES$1 = {
 			projectPath: ".mcp.json",
 			userPath: "~/.claude.json",
 			format: "json",
-			envStyle: "var-expansion",
 			merge: false
 		}
 	},
@@ -217,7 +216,6 @@ const HARNESSES$1 = {
 			projectPath: ".kimi-code/mcp.json",
 			userPath: "~/.kimi-code/mcp.json",
 			format: "json",
-			envStyle: "literal",
 			merge: false
 		}
 	},
@@ -230,7 +228,6 @@ const HARNESSES$1 = {
 			projectPath: ".cursor/mcp.json",
 			userPath: "~/.cursor/mcp.json",
 			format: "json",
-			envStyle: "literal",
 			merge: false,
 			toolCeiling: 40
 		}
@@ -244,7 +241,6 @@ const HARNESSES$1 = {
 			projectPath: ".gemini/settings.json",
 			userPath: "~/.gemini/settings.json",
 			format: "json",
-			envStyle: "literal",
 			merge: true
 		}
 	},
@@ -257,7 +253,6 @@ const HARNESSES$1 = {
 			projectPath: ".codex/config.toml",
 			userPath: "~/.codex/config.toml",
 			format: "toml",
-			envStyle: "literal",
 			merge: true
 		}
 	},
@@ -270,7 +265,6 @@ const HARNESSES$1 = {
 			projectPath: "opencode.json",
 			userPath: "~/.config/opencode/opencode.json",
 			format: "opencode-json",
-			envStyle: "interpolation",
 			merge: true
 		}
 	},
@@ -283,7 +277,6 @@ const HARNESSES$1 = {
 			projectPath: null,
 			userPath: "~/.config/muse/settings.json",
 			format: "muse-json",
-			envStyle: "literal",
 			merge: true
 		}
 	}
