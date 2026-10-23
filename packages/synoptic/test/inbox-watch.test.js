@@ -79,6 +79,23 @@ async function run(opts) {
   return { events, sleeps };
 }
 
+describe('parseSse line endings', () => {
+  it('a CRLF split across two chunks still ends the line', () => {
+    const p = parseSse();
+    expect(p('event: remove\r\ndata: {"removedId":"a"}\r\n\r')).toEqual([]);
+    expect(p('\nevent: remove\r\ndata: {"removedId":"b"}\r\n\r\n')).toEqual([
+      { event: 'remove', data: { removedId: 'a' } },
+      { event: 'remove', data: { removedId: 'b' } }
+    ]);
+  });
+  it('a bare CR is a line ending too', () => {
+    // A trailing CR may be half a CRLF, so it waits; the next byte settles it.
+    expect(parseSse()('event: remove\rdata: {"removedId":"c"}\r\r:')).toEqual([
+      { event: 'remove', data: { removedId: 'c' } }
+    ]);
+  });
+});
+
 describe('runWatcher', () => {
   it('is disabled without identity env, with PUSH off, or with no AgentIdentity row', async () => {
     expect((await run({ env: {}, fetchImpl: fakeSubstrate().fetchImpl })).events).toEqual([
@@ -95,6 +112,15 @@ describe('runWatcher', () => {
     expect(
       (await run({ fetchImpl: fakeSubstrate({ identity: [] }).fetchImpl })).events[0].reason
     ).toMatch(/no AgentIdentity row/);
+  });
+
+  it('is disabled, not retried, when the signer refuses the URL', async () => {
+    const fetchImpl = () => {
+      throw new Error('refusing to send an agent token to http://remote.example: use https');
+    };
+    const { events } = await run({ fetchImpl });
+    expect(events.at(-1)).toMatchObject({ type: 'status', state: 'disabled' });
+    expect(events.some((e) => e.state === 'reconnecting')).toBe(false);
   });
 
   it('subscribes on the recipient filter with no limit, goes live with the wake setting, filters the snapshot by since', async () => {

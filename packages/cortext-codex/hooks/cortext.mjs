@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, statSync, statfsSync } from "node
 import { fileURLToPath } from "node:url";
 import { execFile, spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { createPrivateKey, sign } from "node:crypto";
+import { createHash, createPrivateKey, sign } from "node:crypto";
 import { homedir, hostname } from "node:os";
 
 //#region ../synoptic/src/hook-io.js
@@ -768,6 +768,22 @@ function readMarker(text) {
 	};
 }
 /**
+* Whether the body after line 1 still hashes to the digest its marker claims
+* (sha256, first 8 hex, as the stamper computes it). A crash mid-write or a
+* local edit keeps line 1 intact, so the marker alone would read as current.
+* True when the marker carries no digest: there is nothing to check against.
+*
+* @param {string} text
+*/
+function bodyMatchesMarker(text) {
+	const t = String(text ?? "");
+	const marker = readMarker(t);
+	if (marker === null || marker.digest === null) return true;
+	const newline = t.indexOf("\n");
+	const body = newline === -1 ? "" : t.slice(newline + 1);
+	return createHash("sha256").update(body, "utf8").digest("hex").slice(0, 8) === marker.digest;
+}
+/**
 * Compare an installed fragment against the plugin's own.
 *
 * Returns a state rather than a boolean so the caller — and the tests — can
@@ -794,7 +810,7 @@ function compareFragments({ installed, plugin }) {
 		installed: installedMarker,
 		plugin: pluginMarker
 	};
-	if (installedMarker.digest !== pluginMarker.digest) return {
+	if (installedMarker.digest !== pluginMarker.digest || !bodyMatchesMarker(installed)) return {
 		state: "stale",
 		installed: installedMarker,
 		plugin: pluginMarker
@@ -1468,7 +1484,7 @@ function markersOf(parsed) {
 				field: `${name}.env.${k}`,
 				kind: "absolute path"
 			});
-			else if (/KID$/i.test(k) && lit.includes("@")) markers.push({
+			else if (/(KID|KEY_ID)$/i.test(k) && lit.includes("@")) markers.push({
 				field: `${name}.env.${k}`,
 				kind: "host-pinned identity"
 			});

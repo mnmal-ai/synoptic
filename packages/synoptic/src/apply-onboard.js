@@ -12,7 +12,7 @@
 //      keygen is local, but register hits the prod DB and restart bounces the
 //      service, so an operator runs those.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Resolve a plan file path: `~/…` → under home, anything else → under targetDir. */
@@ -69,18 +69,45 @@ export function planActions(plan, ctx) {
  * surface the rest. Returns a summary; the identity script + prime hint are for
  * the operator to act on.
  */
+/** The plan's target paths that already exist, which are skipped rather than written. */
+export function existingTargets(plan, ctx) {
+  return plan.files.map((f) => resolvePath(f.path, ctx)).filter((p) => existsSync(p));
+}
+
+/**
+ * Create `path` with `content` only if it does not exist, all at once: the
+ * content goes to a temp file that is then hard-linked into place, and a link
+ * refuses an existing target. A file created after the existence check is
+ * therefore never clobbered, and a crash never leaves a partial file that later
+ * runs would skip as "exists".
+ * @returns {boolean} false when the target already existed.
+ */
+function createExclusive(path, content) {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, content);
+  try {
+    linkSync(tmp, path);
+    return true;
+  } catch (err) {
+    if (err?.code === 'EEXIST') return false;
+    throw err;
+  } finally {
+    unlinkSync(tmp);
+  }
+}
+
 export function applyOnboard(plan, ctx) {
-  const existing = plan.files.map((f) => resolvePath(f.path, ctx)).filter((p) => existsSync(p));
-  const actions = planActions(plan, { ...ctx, existing });
+  const actions = planActions(plan, { ...ctx, existing: existingTargets(plan, ctx) });
   const written = [];
+  const skipped = [...actions.skipped];
   for (const w of actions.writes) {
     mkdirSync(dirname(w.path), { recursive: true });
-    writeFileSync(w.path, w.content);
-    written.push(w.path);
+    if (createExclusive(w.path, w.content)) written.push(w.path);
+    else skipped.push({ ...w, merge: false });
   }
   return {
     written,
-    skipped: actions.skipped,
+    skipped,
     identityScript: actions.identityScript,
     primeHint: actions.primeHint
   };

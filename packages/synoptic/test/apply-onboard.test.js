@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -77,6 +77,13 @@ describe('applyOnboard (writes to disk)', () => {
     const second = applyOnboard(mk('cursor'), { targetDir: dir, home: dir });
     expect(second.written).toEqual([]);
     expect(second.skipped.map((s) => s.path)).toContain(join(dir, '.cursor/mcp.json'));
+  });
+
+  it('writes through a temp file and leaves none behind', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'synoptic-onboard-'));
+    applyOnboard(mk('kimi'), { targetDir: dir, home: dir });
+    applyOnboard(mk('kimi'), { targetDir: dir, home: dir });
+    expect(readdirSync(dir).some((n) => n.includes('.tmp-'))).toBe(false);
   });
 
   it('preserves a hand-edited file across a re-apply', () => {

@@ -1768,7 +1768,7 @@ function markersOf(parsed) {
 				field: `${name}.env.${k}`,
 				kind: "absolute path"
 			});
-			else if (/KID$/i.test(k) && lit.includes("@")) markers.push({
+			else if (/(KID|KEY_ID)$/i.test(k) && lit.includes("@")) markers.push({
 				field: `${name}.env.${k}`,
 				kind: "host-pinned identity"
 			});

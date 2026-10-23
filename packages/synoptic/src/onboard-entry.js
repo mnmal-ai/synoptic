@@ -14,7 +14,7 @@
 // `test/bin-entries-load.test.js`, which loads every declared entry: a bin
 // that nothing imports can fail on its first import unnoticed.
 import { hostname } from 'node:os';
-import { applyOnboard, planActions } from './apply-onboard.js';
+import { applyOnboard, existingTargets, planActions } from './apply-onboard.js';
 import { onboard } from './onboard.js';
 import { HARNESSES as DESCRIPTORS } from './wire-mcp.js';
 
@@ -67,9 +67,13 @@ if (flags.apply) {
   out(s.identityScript);
   if (s.primeHint) out(`PRIME: ${s.primeHint}`);
 } else {
-  const a = planActions(plan, { ...ctx, existing: [] });
+  const a = planActions(plan, { ...ctx, existing: existingTargets(plan, ctx) });
   out('WOULD WRITE (dry-run — pass --apply to write):');
   for (const w of a.writes) out(`  + ${w.path}`);
+  if (a.skipped.length) {
+    out('WOULD SKIP (exists — review/merge):');
+    for (const k of a.skipped) out(`  ~ ${k.path}${k.merge ? '  (structured merge)' : ''}`);
+  }
   out('\nIDENTITY:\n');
   out(a.identityScript);
   if (a.primeHint) out(`PRIME: ${a.primeHint}`);

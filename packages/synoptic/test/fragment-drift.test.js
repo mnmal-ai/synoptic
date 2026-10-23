@@ -5,8 +5,11 @@
  * needs something different done to it.
  */
 
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, test } from 'vitest';
 import {
+  bodyMatchesMarker,
   compareFragments,
   fragmentDriftCheck,
   fragmentDriftWarning,
@@ -14,16 +17,17 @@ import {
   renderFragmentDrift
 } from '../src/fragment-drift.js';
 
+// Marker-only fixtures: an empty body, whose digest is e3b0c442.
 const CURRENT =
-  '<!-- substrate-conventions vsynoptic-1.4.1+446ab494 — plugin-owned; do not edit. -->';
+  '<!-- substrate-conventions vsynoptic-1.4.1+e3b0c442 — plugin-owned; do not edit. -->';
 const OLD_CONTENT = '<!-- substrate-conventions vsynoptic-1.0.0+77a14d34 — plugin-owned; -->';
 const SAME_CONTENT_OLD_VERSION =
-  '<!-- substrate-conventions vsynoptic-1.2.1+446ab494 — plugin-owned; -->';
+  '<!-- substrate-conventions vsynoptic-1.2.1+e3b0c442 — plugin-owned; -->';
 const PRE_DIGEST = '<!-- substrate-conventions vsynoptic-0.1.0 — plugin-owned; do not edit. -->';
 
 describe('readMarker', () => {
   it('reads version and digest', () => {
-    expect(readMarker(CURRENT)).toEqual({ version: '1.4.1', digest: '446ab494' });
+    expect(readMarker(CURRENT)).toEqual({ version: '1.4.1', digest: 'e3b0c442' });
   });
 
   it('reports a pre-digest marker as digest:null rather than failing to parse', () => {
@@ -146,15 +150,17 @@ describe('fragmentDriftWarning', () => {
 });
 
 describe('fragmentDriftWarning compares against the BEST available', () => {
-  const marker = (v, d) => `<!-- substrate-conventions vsynoptic-${v}+${d} -->\nbody for ${v}\n`;
+  // Each fixture carries the real digest of its body, as the stamper writes it.
+  const dig = (v) => createHash('sha256').update(`body for ${v}\n`).digest('hex').slice(0, 8);
+  const marker = (v) => `<!-- substrate-conventions vsynoptic-${v}+${dig(v)} -->\nbody for ${v}\n`;
 
   // Not ${pluginRoot}: a session running when the plugin updated would compare
   // against a stale reference and report "current" while corrections are missing.
   it('sees a newer cached version than the one that served this session', () => {
     const files = {
-      '/repo/.claude/substrate-conventions.md': marker('1.6.0', '09c3e55b'),
-      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0', '09c3e55b'),
-      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0', 'e25b9217')
+      '/repo/.claude/substrate-conventions.md': marker('1.6.0'),
+      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0'),
+      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0')
     };
     const out = fragmentDriftWarning({
       cwd: '/repo',
@@ -164,14 +170,14 @@ describe('fragmentDriftWarning compares against the BEST available', () => {
       cacheDir: '/cache'
     });
     expect(out).toContain('STALE');
-    expect(out).toContain('e25b9217');
+    expect(out).toContain(dig('1.9.0'));
   });
 
   it('stays silent when the repo already matches the best available', () => {
     const files = {
-      '/repo/.claude/substrate-conventions.md': marker('1.9.0', 'e25b9217'),
-      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0', '09c3e55b'),
-      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0', 'e25b9217')
+      '/repo/.claude/substrate-conventions.md': marker('1.9.0'),
+      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0'),
+      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0')
     };
     const out = fragmentDriftWarning({
       cwd: '/repo',
@@ -186,8 +192,8 @@ describe('fragmentDriftWarning compares against the BEST available', () => {
   it('falls back to the served copy when the cache cannot be listed', () => {
     // Pre-existing behaviour, so an unlistable cache is not a regression.
     const files = {
-      '/repo/.claude/substrate-conventions.md': marker('1.0.0', 'aaaaaaaa'),
-      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0', '09c3e55b')
+      '/repo/.claude/substrate-conventions.md': marker('1.0.0'),
+      '/cache/1.6.0/fragments/substrate-conventions.md': marker('1.6.0')
     };
     const out = fragmentDriftWarning({
       cwd: '/repo',
@@ -196,15 +202,15 @@ describe('fragmentDriftWarning compares against the BEST available', () => {
       listDir: () => null,
       cacheDir: '/cache'
     });
-    expect(out).toContain('09c3e55b');
+    expect(out).toContain(dig('1.6.0'));
   });
 
   it('names a single safe command as the remedy, not the nine-step skill', () => {
     // A warning whose remedy is expensive has a predictable steady state:
     // ignored across releases.
     const files = {
-      '/repo/.claude/substrate-conventions.md': marker('1.0.0', 'aaaaaaaa'),
-      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0', 'e25b9217')
+      '/repo/.claude/substrate-conventions.md': marker('1.0.0'),
+      '/cache/1.9.0/fragments/substrate-conventions.md': marker('1.9.0')
     };
     const out = fragmentDriftWarning({
       cwd: '/repo',
@@ -356,7 +362,7 @@ describe('fragmentDriftCheck', () => {
         '/repo/.claude/substrate-conventions.md': CURRENT
       })
     });
-    expect(out).toEqual({ state: 'source', installed: { version: '1.4.1', digest: '446ab494' } });
+    expect(out).toEqual({ state: 'source', installed: { version: '1.4.1', digest: 'e3b0c442' } });
   });
 
   it('returns null instead of throwing', () => {
@@ -369,5 +375,20 @@ describe('fragmentDriftCheck', () => {
         }
       })
     ).toBeNull();
+  });
+});
+
+describe('a body that no longer matches its own marker', () => {
+  const real = readFileSync(
+    new URL('../../cortext-plugin/fragments/substrate-conventions.md', import.meta.url),
+    'utf8'
+  );
+  it('a genuine fragment verifies', () => {
+    expect(bodyMatchesMarker(real)).toBe(true);
+  });
+  it('a truncated install with an intact line 1 is stale, not current', () => {
+    const truncated = real.slice(0, Math.floor(real.length / 2));
+    expect(bodyMatchesMarker(truncated)).toBe(false);
+    expect(compareFragments({ installed: truncated, plugin: real }).state).toBe('stale');
   });
 });

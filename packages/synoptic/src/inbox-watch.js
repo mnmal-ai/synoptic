@@ -4,13 +4,24 @@
 import { resolveIdentityId } from './inbox.js';
 import { readInboxKnobs, toWatchMessage } from './inbox-push.js';
 
+// A stream that never sends a blank line would otherwise grow the buffer
+// without bound; past this the partial event is dropped.
+const SSE_BUFFER_MAX = 1024 * 1024;
+
 /** Incremental text/event-stream parser. */
 export function parseSse() {
   let buf = '';
   return (chunk) => {
-    buf += chunk.replace(/\r\n/g, '\n');
+    // Line endings are normalised on the accumulated buffer, so a CRLF split
+    // across two chunks is still one line ending. A trailing CR waits for the
+    // next chunk, which may begin with its LF.
+    buf = (buf + chunk).replace(/\r\n/g, '\n');
+    const heldCr = buf.endsWith('\r');
+    if (heldCr) buf = buf.slice(0, -1);
+    buf = buf.replace(/\r/g, '\n');
     const blocks = buf.split('\n\n');
-    buf = blocks.pop() ?? '';
+    buf = (blocks.pop() ?? '') + (heldCr ? '\r' : '');
+    if (buf.length > SSE_BUFFER_MAX) buf = '';
     const out = [];
     for (const block of blocks) {
       let event = 'message';
@@ -73,7 +84,12 @@ export async function runWatcher({
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (/^substrate\/query 40[13]$/.test(message))
+      // A refused credential, or a URL the signer will never send a token to,
+      // does not get better by retrying.
+      if (
+        /^substrate\/query 40[13]$/.test(message) ||
+        /^refusing to send an agent token/.test(message)
+      )
         return disabled(`identity lookup failed: ${message}`);
       emit({ type: 'status', state: 'reconnecting', reason: `identity lookup: ${message}` });
       await backoff(attempt);
