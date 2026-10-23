@@ -172,6 +172,33 @@ describe('runColdStart — rule index', () => {
     expect(out).toContain('claude/AgentRule');
     expect(out).not.toContain('## Binding rules — 0');
   });
+
+  it('pages the AgentRule read, so a must past the first page still renders', async () => {
+    const cursors = [];
+    const fetchImpl = (url, init) => {
+      const payload = JSON.parse(init.body);
+      const frame = payload['claude/AgentRule'];
+      if (!frame) return route({ query: {} })(url, init);
+      cursors.push(frame.params.cursor);
+      const later = frame.params.cursor === 'c1';
+      return Promise.resolve(
+        jsonOk({
+          data: {
+            'claude/AgentRule': [
+              later ? { ...mustRule, shortId: 99, synopsis: 'Page two.' } : mustRule
+            ]
+          },
+          _pagination: {
+            'claude/AgentRule': later ? { hasMore: false } : { hasMore: true, nextCursor: 'c1' }
+          }
+        })
+      );
+    };
+    const out = await runColdStart({ ...base, agentKid: null, fetchImpl });
+    expect(cursors).toEqual([undefined, 'c1']);
+    expect(out).toContain('## Binding rules — 2');
+    expect(out).toContain('#99 (git) Page two.');
+  });
 });
 
 describe('truncateToBudget — hook-output ceilings', () => {
