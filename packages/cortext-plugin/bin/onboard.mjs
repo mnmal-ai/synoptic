@@ -263,7 +263,7 @@ const HARNESSES$1 = {
 /**
 * The spawn command for the substrate MCP server. Prefer a local install via
 * `--mcp-bin` (`node <bin> mcp` — no registry auth); otherwise the published
-* package via npx, which needs a GH-Packages-authed ~/.npmrc.
+* package via npx, from npm's `next` tag (`latest` is a placeholder until 1.0.0).
 */
 function serverCommand(id) {
 	return id.mcpBin ? {
@@ -273,7 +273,7 @@ function serverCommand(id) {
 		command: "npx",
 		args: [
 			"-y",
-			"@mnmal-ai/substrate",
+			"@mnmal-ai/substrate@next",
 			"mcp"
 		]
 	};

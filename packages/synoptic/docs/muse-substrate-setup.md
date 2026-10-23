@@ -8,7 +8,7 @@ Run these steps in order. This flow is **idempotent** — re-running it never
 duplicates config entries or rules.
 
 Steps 2, 5, 6, 8 are transport-agnostic and identical to the OpenCode skin's
-`/substrate-setup` (`packages/cortext-opencode/commands/substrate-setup.md`); only
+`/substrate-setup` (`packages/cortext-opencode/skills/substrate-setup/SKILL.md`); only
 the file paths, the MCP dialect, and the hook wiring differ. Where this
 document says "same as", it means it — do not improvise a second procedure.
 

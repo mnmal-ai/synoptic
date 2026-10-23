@@ -102,7 +102,7 @@ Using the `substrate` MCP tools (or `curl -sfk` as fallback), check each of the 
    - The legacy `claude` namespace is **retired** — it resolves to `unknown_namespace`. If you find `claude/*` but not `cortext/*`, the server is running a pre-migration coordinator; say so rather than onboarding against a dead namespace.
    - Every `<ns>/...` frame key below follows this same namespace. Substitute it consistently; do not hardcode `claude`.
 3. **Recall capability:** `GET <SUBSTRATE_URL>/substrate/v1/embed-stats` → `enabled`. `true` = semantic `recall` available; `false` = no embedder, so `recall` cannot answer (Step 6).
-4. **MCP package resolvable** (only matters if Step 4 will wire the npx-based server): run `npm view @mnmal-ai/substrate version`. It is public on npmjs.com and needs no token. If it fails, print this and continue:
+4. **MCP package resolvable** (only matters if Step 4 will wire the npx-based server): run `npm view @mnmal-ai/substrate@next version`. It is public on npmjs.com and needs no token. If it fails, print this and continue:
    > `@mnmal-ai/substrate` is public on npmjs.com. If `npm view` fails, check network access, and that no `~/.npmrc` maps `@mnmal-ai` to another registry (an old `@mnmal-ai:registry=https://npm.pkg.github.com` line does).
 
 Print a capability summary block.
@@ -183,7 +183,7 @@ Project scope is still the right default: the server definition and its `SUBSTRA
        "substrate": {
          "type": "stdio",
          "command": "npx",
-         "args": ["-y", "@mnmal-ai/substrate", "mcp"],
+         "args": ["-y", "@mnmal-ai/substrate@next", "mcp"],
          "env": {
            "SUBSTRATE_URL": "<the url>"
          }

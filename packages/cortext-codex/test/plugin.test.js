@@ -364,3 +364,13 @@ test('shared council and todo skill pointers stay identical to the existing adap
     );
   }
 });
+
+test('substrate-run shares steps 1-5 with the Claude skill; only binary, identity and approvals differ', () => {
+  const steps = (path) => {
+    const text = readFileSync(join(ROOT, path), 'utf8');
+    return text.slice(text.indexOf('## 1.'), text.indexOf('## 6.'));
+  };
+  const ours = steps('skills/substrate-run/SKILL.md');
+  assert.ok(ours.length > 0);
+  assert.equal(ours, steps('../cortext-plugin/skills/substrate-run/SKILL.md'));
+});

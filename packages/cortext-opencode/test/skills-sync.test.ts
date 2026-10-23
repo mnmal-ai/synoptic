@@ -23,3 +23,15 @@ describe('opencode skills stay identical to the Claude skin source', () => {
     });
   }
 });
+
+describe('substrate-run shares its harness-neutral steps with the Claude skin', () => {
+  // Steps 0 (binary and identity) and 6 (permissions) are per-harness; 1-5 are not.
+  const steps = (dir: string) => {
+    const text = read(dir, 'substrate-run');
+    return text.slice(text.indexOf('## 1.'), text.indexOf('## 6.'));
+  };
+  it('steps 1-5 are byte-identical', () => {
+    expect(steps(OURS).length).toBeGreaterThan(0);
+    expect(steps(OURS)).toBe(steps(SOURCE));
+  });
+});
