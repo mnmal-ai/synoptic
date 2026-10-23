@@ -43,6 +43,7 @@ function jsonBody<T>(res: SubstrateResponse): T {
 async function setup(): Promise<{
   server: MemorySubstrateServer;
   composed: ComposeResult;
+  dataset: MemoryDataset;
   stop: () => Promise<void>;
 }> {
   const server = new MemorySubstrateServer();
@@ -64,6 +65,7 @@ async function setup(): Promise<{
   return {
     server,
     composed,
+    dataset: claudeDataset,
     stop: async (): Promise<void> => {
       await composed.stop();
     }
@@ -461,10 +463,14 @@ describe('claude/sendAgentMessage — kid addressing + fan-out', () => {
   // resolver guard covers in-memory-store deployments and gives a branchable
   // error instead of silently picking one of the rows.
   it('rejects a send when the kid resolves to more than one directory row', async () => {
-    const { server, stop } = await setup();
+    const { server, dataset, stop } = await setup();
     cleanup = stop;
     await makeIdentity(server, NOTES);
-    await makeIdentity(server, NOTES); // duplicate kid — memory store allows it
+    // A duplicate the create guard now refuses, so written past it: legacy data
+    // from before the guard, which a memory store has no index to prevent.
+    await dataset.write('AgentIdentity', [
+      { id: 'dup-notes-row', kid: NOTES, host: 'host-a', active: true }
+    ]);
 
     const env = await send(server, SENDER, {
       to: NOTES,
@@ -1031,6 +1037,22 @@ describe('row-level authority: mail participants and identity self-edits', () =>
       'claude/updateAgentIdentity': { params: { id: notesId, active: true }, fields: { id: true } }
     });
     expect(jsonBody<PackEnvelope>(revived).errors).toBeUndefined();
+  });
+
+  it('a second identity row for an existing kid is refused', async () => {
+    const { server, stop } = await setup();
+    cleanup = stop;
+    await makeIdentity(server, NOTES);
+    expect(
+      errorCode(
+        await mutateAs(server, BYSTANDER, {
+          'claude/createAgentIdentity': {
+            params: { kid: NOTES, host: 'host-a' },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('duplicate_kid');
   });
 
   it('kid changes and identity deletes are operator-only, even on your own row', async () => {

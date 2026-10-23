@@ -278,11 +278,18 @@ function parseBody(req: SubstrateRequest): { dryRun: boolean } | { error: string
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'invalid JSON' };
   }
+  // Anything malformed is refused rather than read as a live run: a caller
+  // who asked for a preview and misspelled it must not get a real archive.
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { dryRun: false };
+    return { error: 'body must be a JSON object, e.g. {"dryRun": true}' };
   }
-  const dryRun = (parsed as { dryRun?: unknown }).dryRun === true;
-  return { dryRun };
+  const unknown = Object.keys(parsed).filter((k) => k !== 'dryRun');
+  if (unknown.length > 0) return { error: `unknown field(s): ${unknown.join(', ')}` };
+  const dryRun = (parsed as { dryRun?: unknown }).dryRun;
+  if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+    return { error: '"dryRun" must be true or false' };
+  }
+  return { dryRun: dryRun === true };
 }
 
 export function registerCompactRoute(

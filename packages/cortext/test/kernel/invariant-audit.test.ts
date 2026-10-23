@@ -346,3 +346,51 @@ describe('the completion tally is measured, not promised', () => {
     });
   });
 });
+
+describe('after a repair to a renamed namespace', () => {
+  // A catalog where every object exists, valid, scoped to `ns`.
+  const catalogScopedTo =
+    (ns: string) =>
+    (strings: TemplateStringsArray): Promise<unknown> => {
+      const q = strings.join('?');
+      if (q.includes('to_regclass')) return Promise.resolve([{ ok: true }]);
+      return Promise.resolve(
+        INVARIANT_OBJECTS.map((o) => ({
+          name: o.name,
+          definition: `CHECK ((namespace = '${ns}'::text))`,
+          validated: true
+        }))
+      );
+    };
+  const byPlugin = [{ plugin: CORTEXT_COORDINATOR_NAME, namespace: 'codex' }];
+
+  it('is clean once every object is scoped to the configured namespace', async () => {
+    const findings = await reportInvariantAudit(
+      {
+        sql: catalogScopedTo('codex'),
+        coordinatorNamespaces: ['codex'],
+        coordinatorNamespacesByPlugin: byPlugin,
+        metric: vi.fn()
+      },
+      vi.fn()
+    );
+    expect(findings).toEqual([]);
+  });
+
+  it('still reports drift, and names the configured namespace, before the repair', async () => {
+    const findings = await reportInvariantAudit(
+      {
+        sql: catalogScopedTo(CORTEXT_NAMESPACE),
+        coordinatorNamespaces: ['codex'],
+        coordinatorNamespacesByPlugin: byPlugin,
+        metric: vi.fn()
+      },
+      vi.fn()
+    );
+    expect(findings[0]).toMatchObject({ kind: 'namespace_drifted', configured: 'codex' });
+    expect(findings.filter((f) => f.kind === 'object_misscoped')).toHaveLength(
+      INVARIANT_OBJECTS.length
+    );
+    expect(findingMessage(findings[1] as Finding)).toContain("not 'codex'");
+  });
+});

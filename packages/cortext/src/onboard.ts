@@ -396,11 +396,19 @@ function buildBody(namespace: string, retention: number): OnboardBody {
         description: 'Load recent context at the start of each session',
         query: {
           SessionLog: {
-            params: { limit: 3 },
+            params: {
+              where: { archived: { eq: false } },
+              orderBy: [{ createdAt: 'desc' }],
+              limit: 3
+            },
             fields: { id: true, branch: true, startedAt: true, summary: true, archived: true }
           },
           Decision: {
-            params: { limit: 80 },
+            params: {
+              where: { archived: { eq: false } },
+              orderBy: [{ createdAt: 'desc' }],
+              limit: 80
+            },
             fields: {
               id: true,
               topic: true,
@@ -413,7 +421,14 @@ function buildBody(namespace: string, retention: number): OnboardBody {
             }
           },
           Todo: {
-            params: { limit: 50 },
+            params: {
+              where: {
+                archived: { eq: false },
+                status: { in: ['open', 'in_progress', 'blocked'] }
+              },
+              orderBy: [{ createdAt: 'desc' }],
+              limit: 50
+            },
             fields: {
               id: true,
               title: true,
@@ -432,7 +447,7 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           // Decisions on `archived` alone, and a contract that states an
           // unimplemented filter teaches that the vocabulary is load-bearing.
           'Non-archived Decisions',
-          "Todos with status 'open' or 'blocked'",
+          "Todos with status 'open', 'in_progress' or 'blocked'",
           'Skip archived records silently'
         ]
       }

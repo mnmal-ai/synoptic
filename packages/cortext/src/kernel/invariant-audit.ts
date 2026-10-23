@@ -134,6 +134,7 @@ export type Finding =
       readonly kind: 'object_misscoped';
       readonly object: InvariantObject;
       readonly scopedTo: string | null;
+      readonly expected: string;
     }
   /** Present and correctly scoped, but NOT VALID — new writes only. */
   | { readonly kind: 'object_not_validated'; readonly object: InvariantObject };
@@ -282,7 +283,8 @@ type SqlTag = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
  * reports what was actually inspected instead of a promise.
  */
 export async function auditObjects(
-  sql: unknown
+  sql: unknown,
+  target: string = CORTEXT_NAMESPACE
 ): Promise<{ findings: Finding[]; checked: number }> {
   const catalog = await readCatalog(sql as SqlTag);
   const findings: Finding[] = [];
@@ -296,8 +298,8 @@ export async function auditObjects(
       continue;
     }
     const scope = scopedNamespace(row.definition);
-    if (scope !== CORTEXT_NAMESPACE) {
-      findings.push({ kind: 'object_misscoped', object, scopedTo: scope });
+    if (scope !== target) {
+      findings.push({ kind: 'object_misscoped', object, scopedTo: scope, expected: target });
       continue;
     }
     if (!row.validated) findings.push({ kind: 'object_not_validated', object });
@@ -347,7 +349,7 @@ export function findingMessage(finding: Finding): string {
       return (
         `${head} ${finding.object.kind} '${finding.object.name}' is scoped to ` +
         `${finding.scopedTo === null ? 'no namespace' : `'${finding.scopedTo}'`}, not ` +
-        `'${CORTEXT_NAMESPACE}'. Lost guarantee: ${finding.object.guarantee}. It exists, so ` +
+        `'${finding.expected}'. Lost guarantee: ${finding.object.guarantee}. It exists, so ` +
         'nothing errors; it simply matches no rows.'
       );
     case 'object_not_validated':
@@ -398,9 +400,16 @@ export async function reportInvariantAudit(
   },
   warn: (message: string) => void = console.warn
 ): Promise<Finding[]> {
-  const findings: Finding[] = [
+  let findings: Finding[] = [
     ...auditNamespaceCoverage(ctx.coordinatorNamespaces, ctx.coordinatorNamespacesByPlugin)
   ];
+  // The namespace the objects SHOULD be scoped to: the literal while a
+  // coordinator declares it, else the one the cortext coordinator uses. After
+  // a repair re-scopes the objects there, auditing against the literal would
+  // call every correct object misscoped on every boot.
+  const target = ctx.coordinatorNamespaces.includes(CORTEXT_NAMESPACE)
+    ? CORTEXT_NAMESPACE
+    : (resolveCortextNamespaces(ctx.coordinatorNamespacesByPlugin)?.[0] ?? CORTEXT_NAMESPACE);
 
   // null on the in-memory dataset — there is no catalog to read, and that is a
   // supported configuration, not a fault. Recorded rather than inferred, so
@@ -414,7 +423,13 @@ export async function reportInvariantAudit(
 
   if (catalogRead) {
     try {
-      const result = await auditObjects(ctx.sql);
+      const result = await auditObjects(ctx.sql, target);
+      // Every object present and scoped to the configured namespace means the
+      // drift was repaired; the coverage half, which reads no catalog, cannot
+      // know that.
+      if (target !== CORTEXT_NAMESPACE && result.findings.length === 0) {
+        findings = findings.filter((f) => f.kind !== 'namespace_drifted');
+      }
       findings.push(...result.findings);
       objectsChecked = result.checked;
     } catch (error) {

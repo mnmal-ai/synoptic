@@ -99,6 +99,9 @@ describePg('opt-in repair against a drifted store', () => {
       const { findings } = await auditObjects(tx);
       expect(findings).toHaveLength(INVARIANT_OBJECTS.length);
       expect(findings.every((f) => f.kind === 'object_misscoped')).toBe(true);
+      // And against the configured namespace, which is what the boot audit
+      // now compares with, they are all correct.
+      expect((await auditObjects(tx, 'codex')).findings).toEqual([]);
     });
   });
 
