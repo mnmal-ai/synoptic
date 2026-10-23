@@ -8,7 +8,12 @@ import { envWithLocalFallback } from './local-env.js';
 import { sessionRoot } from './scope.js';
 
 try {
-  const input = await readHookStdin();
+  // Waits for the whole payload (the harness closes stdin, so this is
+  // normally instant). A late or partial payload would lose stop_hook_active,
+  // the flag that stops this hook blocking again; with no event name the
+  // payload is not trusted and the stop is allowed.
+  const input = await readHookStdin(2000);
+  if (typeof input?.hook_event_name !== 'string') process.exit(0);
   const start = typeof input?.cwd === 'string' && input.cwd !== '' ? input.cwd : process.cwd();
   const { env } = envWithLocalFallback(process.env, { targetDir: sessionRoot(start) });
   const auth = createAgentAuth(env);

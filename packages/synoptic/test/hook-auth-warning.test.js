@@ -51,7 +51,7 @@ function spawnEntry(entry, env = {}, input = '') {
 }
 
 for (const [entry, input] of [
-  ['inbox-stop-entry.js', '{}'],
+  ['inbox-stop-entry.js', '{"hook_event_name":"Stop"}'],
   ['inbox-prompt-entry.js', '']
 ]) {
   test(`${entry} sends a broken-credential warning to STDERR, leaving stdout clean`, async () => {
@@ -94,7 +94,7 @@ test('a REAL key produces no warning on either stream, from any entry', async ()
 
   const env = { SUBSTRATE_AGENT_KEY_PATH: keyPath, SUBSTRATE_AGENT_KEY_ID: 'k@h' };
   for (const [entry, input] of [
-    ['inbox-stop-entry.js', '{}'],
+    ['inbox-stop-entry.js', '{"hook_event_name":"Stop"}'],
     ['inbox-prompt-entry.js', ''],
     ['entry.js', '{}']
   ]) {

@@ -631,7 +631,8 @@ function sessionRoot(start) {
 //#endregion
 //#region ../synoptic/src/inbox-stop-entry.js
 try {
-	const input = await readHookStdin();
+	const input = await readHookStdin(2e3);
+	if (typeof input?.hook_event_name !== "string") process.exit(0);
 	const start = typeof input?.cwd === "string" && input.cwd !== "" ? input.cwd : process.cwd();
 	const { env } = envWithLocalFallback(process.env, { targetDir: sessionRoot(start) });
 	const auth = createAgentAuth(env);
