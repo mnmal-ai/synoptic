@@ -95,7 +95,7 @@ const directory = await readDirectory({ substrateUrl, env, fetchImpl });
 const authWarning = agentAuth.warning;
 
 const declaredKid = readDeclaredKid(targetDir);
-const server = await probeServer({ substrateUrl, env, targetDir, fetchImpl, kid, declaredKid });
+const server = await probeServer({ substrateUrl, env, fetchImpl, kid, declaredKid });
 
 // The skill WRITES this file and merges into it, so it is the last
 // place with a chance to notice that everything in it is being discarded.

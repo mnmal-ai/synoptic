@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -817,76 +817,16 @@ function sameNameDifferentHost(kids) {
 //#endregion
 //#region ../synoptic/src/audit/recall.js
 /**
-* Does the salient tier actually RANK SEMANTICALLY — right now, on this box?
+* Is semantic recall reachable at all, for this credential?
 *
-* ## Why a live read rather than the cold-start's boost result
-*
-* The audit runs in a separate process from the cold-start and never has a
-* boost result to read. So this asks the question the other way round. Instead
-* of reporting
-* on a write that happened elsewhere, it performs the READ half live and checks
-* whether the ranker's inputs are actually obtainable. That is a measurement of
-* the current box rather than a claim about a past run, and — boost-on-fetch
-* being opt-in — fetching vectors writes nothing, so it belongs in a read-only
-* mode.
-*
-* ## Why "wired" was never the question
-*
-* `rankRules` short-circuits to structural when either the anchor vector or the
-* rule vectors are missing, and returns a perfectly good structural ranking
-* when it does. Nothing downstream can tell the two apart: a signed call the
-* server refuses, swallowed by design, leaves every instrument individually
-* correct while the feature is dead.
-*
-* So the assertion has to be about EFFECT, not configuration. Same distinction
-* as `applied` against `requested`, and as frame PRESENCE against emptiness.
-*
-* @param {{ probe: { vectors: Map<string, number[]>, failed: string|null },
-*           activeRuleIds: ReadonlyArray<string>,
-*           anchorId: string|null }} p
-*   `probe.failed` carries the server's own reason when the fetch could not be
-*   performed, and null when it was. An empty `vectors` map with `failed: null`
-*   is a real answer — nothing is embedded — and must not read as a hole.
-*/
-function auditSalientTier({ probe, activeRuleIds, anchorId, anchorHistory = null }) {
-	if (probe.failed !== null) return [check("salient.rank", "unknown", "could not fetch rule vectors, so whether ranking is semantic is unknown", `${probe.failed} — the fetch fails, the ranker silently falls back to structural, and the render looks fine`)];
-	const out = [];
-	const withVector = activeRuleIds.filter((id) => probe.vectors.has(id));
-	const unembedded = activeRuleIds.filter((id) => !probe.vectors.has(id));
-	if (activeRuleIds.length === 0) {
-		out.push(check("salient.rank", "unknown", "no active rules to rank", "nothing to measure — an empty rule set cannot demonstrate that ranking works"));
-		return out;
-	}
-	const anchorVectorPresent = anchorId !== null && probe.vectors.has(anchorId);
-	if (withVector.length > 0 && anchorVectorPresent) out.push(check("salient.rank", "ok", `ranking is SEMANTIC: ${withVector.length}/${activeRuleIds.length} rules and the anchor both have vectors`));
-	else if (anchorId === null) {
-		const base = "rankRules needs an anchor vector to score against — with none, the semantic half cannot run even when every rule is embedded";
-		const notPlaceholder = "Write a real one describing what this repo is actually for; a placeholder is worse than none, because the ranker scores against the anchor’s own vector and would then rank against noise instead of falling back honestly";
-		if (anchorHistory === "none") out.push(check("salient.rank", "warn", "this project has NEVER had an anchor, so ranking falls back to structural", `${base}. /substrate-setup does not seed one, so this is an outstanding onboarding step rather than a fault. ${notPlaceholder}`));
-		else if (anchorHistory === "archived") out.push(check("salient.rank", "warn", "every anchor for this project is ARCHIVED, so ranking falls back to structural", `${base}. This repo had an anchor and retired it — the focus it described is over and nothing replaced it. ${notPlaceholder}`));
-		else out.push(check("salient.rank", "warn", "no anchor, so ranking falls back to structural regardless of the rule vectors", `${base} — and whether this project ever had one was not established, so it is unclear if this is a fresh repo or a retired focus`));
-	} else if (!anchorVectorPresent) out.push(check("salient.rank", "warn", "the anchor has no embedding row, so ranking falls back to structural", "the whole rule set can be embedded and this still short-circuits — the anchor is the other half of the comparison, and it is the half nobody thinks to check"));
-	else out.push(check("salient.rank", "warn", `no active rule has an embedding row (0/${activeRuleIds.length}), so ranking is structural-only`, "the corpus was never embedded, or the embed hook is not running for AgentRule"));
-	if (unembedded.length > 0 && withVector.length > 0) out.push(check("salient.embedded", "warn", `${unembedded.length} active rule(s) have NO embedding row: ${unembedded.join(", ")}`, "a rule that exists but was never embedded can still be promoted and can never be ranked semantically — it sits in the structural half invisibly"));
-	return out;
-}
-/**
-* Is semantic recall reachable at all?
-*
-* One line. The cold-start
-* already renders the answer — `## Agent Memory (hybrid recall — RRF, unified)`
-* when recall answers, `## Agent Memory (from <ns>/Memory — N total, M top)`
-* when it does not — but nobody reads the heading.
-*
-* A degradation path that is correct, silent, and permanent is indistinguishable
-* from working software. The only fix is an instrument that states which branch
-* was taken, rather than one that reports faults.
+* One line, stating which branch was taken rather than reporting faults: a
+* credential whose grant omits `recall` gets per-key `unauthorized_namespace`
+* rejections that nothing else surfaces.
 *
 * ## Why this needs `reachable` and cannot infer it
 *
 * `recall` returns null for a refusal AND for an unreachable server — the
-* two are deliberately merged there, because a cold-start's response to both is
-* the same: degrade to structural. An audit's response is NOT the same. "Recall
+* two are deliberately merged there. An audit's response to them is NOT the same. "Recall
 * does not answer" is a verified fault; "the server is down" is a check that
 * could not run, and this module's one rule is that those must never render
 * alike. Reported as a warn on an unreachable box, this line would assert a
@@ -899,10 +839,10 @@ function auditSalientTier({ probe, activeRuleIds, anchorId, anchorHistory = null
 * @param {{ answered: boolean, reachable: boolean, reason: string|null }} p
 */
 function auditSemanticRecall({ answered, reachable, reason, credentialAttributed = true }) {
-	if (!credentialAttributed) return [check("recall.available", "unknown", "recall was probed with a credential that is not established as this target’s", "whether hybrid recall answers depends on the asking credential’s namespace grant, so this probe answers for the auditor. See the authority section — the same substitution, one section up.")];
-	if (answered) return [check("recall.available", "ok", "semantic recall answers — Agent Memory renders hybrid")];
+	if (!credentialAttributed) return [check("recall.available", "unknown", "recall was probed with a credential that is not established as this target’s", "whether recall answers depends on the asking credential’s namespace grant, so this probe answers for the auditor. See the authority section — the same substitution, one section up.")];
+	if (answered) return [check("recall.available", "ok", "semantic recall answers")];
 	if (!reachable) return [check("recall.available", "unknown", "could not reach the server, so whether recall answers is unknown", `${reason ?? "no reason given"} — an unreachable server is a check that did not run, not a recall fault`)];
-	return [check("recall.available", "warn", "semantic recall does NOT answer — Agent Memory silently degrades to structural", `${reason ?? "no reason given"} — this is a correct, silent, permanent fallback, which is why it went unnoticed: the render looks complete and simply carries a different heading`)];
+	return [check("recall.available", "warn", "semantic recall does NOT answer for this credential", `${reason ?? "no reason given"} — the recall tool and recall/Hit frames fail for this credential; check its grant includes \`recall\``)];
 }
 
 //#endregion
@@ -2200,56 +2140,6 @@ function asGrants(raw) {
 	}
 	return out;
 }
-/**
-* POST /substrate/v1/mutate. Returns the `data` map. Throws on non-2xx / network / timeout.
-*
-* Exists because the plugin KERNEL ROUTES cannot authenticate an agent.
-* `mountKernelRoute` receives the host's undecorated `AuthConfig`, which has no
-* key registry, so a registry-resolved kid cannot be looked up and a perfectly
-* valid agent token is rejected as "present-but-invalid". Frame dispatch runs
-* inside `compose()`, which derives an auth config that DOES carry the registry
-* — so the same credential that 401s on `/substrate/v1/embeddings/fetch` verifies here.
-*
-* Measured, with a control that rules out a bad key:
-*
-*     /substrate/v1/query             GOOD token     200
-*     /substrate/v1/query             CORRUPT token  401   <- the verifier works
-*     /substrate/v1/embeddings/fetch  GOOD token     401
-*     /substrate/v1/embeddings/fetch  NO token       200
-*
-* The frame surface and the kernel routes delegate to ONE core per operation,
-* so this is a transport swap and not a behaviour change — verified against the
-* live server for all three: byte-identical response shapes, `boost: false` is
-* honoured, and a nonexistent ref still reports `applied: 0` with `missing[]`.
-*
-* Shares `substrateQuery`'s partial-success handling deliberately. A mutate frame
-* is rejected exactly the way a query frame is — 200, key ABSENT from `data`,
-* reason in `errors` — so a caller reading `data[key] ?? null` cannot tell a
-* refusal from a no-op. `onFrameFailure` is the seam that keeps that visible.
-*/
-async function substrateMutate(substrateUrl, payload, opts = {}) {
-	const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null } = opts;
-	const { signal, done } = withTimeout(timeoutMs);
-	try {
-		const res = await fetchImpl(`${substrateUrl}/substrate/v1/mutate`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(payload),
-			signal
-		});
-		if (!res.ok) throw new Error(`substrate/mutate ${res.status}`);
-		const json = await res.json();
-		try {
-			if (onFrameFailure !== null) {
-				for (const e of frameErrors(json)) onFrameFailure(e.key, `${e.code}: ${e.message}`);
-				for (const key of unansweredFrames(payload, json)) onFrameFailure(key, "requested but absent from `data`, with no error given");
-			}
-		} catch {}
-		return json.data ?? {};
-	} finally {
-		done();
-	}
-}
 
 //#endregion
 //#region ../synoptic/src/host-checks.js
@@ -2795,114 +2685,6 @@ async function gatherFleet({ fleetDir, directoryRows, candidates, substrateUrl, 
 }
 
 //#endregion
-//#region ../synoptic/src/rule-vectors.js
-/**
-* Fetch stored embedding vectors for rows.
-*
-* Never throws — a cold-start must degrade to less context, never to none, and
-* the salient tier degrades to structural-only exactly as it does today.
-*
-* @param {string} substrateUrl
-* @param {ReadonlyArray<{namespace: string, type: string, id: string}>} refs
-* @param {{ fetchImpl?: typeof fetch, onFrameFailure?: ((key: string, detail: string) => void)|null }} [opts]
-* @returns {Promise<Map<string, number[]>>} id -> vector. Empty on any failure.
-*/
-async function fetchRowVectors(substrateUrl, refs, { fetchImpl = fetch, onFrameFailure = null } = {}) {
-	const out = /* @__PURE__ */ new Map();
-	if (!Array.isArray(refs) || refs.length === 0) return out;
-	const key = "recall/fetchEmbeddings";
-	try {
-		const data = await substrateMutate(substrateUrl, { [key]: {
-			params: { refs },
-			fields: {
-				model: true,
-				vectors: true
-			}
-		} }, {
-			fetchImpl,
-			onFrameFailure
-		});
-		const vectors = Array.isArray(data?.[key]?.vectors) ? data[key].vectors : [];
-		for (const v of vectors) if (typeof v?.id === "string" && Array.isArray(v?.vector)) out.set(v.id, v.vector);
-	} catch {}
-	return out;
-}
-/** `{namespace, type, id}` refs for rows that have an id. */
-function toRefs(rows, namespace, type) {
-	return rows.filter((r) => typeof r?.id === "string").map((r) => ({
-		namespace,
-		type,
-		id: r.id
-	}));
-}
-
-//#endregion
-//#region ../synoptic/src/repo-root.js
-/** Owner uid of `path`, or null when it does not exist. */
-function ownerOf(path) {
-	try {
-		return statSync(path).uid;
-	} catch {
-		return null;
-	}
-}
-/**
-* The nearest ancestor of `start` (itself included) holding `.git`, a
-* directory in a checkout or a file in a worktree. Null outside any
-* repository, and never throws.
-*
-* The root's settings decide which server this session signs to, so a root
-* is accepted only when it and its `.git` belong to the current user, the
-* same rule as git's safe.directory: a `.git` planted in a shared ancestor
-* such as /tmp must not be able to adopt a session. The walk stops at the
-* nearest `.git` either way.
-*
-* @param {string} start
-* @param {{ ownerOf?: (path: string) => number|null, uid?: number|null }} [io]
-* @returns {string|null}
-*/
-function findRepoRoot(start, io = {}) {
-	if (!start) return null;
-	const owner = io.ownerOf ?? ownerOf;
-	const uid = io.uid !== void 0 ? io.uid : process.getuid?.() ?? null;
-	try {
-		let dir = start;
-		for (;;) {
-			const gitOwner = owner(join(dir, ".git"));
-			if (gitOwner !== null) {
-				if (uid === null) return dir;
-				return gitOwner === uid && owner(dir) === uid ? dir : null;
-			}
-			const parent = dirname(dir);
-			if (parent === dir) return null;
-			dir = parent;
-		}
-	} catch {
-		return null;
-	}
-}
-
-//#endregion
-//#region ../synoptic/src/scope.js
-/** The repository root for a session started in `start`, or `start` itself outside one. */
-function sessionRoot(start) {
-	return findRepoRoot(start) ?? start;
-}
-/** The project slug for a root: its basename, or null (all projects) under SYNOPTIC_PROJECT_SCOPE=all. */
-function projectSlug(root, env) {
-	if (env.SYNOPTIC_PROJECT_SCOPE === "all") return null;
-	return basename(root);
-}
-/** The `where` for live rows in a project plus cross-cutting rows; unscoped for a null slug. */
-function projectWhere(slug) {
-	if (slug === null || slug === void 0) return { archived: { eq: false } };
-	return {
-		archived: { eq: false },
-		project: { in: [slug, null] }
-	};
-}
-
-//#endregion
 //#region ../synoptic/src/audit-facts/server.js
 const DIRECTORY_LIMIT = 200;
 /**
@@ -2944,15 +2726,14 @@ async function readDirectory({ substrateUrl, env, fetchImpl }) {
 	};
 }
 /**
-* whoami plus the salient-tier and recall probes, read-only. Without a server
-* each answers `unknown` with the reason.
+* whoami plus the recall probe, read-only. Without a server each answers
+* `unknown` with the reason.
 *
 * @param {{ substrateUrl: string|null, env: Record<string, string|undefined>,
-*           targetDir: string, fetchImpl: typeof fetch, kid: string|null,
+*           fetchImpl: typeof fetch, kid: string|null,
 *           declaredKid?: string|null }} p
 */
-async function probeServer({ substrateUrl, env, targetDir, fetchImpl, kid, declaredKid = null }) {
-	let salientFindings = [check("salient.rank", "unknown", "SUBSTRATE_URL is not set, so the salient tier could not be probed", "the audit cannot reach a server to ask whether ranking is semantic")];
+async function probeServer({ substrateUrl, env, fetchImpl, kid, declaredKid = null }) {
 	let recallFindings = [check("recall.available", "unknown", "SUBSTRATE_URL is not set, so semantic recall could not be probed", "the audit cannot reach a server to ask whether recall answers")];
 	let whoami = {
 		ok: false,
@@ -2961,88 +2742,7 @@ async function probeServer({ substrateUrl, env, targetDir, fetchImpl, kid, decla
 	if (substrateUrl !== null) {
 		const ns = env.SUBSTRATE_NAMESPACE ?? "cortext";
 		whoami = await probeWhoami(substrateUrl, { fetchImpl });
-		const ruleKey = `${ns}/AgentRule`;
-		const anchorKey = `${ns}/AnchorIntent`;
-		const projectSlug$1 = projectSlug(targetDir, env);
-		const projectWhere$1 = projectWhere(projectSlug$1);
-		let activeRuleIds = [];
-		let anchorId = null;
-		let anchorHistory = null;
-		let failed = null;
-		try {
-			const data = await substrateQuery(substrateUrl, {
-				[ruleKey]: {
-					params: {
-						where: {
-							...projectWhere$1,
-							active: { eq: true }
-						},
-						limit: 200
-					},
-					fields: { id: true }
-				},
-				[anchorKey]: {
-					params: {
-						where: projectWhere$1,
-						limit: 1,
-						orderBy: [{ createdAt: "desc" }]
-					},
-					fields: { id: true }
-				}
-			}, {
-				fetchImpl,
-				onFrameFailure: (k, d) => failed = `${k}: ${d}`
-			});
-			activeRuleIds = (Object.hasOwn(data, ruleKey) ? data[ruleKey] : []).map((r) => r.id).filter((id) => typeof id === "string");
-			anchorId = (Object.hasOwn(data, anchorKey) ? data[anchorKey] : [])[0]?.id ?? null;
-			if (anchorId === null && projectSlug$1 !== null) {
-				let everFailed = null;
-				const ever = await substrateQuery(substrateUrl, { [anchorKey]: {
-					params: {
-						where: { project: { eq: projectSlug$1 } },
-						limit: 1
-					},
-					fields: { id: true }
-				} }, {
-					fetchImpl,
-					onFrameFailure: (k, d) => everFailed = `${k}: ${d}`
-				});
-				anchorHistory = everFailed !== null || !Object.hasOwn(ever, anchorKey) ? null : ever[anchorKey].length > 0 ? "archived" : "none";
-			}
-		} catch (err) {
-			failed = String(err?.message ?? err);
-		}
-		if (failed === null) {
-			const ruleRefs = toRefs(activeRuleIds.map((id) => ({ id })), ns, "AgentRule");
-			const anchorRefs = anchorId === null ? [] : toRefs([{ id: anchorId }], ns, "AnchorIntent");
-			let probeFailed = null;
-			const vectors = /* @__PURE__ */ new Map();
-			for (const group of [ruleRefs, anchorRefs]) {
-				if (group.length === 0) continue;
-				const got = await fetchRowVectors(substrateUrl, group, {
-					fetchImpl,
-					onFrameFailure: (k, d) => probeFailed = `${k}: ${d}`
-				});
-				for (const [id, v] of got) vectors.set(id, v);
-			}
-			if (probeFailed === null && vectors.size === 0 && ruleRefs.length > 0) probeFailed = "the vector fetch returned nothing and reported no reason";
-			salientFindings = auditSalientTier({
-				probe: {
-					vectors,
-					failed: probeFailed
-				},
-				activeRuleIds,
-				anchorId,
-				anchorHistory
-			});
-		} else salientFindings = auditSalientTier({
-			probe: {
-				vectors: /* @__PURE__ */ new Map(),
-				failed
-			},
-			activeRuleIds: [],
-			anchorId: null
-		});
+		const reachable = whoami.ok || /^whoami \d/.test(whoami.failed ?? "");
 		let recallReason = null;
 		const rows = await recall(substrateUrl, {
 			query: "audit probe: is semantic recall reachable",
@@ -3060,13 +2760,12 @@ async function probeServer({ substrateUrl, env, targetDir, fetchImpl, kid, decla
 				resolvedKid: kid,
 				declaredKid
 			}),
-			reachable: failed === null,
-			reason: recallReason ?? failed ?? "the recall frame did not answer and gave no reason"
+			reachable,
+			reason: recallReason ?? (reachable ? "the recall frame did not answer and gave no reason" : whoami.failed)
 		});
 	}
 	return {
 		whoami,
-		salientFindings,
 		recallFindings
 	};
 }
@@ -3075,7 +2774,7 @@ async function probeServer({ substrateUrl, env, targetDir, fetchImpl, kid, decla
 //#region ../synoptic/src/audit-facts/groups.js
 /** @param {Record<string, any>} facts every gatherer's output, plus the target and cwd. */
 function buildGroups(facts) {
-	const { pin, installedVersion, cloneFreshness, cloneDetail, opencodeSkinVersion, installedRegistry, candidates, cacheDirState, servedVersion, servedRootState, resolution, kid, source, declaredName, declaredKid, keyNames, revokedNames, directoryKids, activeKids, directoryRows, whoami, authWarning, targetDir, cwd, env, keyRefs, refScanComplete, mcpJsonFacts, salientFindings, recallFindings, settingsFindings, fleetFindings, hostFindings } = facts;
+	const { pin, installedVersion, cloneFreshness, cloneDetail, opencodeSkinVersion, installedRegistry, candidates, cacheDirState, servedVersion, servedRootState, resolution, kid, source, declaredName, declaredKid, keyNames, revokedNames, directoryKids, activeKids, directoryRows, whoami, authWarning, targetDir, cwd, env, keyRefs, refScanComplete, mcpJsonFacts, recallFindings, settingsFindings, fleetFindings, hostFindings } = facts;
 	return [
 		["pin", auditPin({
 			pin,
@@ -3126,7 +2825,7 @@ function buildGroups(facts) {
 		}), ...directoryRows !== null && directoryRows.length >= 200 ? [check("directory.truncated", "unknown", `read ${directoryRows.length} AgentIdentity rows, the query limit, so some may be missing`, "\"unregistered\" and \"never reported\" findings may be false; this audit does not page")] : []]],
 		["mcp-json", auditMcpJson(mcpJsonFacts)],
 		["inbox push", auditInboxPush({ env })],
-		["salient tier", [...salientFindings, ...recallFindings]],
+		["recall", recallFindings],
 		["settings", settingsFindings],
 		...fleetFindings === null ? [] : [["fleet", fleetFindings]],
 		...hostFindings === null ? [] : [["hosts", hostFindings]]
@@ -3565,6 +3264,59 @@ function envWithLocalFallback(processEnv, { targetDir, readFile = readOrNull }) 
 }
 
 //#endregion
+//#region ../synoptic/src/repo-root.js
+/** Owner uid of `path`, or null when it does not exist. */
+function ownerOf(path) {
+	try {
+		return statSync(path).uid;
+	} catch {
+		return null;
+	}
+}
+/**
+* The nearest ancestor of `start` (itself included) holding `.git`, a
+* directory in a checkout or a file in a worktree. Null outside any
+* repository, and never throws.
+*
+* The root's settings decide which server this session signs to, so a root
+* is accepted only when it and its `.git` belong to the current user, the
+* same rule as git's safe.directory: a `.git` planted in a shared ancestor
+* such as /tmp must not be able to adopt a session. The walk stops at the
+* nearest `.git` either way.
+*
+* @param {string} start
+* @param {{ ownerOf?: (path: string) => number|null, uid?: number|null }} [io]
+* @returns {string|null}
+*/
+function findRepoRoot(start, io = {}) {
+	if (!start) return null;
+	const owner = io.ownerOf ?? ownerOf;
+	const uid = io.uid !== void 0 ? io.uid : process.getuid?.() ?? null;
+	try {
+		let dir = start;
+		for (;;) {
+			const gitOwner = owner(join(dir, ".git"));
+			if (gitOwner !== null) {
+				if (uid === null) return dir;
+				return gitOwner === uid && owner(dir) === uid ? dir : null;
+			}
+			const parent = dirname(dir);
+			if (parent === dir) return null;
+			dir = parent;
+		}
+	} catch {
+		return null;
+	}
+}
+
+//#endregion
+//#region ../synoptic/src/scope.js
+/** The repository root for a session started in `start`, or `start` itself outside one. */
+function sessionRoot(start) {
+	return findRepoRoot(start) ?? start;
+}
+
+//#endregion
 //#region ../synoptic/src/audit-entry.js
 const BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fetch"]);
 function parseArgs(argv) {
@@ -3614,7 +3366,6 @@ const declaredKid = readDeclaredKid(targetDir);
 const server = await probeServer({
 	substrateUrl,
 	env,
-	targetDir,
 	fetchImpl,
 	kid,
 	declaredKid
