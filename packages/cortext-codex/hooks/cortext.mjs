@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, readdirSync, statSync, statfsSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, statSync, statfsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { execFile, spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -90,34 +90,53 @@ const LOCAL_KEYS = /* @__PURE__ */ new Set([
 	"SYNOPTIC_INBOX_STOP_CHECK",
 	"SYNOPTIC_INBOX_PROMPT_CHECK"
 ]);
-/** Whether git tracks `rel` in the repo at `cwd`. False outside a repo or without git. */
+/**
+* Whether git tracks `rel` in the repo at `cwd`, matched case-insensitively
+* so a `.Codex/` variant on a case-insensitive filesystem counts. `null` when
+* git could not answer.
+*/
 function gitTracks(cwd, rel) {
-	return spawnSync("git", [
+	const r = spawnSync("git", [
 		"-C",
 		cwd,
 		"ls-files",
-		"--error-unmatch",
+		"-z",
 		"--",
-		rel
+		`:(icase)${dirname(rel)}`
 	], {
-		stdio: "ignore",
+		encoding: "utf8",
 		timeout: 2e3
-	}).status === 0;
+	});
+	if (r.error || r.status !== 0) return null;
+	const want = rel.toLowerCase();
+	return r.stdout.split("\0").some((p) => p.toLowerCase() === want);
+}
+function refuse(message) {
+	return Object.assign(new Error(message), { code: "TRACKED" });
 }
 /**
 * One settings source for hooks and MCP. Never read another harness's identity.
 *
 * The file names the executable the MCP launcher spawns and the URL signed
 * requests go to, so it must be machine-local: a copy committed to a repo
-* would let any checkout choose both. A tracked file is refused.
+* would let any checkout choose both. Refused: a symlinked `.codex` or file
+* (a link can reach a tracked path git does not report under this name), a
+* file git tracks, and, inside a repo, any case where git cannot say.
 */
 function loadConfig(startDir, processEnv = process.env, readFile = readFileSync, isTracked = gitTracks) {
-	const cwd = findRepoRoot(startDir) ?? startDir;
+	const repo = findRepoRoot(startDir);
+	const cwd = repo ?? startDir;
 	const path = join(cwd, CONFIG_PATH);
 	let config = {};
 	try {
+		if (!lstatSync(dirname(path)).isDirectory()) throw refuse(`${dirname(CONFIG_PATH)} must be a directory, not a link`);
+		if (!lstatSync(path).isFile()) throw refuse(`${CONFIG_PATH} must be a regular file, not a link`);
+		if (repo !== null) {
+			const tracked = isTracked(cwd, CONFIG_PATH);
+			if (tracked === null) throw refuse(`could not confirm with git that ${CONFIG_PATH} is untracked`);
+			if (tracked) throw refuse(`${CONFIG_PATH} is tracked by git; it must stay untracked (git rm --cached it)`);
+		}
 		config = JSON.parse(readFile(path, "utf8"));
-		if (isTracked(cwd, ".codex/cortext.local.json")) throw Object.assign(/* @__PURE__ */ new Error(`${CONFIG_PATH} is tracked by git; it must stay untracked (git rm --cached it)`), { code: "TRACKED" });
 		if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error();
 		if (config.env !== void 0 && (!config.env || typeof config.env !== "object" || Array.isArray(config.env))) throw new Error();
 	} catch (error) {

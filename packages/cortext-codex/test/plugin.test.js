@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync, verify } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +23,7 @@ const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 
 function workspace(env = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'cortext-codex-test-'));
-  mkdirSync(join(cwd, '.git'));
+  spawnSync('git', ['init', '-q', cwd], { stdio: 'ignore' });
   mkdirSync(join(cwd, '.codex'));
   const key = join(cwd, 'test.key');
   writeFileSync(key, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
@@ -377,21 +385,31 @@ test('substrate-run shares steps 1-5 with the Claude skill; only binary, identit
 
 test('a tracked .codex/cortext.local.json is refused, so a checkout cannot choose the MCP command', () => {
   const cwd = workspace({ SUBSTRATE_URL: 'https://substrate.test' });
-  const tracked = () => true;
-  assert.throws(() => loadConfig(cwd, {}, undefined, tracked), /tracked by git/);
-  assert.equal(
-    loadConfig(cwd, {}, undefined, () => false).env.SUBSTRATE_URL,
-    'https://substrate.test'
-  );
+  assert.throws(() => loadConfig(cwd, {}, undefined, () => true), /tracked by git/);
+  assert.throws(() => loadConfig(cwd, {}, undefined, () => null), /could not confirm/);
+  assert.equal(loadConfig(cwd, {}).env.SUBSTRATE_URL, 'https://substrate.test');
 });
 
-test('gitTracks reads the real index', () => {
+test('gitTracks reads the real index, case-insensitively', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'cortext-codex-git-'));
   const git = (...args) => spawnSync('git', ['-C', cwd, ...args], { stdio: 'ignore' });
-  if (git('init', '-q').status !== 0) return;
-  mkdirSync(join(cwd, '.codex'));
-  writeFileSync(join(cwd, CONFIG_PATH), '{}');
+  assert.equal(git('init', '-q').status, 0);
+  mkdirSync(join(cwd, '.Codex'));
+  writeFileSync(join(cwd, '.Codex/cortext.local.json'), '{}');
   assert.equal(gitTracks(cwd, CONFIG_PATH), false);
-  git('add', CONFIG_PATH);
+  git('add', '.Codex/cortext.local.json');
   assert.equal(gitTracks(cwd, CONFIG_PATH), true);
+  assert.equal(gitTracks(join(cwd, 'missing'), CONFIG_PATH), null);
+});
+
+test('a symlinked .codex directory or settings file is refused', () => {
+  const cwd = workspace();
+  const elsewhere = mkdtempSync(join(tmpdir(), 'cortext-codex-link-'));
+  renameSync(join(cwd, '.codex'), join(elsewhere, 'real'));
+  symlinkSync(join(elsewhere, 'real'), join(cwd, '.codex'));
+  assert.throws(() => loadConfig(cwd, {}), /must be a directory/);
+  rmSync(join(cwd, '.codex'));
+  mkdirSync(join(cwd, '.codex'));
+  symlinkSync(join(elsewhere, 'real', 'cortext.local.json'), join(cwd, CONFIG_PATH));
+  assert.throws(() => loadConfig(cwd, {}), /regular file/);
 });
