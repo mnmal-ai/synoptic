@@ -3,7 +3,10 @@
 // Executable entry for `/substrate-setup --audit`. Bundled to
 // `bin/audit.mjs` like the hooks and the resolver.
 //
-//   node bin/audit.mjs [--target-dir DIR] [--plugins-dir DIR]
+//   node bin/audit.mjs [--target-dir DIR] [--plugins-dir DIR] [--fleet DIR] [--hosts]
+//
+// --hosts prints only the hosts section: every host's HostInstall row, its
+// freshness and its checks, read from the store.
 //
 // READ-ONLY. It opens no file for writing and sends no mutation. That is the
 // whole design: a mode that writes nothing needs no consent gate, so it can run
@@ -38,9 +41,9 @@ import { readMcpJsonFacts } from './mcp-json-facts.js';
 import { sessionRoot } from './scope.js';
 import { checkSettings } from './settings-check.js';
 
-// `fetch` is a boolean; everything else takes a value. Without this, a bare
+// `fetch` and `hosts` are booleans; everything else takes a value. Without this, a bare
 // `--fetch` swallows the following argument.
-const BOOLEAN_FLAGS = new Set(['fetch']);
+const BOOLEAN_FLAGS = new Set(['fetch', 'hosts']);
 
 function parseArgs(argv) {
   const flags = {};
@@ -108,6 +111,7 @@ const pinFacts = readPinFacts({ pluginsDir, fetch: flags.fetch === true });
 const fleetDir = flags.fleet ?? null;
 const fleet = await gatherFleet({
   fleetDir,
+  hosts: flags.hosts === true,
   directoryRows: directory.directoryRows,
   candidates: plugin.candidates,
   substrateUrl,
@@ -139,6 +143,8 @@ const groups = buildGroups({
   ...refs
 });
 
-const report = renderAudit(groups);
+const report = renderAudit(
+  flags.hosts === true ? groups.filter(([name]) => name === 'hosts') : groups
+);
 console.log(report);
 process.exit(/\[WARN\]|\[\?\?\?\?\]/.test(report) ? 1 : 0);

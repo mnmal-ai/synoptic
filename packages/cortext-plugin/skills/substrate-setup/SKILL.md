@@ -74,6 +74,8 @@ against the local plugin, and `--audit` without `--fleet` answers "is this repo
 current". Neither can answer "are my repos consistent" — several repos can
 hold different fragment bodies with nothing flagging it. Pass `--fleet` the directory holding your repos and it reports the SPREAD.
 
+**`--hosts` is the operator view.** It prints only the hosts section: one line per host, repo and harness from `<ns>/HostInstall`, with freshness, plugin and fragment versions, each check's state, and who signed the row. It reads the store, so it covers hosts this machine cannot see, and it needs no directory. `--fleet` includes the same section.
+
 **`--fetch` is worth passing when you care about the answer.** Without it the
 pin is read from whatever the local marketplace clone last fetched, and that
 clone can itself be behind while every other check reports healthy. Without `--fetch` the audit says so, as a

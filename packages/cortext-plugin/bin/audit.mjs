@@ -2617,14 +2617,15 @@ const HOST_INSTALL_FIELDS = [
 	"settingsEnv"
 ];
 /**
-* Both null without --fleet.
+* `fleetFindings` is null without --fleet; `hostFindings` is null without
+* --fleet or --hosts.
 *
-* @param {{ fleetDir: string|null, directoryRows: Array<object>|null,
+* @param {{ fleetDir: string|null, hosts?: boolean, directoryRows: Array<object>|null,
 *           candidates: Array<{ version: string, text: string }>,
 *           substrateUrl: string|null, env: Record<string, string|undefined>,
 *           fetchImpl: typeof fetch, thisHost?: string }} p
 */
-async function gatherFleet({ fleetDir, directoryRows, candidates, substrateUrl, env, fetchImpl, thisHost = hostname() }) {
+async function gatherFleet({ fleetDir, hosts = false, directoryRows, candidates, substrateUrl, env, fetchImpl, thisHost = hostname() }) {
 	let fleetFindings = null;
 	let hostFindings = null;
 	if (fleetDir !== null) {
@@ -2677,6 +2678,8 @@ async function gatherFleet({ fleetDir, directoryRows, candidates, substrateUrl, 
 			missing
 		}).findings;
 		fleetFindings = [...scope.findings, ...surveyed].map((f) => check(f.id, f.state, f.text, f.detail));
+	}
+	if (fleetDir !== null || hosts) {
 		let hostRows = null;
 		if (substrateUrl !== null) try {
 			const key = `${env.SUBSTRATE_NAMESPACE ?? "cortext"}/HostInstall`;
@@ -3338,7 +3341,7 @@ function sessionRoot(start) {
 
 //#endregion
 //#region ../synoptic/src/audit-entry.js
-const BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fetch"]);
+const BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["fetch", "hosts"]);
 function parseArgs(argv) {
 	const flags = {};
 	for (let i = 0; i < argv.length; i++) {
@@ -3401,6 +3404,7 @@ const pinFacts = readPinFacts({
 const fleetDir = flags.fleet ?? null;
 const fleet = await gatherFleet({
 	fleetDir,
+	hosts: flags.hosts === true,
 	directoryRows: directory.directoryRows,
 	candidates: plugin.candidates,
 	substrateUrl,
@@ -3434,7 +3438,7 @@ const groups = buildGroups({
 	...fleet,
 	...refs
 });
-const report = renderAudit(groups);
+const report = renderAudit(flags.hosts === true ? groups.filter(([name]) => name === "hosts") : groups);
 console.log(report);
 process.exit(/\[WARN\]|\[\?\?\?\?\]/.test(report) ? 1 : 0);
 

@@ -118,15 +118,17 @@ const HOST_INSTALL_FIELDS = [
 ];
 
 /**
- * Both null without --fleet.
+ * `fleetFindings` is null without --fleet; `hostFindings` is null without
+ * --fleet or --hosts.
  *
- * @param {{ fleetDir: string|null, directoryRows: Array<object>|null,
+ * @param {{ fleetDir: string|null, hosts?: boolean, directoryRows: Array<object>|null,
  *           candidates: Array<{ version: string, text: string }>,
  *           substrateUrl: string|null, env: Record<string, string|undefined>,
  *           fetchImpl: typeof fetch, thisHost?: string }} p
  */
 export async function gatherFleet({
   fleetDir,
+  hosts = false,
   directoryRows,
   candidates,
   substrateUrl,
@@ -205,7 +207,9 @@ export async function gatherFleet({
     fleetFindings = [...scope.findings, ...surveyed].map((f) =>
       check(f.id, f.state, f.text, f.detail)
     );
+  }
 
+  if (fleetDir !== null || hosts) {
     // What every host has INSTALLED, from the rows each host's cold-start
     // writes. Unlike the disk survey above, this covers hosts this machine
     // cannot see.
