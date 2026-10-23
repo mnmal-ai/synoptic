@@ -267,11 +267,11 @@ test('offline, disabled checks, malformed stdin and broken config never block a 
 });
 
 test('a hung operation is bounded and its request signal is aborted', async () => {
-  const cwd = workspace({ SUBSTRATE_URL: 'http://fixture' });
+  const cwd = workspace({ SUBSTRATE_URL: 'http://127.0.0.1:9' });
   let aborted = false;
   const result = await handleHook({ hook_event_name: 'SessionStart' }, loadConfig(cwd, {}), {
     budgetMs: 20,
-    coldStart: ({ fetchImpl }) => fetchImpl('http://fixture'),
+    coldStart: ({ fetchImpl }) => fetchImpl('http://127.0.0.1:9'),
     fetchImpl: (_url, init) =>
       new Promise((_resolve, reject) => {
         init.signal.addEventListener('abort', () => {

@@ -84,7 +84,7 @@ const sorted = (g: Record<string, string[]> | null) =>
 describe('whoami contract, executed against a composed substrate', () => {
   it('a NON-UNIFORM dataset grant arrives as per-namespace grants', async () => {
     const fetchImpl = await substrateWithKey('cortext:read+mutate,recall:read', 'read,mutate');
-    const who = await probeWhoami('http://substrate.test', { fetchImpl });
+    const who = await probeWhoami('http://localhost', { fetchImpl });
 
     expect(who.ok).toBe(true);
     expect(who.authEnabled).toBe(true);
@@ -100,7 +100,7 @@ describe('whoami contract, executed against a composed substrate', () => {
 
   it('a uniform grant arrives with the same caps on every namespace', async () => {
     const fetchImpl = await substrateWithKey('cortext,recall', 'read,mutate');
-    const who = await probeWhoami('http://substrate.test', { fetchImpl });
+    const who = await probeWhoami('http://localhost', { fetchImpl });
     expect(sorted(who.grants)).toEqual({ cortext: ['mutate', 'read'], recall: ['mutate', 'read'] });
   });
 
@@ -120,7 +120,7 @@ describe('whoami contract, executed against a composed substrate', () => {
         status: res.status,
         json: async () => JSON.parse(Buffer.from(res.body as Uint8Array).toString('utf8'))
       });
-      const who = await probeWhoami('http://substrate.test', { fetchImpl });
+      const who = await probeWhoami('http://localhost', { fetchImpl });
       expect(who).toEqual({ ok: true, authEnabled: true, authenticated: false });
     } finally {
       await composed.stop();

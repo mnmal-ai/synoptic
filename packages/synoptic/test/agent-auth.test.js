@@ -91,6 +91,19 @@ describe('createAgentAuth', () => {
     expect(() => createAgentAuth(env).getAuthHeader()).toThrow(/without an audience/);
   });
 
+  it('refuses plain http to a non-loopback host, and allows it to loopback', () => {
+    const { keyPath } = makeKeyFiles();
+    const auth = createAgentAuth({
+      SUBSTRATE_AGENT_KEY_PATH: keyPath,
+      SUBSTRATE_AGENT_KEY_ID: 'kid-1'
+    });
+    expect(() => auth.getAuthHeader('http://substrate.test:3100/x')).toThrow(/refusing to send/);
+    expect(() => auth.getAuthHeader('ftp://substrate.test/x')).toThrow(/refusing to send/);
+    for (const origin of ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://[::1]:3100']) {
+      expect(decodeJwt(auth.getAuthHeader(`${origin}/x`)).payload.aud).toBe(origin);
+    }
+  });
+
   it('missing key file → null header + visible warning, never throws', () => {
     const auth = createAgentAuth({
       SUBSTRATE_AGENT_KEY_PATH: '/nonexistent/agent.key',
@@ -211,6 +224,19 @@ describe('makeSignedFetch', () => {
     );
     await fetchImpl('https://h:3100/substrate/v1/query', {});
     expect(asked).toEqual(['https://h:3100/substrate/v1/query']);
+  });
+
+  it('refuses redirects on a signed request, so the token cannot follow one', async () => {
+    let seen;
+    const fetchImpl = makeSignedFetch(
+      () => 'Bearer t',
+      (_url, init) => {
+        seen = init;
+        return Promise.resolve({ ok: true });
+      }
+    );
+    await fetchImpl('https://h:3100/substrate/v1/query', { redirect: 'follow' });
+    expect(seen.redirect).toBe('error');
   });
 
   it('passes through untouched when the header provider yields null', async () => {
