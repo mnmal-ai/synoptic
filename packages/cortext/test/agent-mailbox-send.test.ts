@@ -982,6 +982,37 @@ describe('row-level authority: mail participants and identity self-edits', () =>
       )
     ).toBe('operator_only');
 
+    expect(
+      errorCode(
+        await mutateAs(server, BYSTANDER, {
+          'claude/createAgentIdentity': {
+            params: { kid: 'no-machine-kid', host: 'machine-b' },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+    // A row an operator filed on another machine cannot be made to vouch by its own kid.
+    const foreign = await mutateAsOperator(server, {
+      'claude/createAgentIdentity': {
+        params: { kid: 'moved-claude@host-a', host: 'machine-b' },
+        fields: { id: true }
+      }
+    });
+    const foreignId = (
+      jsonBody<PackEnvelope>(foreign).data['claude/createAgentIdentity'] as { id: string }
+    ).id;
+    expect(
+      errorCode(
+        await mutateAs(server, 'moved-claude@host-a', {
+          'claude/updateAgentIdentity': {
+            params: { id: foreignId, roaming: true },
+            fields: { id: true }
+          }
+        })
+      )
+    ).toBe('operator_only');
+
     const retire = await mutateAs(server, NOTES, {
       'claude/updateAgentIdentity': { params: { id: notesId, active: false }, fields: { id: true } }
     });

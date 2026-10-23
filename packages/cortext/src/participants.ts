@@ -75,12 +75,12 @@ export function messageParticipantsOnly(
 }
 
 /**
- * Whether `host` names the machine in `kid`'s `@host` part, ignoring case. A
- * kid with no `@` constrains nothing.
+ * Whether `host` names the machine in `kid`'s `@host` part, ignoring case.
+ * A kid with no `@` names no machine, so it may carry no host.
  */
 function hostMatchesKid(host: unknown, kid: unknown): boolean {
-  if (typeof kid !== 'string' || !kid.includes('@')) return true;
   if (host === undefined || host === null) return true;
+  if (typeof kid !== 'string' || !kid.includes('@')) return false;
   return String(host).toLowerCase() === kid.slice(kid.lastIndexOf('@') + 1).toLowerCase();
 }
 
@@ -140,7 +140,11 @@ export function identitySelfOnly(
       );
     }
     if (callerKid(ctx) === row.kid) {
-      if ('host' in params) refuseForeignHost(name, params.host, row.kid);
+      // Checked against the host the row will have, so a row filed with a
+      // foreign host cannot be made to vouch by setting roaming or project.
+      if ('host' in params || 'roaming' in params || 'project' in params) {
+        refuseForeignHost(name, 'host' in params ? params.host : row.host, row.kid);
+      }
       if (params.active === true && row.active === false) {
         throw new ResolverFrameError(
           'operator_only',
