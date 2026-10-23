@@ -3564,6 +3564,7 @@ function startWatcher(access, bridge, signal) {
 	}));
 	const sleep = abortableSleep(signal);
 	let crashes = 0;
+	const since = (/* @__PURE__ */ new Date()).toISOString();
 	const run = () => {
 		let wentLive = false;
 		let watcher;
@@ -3571,7 +3572,7 @@ function startWatcher(access, bridge, signal) {
 			watcher = Promise.resolve(runWatcher({
 				env: access.env,
 				fetchImpl,
-				since: (/* @__PURE__ */ new Date()).toISOString(),
+				since,
 				namespace: access.env.SUBSTRATE_NAMESPACE ?? "cortext",
 				emit: (ev) => {
 					if (signal.aborted) return;
