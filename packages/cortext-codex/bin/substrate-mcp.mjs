@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createPrivateKey, sign } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -213,16 +213,38 @@ const LOCAL_KEYS = /* @__PURE__ */ new Set([
 	"SYNOPTIC_INBOX_STOP_CHECK",
 	"SYNOPTIC_INBOX_PROMPT_CHECK"
 ]);
-/** One settings source for hooks and MCP. Never read another harness's identity. */
-function loadConfig(startDir, processEnv = process.env, readFile = readFileSync) {
+/** Whether git tracks `rel` in the repo at `cwd`. False outside a repo or without git. */
+function gitTracks(cwd, rel) {
+	return spawnSync("git", [
+		"-C",
+		cwd,
+		"ls-files",
+		"--error-unmatch",
+		"--",
+		rel
+	], {
+		stdio: "ignore",
+		timeout: 2e3
+	}).status === 0;
+}
+/**
+* One settings source for hooks and MCP. Never read another harness's identity.
+*
+* The file names the executable the MCP launcher spawns and the URL signed
+* requests go to, so it must be machine-local: a copy committed to a repo
+* would let any checkout choose both. A tracked file is refused.
+*/
+function loadConfig(startDir, processEnv = process.env, readFile = readFileSync, isTracked = gitTracks) {
 	const cwd = findRepoRoot(startDir) ?? startDir;
 	const path = join(cwd, CONFIG_PATH);
 	let config = {};
 	try {
 		config = JSON.parse(readFile(path, "utf8"));
+		if (isTracked(cwd, ".codex/cortext.local.json")) throw Object.assign(/* @__PURE__ */ new Error(`${CONFIG_PATH} is tracked by git; it must stay untracked (git rm --cached it)`), { code: "TRACKED" });
 		if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error();
 		if (config.env !== void 0 && (!config.env || typeof config.env !== "object" || Array.isArray(config.env))) throw new Error();
 	} catch (error) {
+		if (error.code === "TRACKED") throw error;
 		if (error.code !== "ENOENT") throw new Error("Invalid .codex/cortext.local.json settings");
 	}
 	const env = { ...processEnv };
