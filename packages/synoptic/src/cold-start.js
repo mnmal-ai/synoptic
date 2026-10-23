@@ -263,7 +263,7 @@ export async function runColdStart(opts) {
     // index claiming zero binding rules. The projection audit names the failure.
     const indexMd =
       rulesKey in data
-        ? renderRuleIndex(data[rulesKey], { ns: namespace, project: projectSlug ?? project })
+        ? renderRuleIndex(data[rulesKey], { ns: namespace, project: projectSlug ?? null })
         : '';
     const sessionMd = renderSessionBlock({ sessionId, kid: agentKid ?? null });
 

@@ -20,9 +20,9 @@
 //   `session.created` prewarm + `experimental.chat.system.transform` inject.
 //
 // Both entrypoints share one store: the injected document is the same
-// `runColdStart` render the Claude hook prints — Concepts, Agent Memory,
-// Open Work, Agent Rules, Inbox — so the two skins read the same store the
-// same way.
+// `runColdStart` render the Claude hook prints (the rule index, pointers, the
+// session line, the inbox), so the two skins read the same store the same
+// way.
 //
 // Design constraints, all deliberate:
 // - Never throw, never break dispatch. Every handler is wrapped; the worst

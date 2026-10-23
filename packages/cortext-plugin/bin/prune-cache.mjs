@@ -67,7 +67,8 @@ function renderPrunePlan(plan, { apply = false } = {}) {
 		lines.push("  Nothing was deleted.");
 		return lines.join("\n");
 	}
-	for (const v of plan.keep) lines.push(`  KEEP    ${v.padEnd(10)} (${plan.protectedReason[v] ?? "kept"})`);
+	const width = Math.max(0, ...plan.keep.map((v) => v.length));
+	for (const v of plan.keep) lines.push(`  KEEP    ${v.padEnd(width)} (${plan.protectedReason[v] ?? "kept"})`);
 	for (const v of plan.remove) lines.push(`  ${apply ? "DELETE " : "would  "} ${v}`);
 	lines.push("");
 	if (plan.remove.length === 0) lines.push("  Nothing to prune.");

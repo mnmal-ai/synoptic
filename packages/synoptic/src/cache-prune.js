@@ -113,8 +113,9 @@ export function renderPrunePlan(plan, { apply = false } = {}) {
     lines.push('  Nothing was deleted.');
     return lines.join('\n');
   }
+  const width = Math.max(0, ...plan.keep.map((v) => v.length));
   for (const v of plan.keep) {
-    lines.push(`  KEEP    ${v.padEnd(10)} (${plan.protectedReason[v] ?? 'kept'})`);
+    lines.push(`  KEEP    ${v.padEnd(width)} (${plan.protectedReason[v] ?? 'kept'})`);
   }
   for (const v of plan.remove) {
     lines.push(`  ${apply ? 'DELETE ' : 'would  '} ${v}`);

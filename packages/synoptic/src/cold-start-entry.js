@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// SessionStart-hook executable: prints the cold-start document (Concepts /
-// Agent Memory / Open Work / Agent Rules / Inbox) for stdout injection as
-// session context. Harness-neutral companion to inbox-stop-entry.js and
+// SessionStart-hook executable: prints the cold-start rule index (binding and
+// always-on rules, pointers, the session line, the inbox) for stdout injection
+// as session context. Harness-neutral companion to inbox-stop-entry.js and
 // inbox-prompt-entry.js: stdin supplies cwd/session_id, env supplies
 // SUBSTRATE_URL + identity. Never throws, never blocks session start — without a
 // URL it prints the offline note runColdStart renders, and a slow Substrate loses

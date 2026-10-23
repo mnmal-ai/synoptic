@@ -163,8 +163,8 @@ export function createProjectionAudit() {
 //     errors: [{ code, message, path }]
 //
 // and this repo's every call site does `data[key] ?? []`. One sabotaged
-// frame's orderBy would drop BOTH the Open Work and Agent Rules sections while
-// the cold-start still rendered as though nothing had happened.
+// frame's orderBy would drop the rule index while the cold-start still
+// rendered as though nothing had happened.
 //
 // WHY THIS NEEDS NO ALLOWLIST, unlike the projection diagnostics above. Three
 // of the four diagnostics a cold-start produces are correct by design, so the
