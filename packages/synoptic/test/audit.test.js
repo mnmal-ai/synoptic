@@ -8,7 +8,6 @@ import {
   auditMcpJson,
   auditOrphans,
   auditPlugin,
-  auditSalientTier,
   auditSemanticRecall,
   CACHE_KEEP,
   check,
@@ -452,98 +451,7 @@ test('omitting activeKids preserves the old behaviour rather than silently passi
   assert.equal(out.find((c) => c.id === 'orphans.hosts').state, 'warn');
 });
 
-// ---- does the salient tier actually RANK SEMANTICALLY? ----
-//
-// The audit is a separate process from the cold-start, so it measures ranking
-// itself rather than reporting on a boost it never saw.
-
-const vecs = (...ids) => new Map(ids.map((id) => [id, [1, 0]]));
-
-test('salient: both inputs present is the ONLY ok state', () => {
-  const out = auditSalientTier({
-    probe: { vectors: vecs('r1', 'r2', 'anchor'), failed: null },
-    activeRuleIds: ['r1', 'r2'],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'ok');
-  assert.match(out[0].text, /ranking is SEMANTIC: 2\/2 rules and the anchor/);
-});
-
-test('salient: an embedded rule set with an UNEMBEDDED ANCHOR still short-circuits', () => {
-  // The half nobody checks. rankRules needs both vectors; a complete rule
-  // corpus proves nothing on its own, and reporting the rules as fine here
-  // would be a green line beside a feature that is not running.
-  const out = auditSalientTier({
-    probe: { vectors: vecs('r1', 'r2'), failed: null },
-    activeRuleIds: ['r1', 'r2'],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'warn');
-  assert.match(out[0].text, /anchor has no embedding row/);
-});
-
-test('salient: no anchor at all is a warn, not an ok', () => {
-  const out = auditSalientTier({
-    probe: { vectors: vecs('r1'), failed: null },
-    activeRuleIds: ['r1'],
-    anchorId: null
-  });
-  assert.equal(out[0].state, 'warn');
-  assert.match(out[0].text, /no anchor/);
-});
-
-test('salient: a failed probe is UNKNOWN, never "structural"', () => {
-  // The distinction that matters. "Ranking is structural" is a measurement;
-  // "we could not find out" is a hole. Collapsing the second into the first
-  // makes a broken tier read as healthy.
-  const out = auditSalientTier({
-    probe: { vectors: new Map(), failed: 'recall/fetchEmbeddings: policy_denied' },
-    activeRuleIds: ['r1'],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'unknown');
-  assert.match(out[0].detail, /policy_denied/);
-  assert.match(out[0].detail, /silently falls back to structural/);
-});
-
-test('salient: a PARTIALLY embedded set names the missing rules and still ranks', () => {
-  const out = auditSalientTier({
-    probe: { vectors: vecs('r1', 'anchor'), failed: null },
-    activeRuleIds: ['r1', 'r2', 'r3'],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'ok');
-  const missing = out.find((c) => c.id === 'salient.embedded');
-  assert.equal(missing.state, 'warn');
-  // Named, not counted — the old write-side check got this right and it is
-  // kept: a count says "something is unembedded" and leaves the reader to
-  // find which.
-  assert.match(missing.text, /NO embedding row: r2, r3/);
-});
-
-test('salient: nothing embedded at all is a warn about the CORPUS', () => {
-  const out = auditSalientTier({
-    probe: { vectors: vecs('anchor'), failed: null },
-    activeRuleIds: ['r1', 'r2'],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'warn');
-  assert.match(out[0].text, /no active rule has an embedding row \(0\/2\)/);
-  // No per-rule list here: naming all of them restates the count.
-  assert.equal(
-    out.find((c) => c.id === 'salient.embedded'),
-    undefined
-  );
-});
-
-test('salient: an empty rule set is UNKNOWN — nothing to measure is not a pass', () => {
-  const out = auditSalientTier({
-    probe: { vectors: new Map(), failed: null },
-    activeRuleIds: [],
-    anchorId: 'anchor'
-  });
-  assert.equal(out[0].state, 'unknown');
-});
+// ---- does semantic recall answer? ----
 
 test('recall: the availability line states which BRANCH was taken', () => {
   assert.equal(
@@ -556,9 +464,8 @@ test('recall: the availability line states which BRANCH was taken', () => {
     reason: 'recall/Hit: 401'
   })[0];
   assert.equal(bad.state, 'warn');
-  // The point of the line: the fallback is correct, silent and permanent, so a
-  // fault-reporting instrument stays quiet. Only a branch-reporting one speaks.
-  assert.match(bad.detail, /correct, silent, permanent fallback/);
+  assert.match(bad.detail, /recall\/Hit: 401/);
+  assert.match(bad.detail, /grant includes `recall`/);
 });
 
 test('recall: an UNREACHABLE server is unknown, never a recall fault', () => {
@@ -1400,48 +1307,6 @@ test('unparseable, absent and un-askable git each report distinctly', () => {
   const noGit = auditMcpJson({ present: true, tracked: null, markers: [] });
   assert.equal(noGit[0].state, 'unknown');
   assert.match(noGit[0].detail, /git could not answer/);
-});
-
-// ---- "no anchor" has two causes and needs two remediations ----
-
-test('never-had-one is an outstanding ONBOARDING step, not a fault', () => {
-  const out = auditSalientTier({
-    probe: { vectors: new Map([['r1', [0.1]]]), failed: null },
-    activeRuleIds: ['r1'],
-    anchorId: null,
-    anchorHistory: 'none'
-  });
-  const r = out.find((c) => c.id === 'salient.rank');
-  assert.equal(r.state, 'warn');
-  assert.match(r.text, /NEVER had an anchor/);
-  assert.match(r.detail, /outstanding onboarding step/);
-  // The fix that looks obvious and is wrong.
-  assert.match(r.detail, /placeholder is worse than none/);
-});
-
-test('all-archived is a RETIRED focus — same symptom, different fix', () => {
-  const out = auditSalientTier({
-    probe: { vectors: new Map([['r1', [0.1]]]), failed: null },
-    activeRuleIds: ['r1'],
-    anchorId: null,
-    anchorHistory: 'archived'
-  });
-  const r = out.find((c) => c.id === 'salient.rank');
-  assert.equal(r.state, 'warn');
-  assert.match(r.text, /ARCHIVED/);
-  assert.match(r.detail, /had an anchor and retired it/);
-});
-
-test('an unprobed history stays honest rather than guessing either cause', () => {
-  const out = auditSalientTier({
-    probe: { vectors: new Map([['r1', [0.1]]]), failed: null },
-    activeRuleIds: ['r1'],
-    anchorId: null
-  });
-  const r = out.find((c) => c.id === 'salient.rank');
-  assert.equal(r.state, 'warn');
-  assert.match(r.detail, /was not established/);
-  assert.doesNotMatch(r.text, /NEVER|ARCHIVED/);
 });
 
 // ---- a capability the audit must CHECK, not only render ----

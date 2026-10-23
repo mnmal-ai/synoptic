@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { auditSalientTier, auditSemanticRecall, check, credentialIsTargets } from '../src/audit.js';
+import { auditSemanticRecall, check, credentialIsTargets } from '../src/audit.js';
 import { buildGroups } from '../src/audit-facts/groups.js';
 import { readDeclaredKid, readDeclaredName, readKeyFiles } from '../src/audit-facts/identity.js';
 import { gatherKeyRefs } from '../src/audit-facts/key-refs.js';
@@ -185,110 +185,18 @@ describe('readDirectory', () => {
 
 describe('probeServer', () => {
   const env = { SUBSTRATE_NAMESPACE: 'cortext' };
-  const targetDir = '/w/synoptic';
+  const recallAnswers = () =>
+    stubSubstrate({ answer: (key) => (key === 'recall/Hit' ? [] : undefined) });
 
-  /** Rules r1, r2 with vectors; the anchor queries answer as given. */
-  function server({ liveAnchor, everAnchor }) {
-    return stubSubstrate({
-      answer: (key, params) => {
-        if (key === 'cortext/AgentRule') return [{ id: 'r1' }, { id: 'r2' }];
-        if (key === 'cortext/AnchorIntent') {
-          return params.where?.project?.eq !== undefined ? everAnchor : liveAnchor;
-        }
-        if (key === 'recall/fetchEmbeddings') {
-          return { vectors: params.refs.map((r) => ({ id: r.id, vector: [1] })) };
-        }
-        if (key === 'recall/Hit') return [];
-        return undefined;
-      }
-    });
-  }
-
-  it('reports unknown for both probes without SUBSTRATE_URL', async () => {
-    const out = await probeServer({
-      substrateUrl: null,
-      env,
-      targetDir,
-      fetchImpl: null,
-      kid: null
-    });
+  it('reports unknown without SUBSTRATE_URL', async () => {
+    const out = await probeServer({ substrateUrl: null, env, fetchImpl: null, kid: null });
     expect(out.whoami.ok).toBe(false);
-    expect(out.salientFindings.map((f) => f.state)).toEqual(['unknown']);
     expect(out.recallFindings.map((f) => f.state)).toEqual(['unknown']);
   });
 
-  it('asks whether this project EVER had an anchor when none is live', async () => {
-    const { fetchImpl, calls } = server({ liveAnchor: [], everAnchor: [] });
-    const out = await probeServer({ substrateUrl: URL_, env, targetDir, fetchImpl, kid: null });
-    const ever = calls.find(
-      (c) => c.body?.['cortext/AnchorIntent']?.params?.where?.project?.eq === 'synoptic'
-    );
-    expect(ever).toBeDefined();
-    expect(out.salientFindings).toEqual(
-      auditSalientTier({
-        probe: {
-          vectors: new Map([
-            ['r1', [1]],
-            ['r2', [1]]
-          ]),
-          failed: null
-        },
-        activeRuleIds: ['r1', 'r2'],
-        anchorId: null,
-        anchorHistory: 'none'
-      })
-    );
-  });
-
-  it('tells an archived anchor from none', async () => {
-    const { fetchImpl } = server({ liveAnchor: [], everAnchor: [{ id: 'old' }] });
-    const out = await probeServer({ substrateUrl: URL_, env, targetDir, fetchImpl, kid: null });
-    expect(out.salientFindings).toEqual(
-      auditSalientTier({
-        probe: {
-          vectors: new Map([
-            ['r1', [1]],
-            ['r2', [1]]
-          ]),
-          failed: null
-        },
-        activeRuleIds: ['r1', 'r2'],
-        anchorId: null,
-        anchorHistory: 'archived'
-      })
-    );
-  });
-
-  it('skips the history query under SYNOPTIC_PROJECT_SCOPE=all', async () => {
-    const { fetchImpl, calls } = server({ liveAnchor: [], everAnchor: [] });
-    await probeServer({
-      substrateUrl: URL_,
-      env: { ...env, SYNOPTIC_PROJECT_SCOPE: 'all' },
-      targetDir,
-      fetchImpl,
-      kid: null
-    });
-    expect(calls.filter((c) => c.body?.['cortext/AnchorIntent'])).toHaveLength(1);
-  });
-
-  it('scores a live anchor and recall that answers', async () => {
-    const { fetchImpl } = server({ liveAnchor: [{ id: 'a1' }], everAnchor: [] });
-    const out = await probeServer({ substrateUrl: URL_, env, targetDir, fetchImpl, kid: null });
-    expect(out.salientFindings).toEqual(
-      auditSalientTier({
-        probe: {
-          vectors: new Map([
-            ['r1', [1]],
-            ['r2', [1]],
-            ['a1', [1]]
-          ]),
-          failed: null
-        },
-        activeRuleIds: ['r1', 'r2'],
-        anchorId: 'a1',
-        anchorHistory: null
-      })
-    );
+  it('scores recall that answers', async () => {
+    const { fetchImpl } = recallAnswers();
+    const out = await probeServer({ substrateUrl: URL_, env, fetchImpl, kid: null });
     expect(out.recallFindings).toEqual(
       auditSemanticRecall({
         answered: true,
@@ -303,10 +211,9 @@ describe('probeServer', () => {
     );
   });
 
-  it('reports a refused rule frame as a failed probe, and recall as unreachable-attributed', async () => {
+  it('reports a refused recall frame as a refusal when whoami answered', async () => {
     const { fetchImpl } = stubSubstrate({ answer: () => undefined });
-    const out = await probeServer({ substrateUrl: URL_, env, targetDir, fetchImpl, kid: null });
-    expect(out.salientFindings.some((f) => f.state === 'unknown')).toBe(true);
+    const out = await probeServer({ substrateUrl: URL_, env, fetchImpl, kid: null });
     expect(out.recallFindings).toEqual(
       auditSemanticRecall({
         answered: false,
@@ -315,10 +222,16 @@ describe('probeServer', () => {
           resolvedKid: null,
           declaredKid: null
         }),
-        reachable: false,
+        reachable: true,
         reason: 'recall/Hit: requested but absent from `data`, with no error given'
       })
     );
+  });
+
+  it('reports recall as unknown when the server is unreachable', async () => {
+    const fetchImpl = () => Promise.reject(new Error('ECONNREFUSED'));
+    const out = await probeServer({ substrateUrl: URL_, env, fetchImpl, kid: null });
+    expect(out.recallFindings.map((f) => f.state)).toEqual(['unknown']);
   });
 });
 
@@ -391,7 +304,6 @@ describe('buildGroups', () => {
       keyRefs: [],
       refScanComplete: false,
       mcpJsonFacts: { present: false, tracked: null, markers: null },
-      salientFindings: [],
       recallFindings: [],
       settingsFindings: [],
       fleetFindings: null,
@@ -411,7 +323,7 @@ describe('buildGroups', () => {
       'drift',
       'mcp-json',
       'inbox push',
-      'salient tier',
+      'recall',
       'settings'
     ]);
     const fleet = [check('fleet.x', 'ok', 'x')];

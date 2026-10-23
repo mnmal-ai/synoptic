@@ -101,7 +101,7 @@ Using the `substrate` MCP tools (or `curl -sfk` as fallback), check each of the 
 2. **Coordinator present (hard prerequisite):** `schema` includes the coordinator namespace — `cortext` by default, or whatever `SUBSTRATE_NAMESPACE` names (look for `cortext/AgentRule`, `cortext/Todo`). If absent, **STOP** and tell the user: "The cortext coordinator isn't loaded on this Substrate. Install it server-side before onboarding — I can't seed rules or recall context without that namespace."
    - The legacy `claude` namespace is **retired** — it resolves to `unknown_namespace`. If you find `claude/*` but not `cortext/*`, the server is running a pre-migration coordinator; say so rather than onboarding against a dead namespace.
    - Every `<ns>/...` frame key below follows this same namespace. Substitute it consistently; do not hardcode `claude`.
-3. **Recall capability:** `GET <SUBSTRATE_URL>/substrate/v1/embed-stats` → `enabled`. `true` = hybrid cold-start available; `false` = structural-only (degrade).
+3. **Recall capability:** `GET <SUBSTRATE_URL>/substrate/v1/embed-stats` → `enabled`. `true` = semantic `recall` available; `false` = no embedder, so `recall` cannot answer (Step 6).
 4. **MCP package resolvable** (only matters if Step 4 will wire the npx-based server): run `npm view @mnmal-ai/substrate version`. It is public on npmjs.com and needs no token. If it fails, print this and continue:
    > `@mnmal-ai/substrate` is public on npmjs.com. If `npm view` fails, check network access, and that no `~/.npmrc` maps `@mnmal-ai` to another registry (an old `@mnmal-ai:registry=https://npm.pkg.github.com` line does).
 
@@ -265,7 +265,7 @@ noise. It gets worse over time, not better — rule stores only accumulate.
 
 If Step 2 found recall **disabled**, tell the user plainly:
 
-> Recall (semantic memory) is **off** on this Substrate — no embedder configured. Your cold-start will run **structural-only** (recency/importance ordering). It will **auto-upgrade** to hybrid recall the moment an embedder comes online — no need to re-run setup. A guided `/substrate-setup recall` to stand up the embedder is planned (not yet available).
+> Recall (semantic memory) is **off** on this Substrate — no embedder configured. The cold-start rule index is unaffected, but the `recall` tool cannot answer, so prior Memory, Decisions and SessionLogs are reachable only by structural reads that filter on `name`, `title` or `project`. Recall starts working the moment an embedder comes online — no need to re-run setup.
 
 ## Step 7 — agent identity: DETECT first, prescribe only if needed
 
@@ -397,10 +397,10 @@ a wildcard issued by omission would produce no error and no review surface. Say
 what you are granting.
 
 **Why `recall` is in the list.** A kid granted only the coordinator namespace
-still works, which is what makes it dangerous: frames against `recall` are
-rejected per-key with `unauthorized_namespace`, and the cold-start degrades to
-the importance × recency ranker behind a rejected-frames banner rather than
-failing. The render looks complete and simply carries a different heading.
+still works, which is what makes it dangerous: the `recall` tool and
+`recall/Hit` frames are rejected per-key with `unauthorized_namespace`, while
+every other read and write succeeds. `--audit` reports it as
+`recall.available`.
 
 Substitute `<ns>` for the coordinator namespace in use (`cortext` by default,
 or whatever `SUBSTRATE_NAMESPACE` names), exactly as elsewhere in this document. Pass a
@@ -443,15 +443,10 @@ to it. The audit in 7.1 reports this too.
 
 ## Step 8 — write the first anchor, then confirm
 
-**Onboarding does not seed an `AnchorIntent`, and a repo without one ranks its
-rules STRUCTURALLY.** `rankRules` scores rules against the anchor's vector; with
-no anchor the semantic half cannot run at all, however well the rule corpus is
-embedded. That is a silent degrade — the cold-start renders, recall answers,
-every check says healthy, and the ranking is simply worse.
-
-`--audit` distinguishes *never had one* (the normal state right
-after onboarding — this step) from *every anchor archived* (a focus that ended
-and was not replaced).
+**Onboarding does not seed an `AnchorIntent`.** The anchor is the project's
+current focus. The cold-start points agents at it, and the next session reads
+it to learn what is being worked on. A repo without one starts every session
+with no stated focus.
 
 So write one, as the last act of onboarding or the first act of the next
 session:
@@ -461,11 +456,8 @@ session:
                           for and what is being worked on right now>" }
 ```
 
-**Do not seed a placeholder to silence the warning.** The ranker scores against
-the anchor's OWN vector, so `"onboarded this repo"` is not a neutral default —
-it is semantic noise aimed at the whole rule set, and it trades a visible,
-accurate WARN for a silent, subtly-degraded ranker. An honest warning is worth
-more than a filled slot. Write a real intent or leave it empty and fix it in
-the first working session.
+**Do not seed a placeholder.** `"onboarded this repo"` tells the next session
+nothing. Write a real intent, or leave it empty and write one in the first
+working session.
 
-Then summarise what was wired: where `SUBSTRATE_URL` lives, the fragment + import line, the MCP server (pre-existing vs newly added, and its scope), how many rules were created, the recall tier (hybrid vs structural), and the agent identity (per-project kid vs machine-wide default). Tell the user to start a new session (or `/clear`) to see the synoptic cold-start.
+Then summarise what was wired: where `SUBSTRATE_URL` lives, the fragment + import line, the MCP server (pre-existing vs newly added, and its scope), how many rules were created, whether recall answers, and the agent identity (per-project kid vs machine-wide default). Tell the user to start a new session (or `/clear`) to see the synoptic cold-start.

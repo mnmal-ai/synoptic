@@ -46,7 +46,6 @@ export function buildGroups(facts) {
     keyRefs,
     refScanComplete,
     mcpJsonFacts,
-    salientFindings,
     recallFindings,
     settingsFindings,
     fleetFindings,
@@ -144,7 +143,7 @@ export function buildGroups(facts) {
     ],
     ['mcp-json', auditMcpJson(mcpJsonFacts)],
     ['inbox push', auditInboxPush({ env })],
-    ['salient tier', [...salientFindings, ...recallFindings]],
+    ['recall', recallFindings],
     ['settings', settingsFindings],
     ...(fleetFindings === null ? [] : [['fleet', fleetFindings]]),
     ...(hostFindings === null ? [] : [['hosts', hostFindings]])
