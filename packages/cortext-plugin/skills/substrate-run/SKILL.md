@@ -100,15 +100,19 @@ The default mode is read-only, and `s.mutate` throws in it.
    on its return value.
 2. Read `report.mutations`. Check the count, the ids, and a sample of the
    params against what you intended.
-3. Re-run the same script with `--write`. It sends up to `--max-writes` frames
+3. Re-run the same script with `--write`, placed straight after `run`
+   (`node /abs/path/to/substrate.js run --write x.mts`; see step 6). It sends up to `--max-writes` frames
    (default 50; an array under an op-key counts one per element). Raise it
    deliberately, not by habit.
 
 The script re-reads the store on the write run, so it acts on the current state
 rather than on what the dry run saw.
 
-An array under one op-key is one atomic transaction. Separate op-keys are not.
-For writes that must land together, batch them under one op-key.
+Transactions are per call and per op-key. Within one `s.mutate` payload, each
+array op-key is its own transaction and the single-frame op-keys share one, so
+one op-key can be refused (for example `policy_denied`) while its siblings
+land. Separate `s.mutate` calls are separate transactions. For writes that must
+land together, put them in one array under one op-key.
 
 ## 5. Read the report
 
@@ -130,12 +134,21 @@ Never pipe the run into `tail` or `jq` when its exit code matters. Use
 
 ## 6. Cut the permission prompts
 
-Each run asks for Bash permission. Suggest the user allowlist it in the repo's
-`.claude/settings.local.json`, using the absolute path from step 0:
+Each run asks for Bash permission. Suggest the user allow read and dry runs
+but keep a prompt on writes, in the repo's `.claude/settings.local.json`, using
+the absolute path from step 0:
 
 ```json
-{ "permissions": { "allow": ["Bash(node /abs/path/to/substrate.js run:*)"] } }
+{
+  "permissions": {
+    "allow": ["Bash(node /abs/path/to/substrate.js run:*)"],
+    "ask": ["Bash(node /abs/path/to/substrate.js run --write:*)"]
+  }
+}
 ```
 
-Read mode cannot write, so the read path is safe to allow. `--write` passes
-the same rule, so the dry-run step above is your guard, not the prompt.
+An `ask` rule beats an `allow` rule, so a write still prompts. The rules match
+command text by prefix, which is why **`--write` always goes straight after
+`run`**. `run x.mts --write` matches only the `allow` rule and writes without a
+prompt. `substrate run` accepts its flags in any order, so this placement costs
+nothing.
