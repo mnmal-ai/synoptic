@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/cortext-plugin",
-  "version": "1.0.0-alpha.6",
+  "version": "1.0.0-alpha.7",
   "private": true,
   "description": "Cortext — the Claude Code skin: synoptic cold-start + inbox seams + /substrate-setup onboarding, bundling the @mnmal-ai/synoptic host into committed hook artifacts. Distributed via the mnmal-ai marketplace, not npm.",
   "license": "Apache-2.0",
