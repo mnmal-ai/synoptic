@@ -75,10 +75,49 @@ export function messageParticipantsOnly(
 }
 
 /**
+ * Whether `host` names the machine in `kid`'s `@host` part, ignoring case. A
+ * kid with no `@` constrains nothing.
+ */
+function hostMatchesKid(host: unknown, kid: unknown): boolean {
+  if (typeof kid !== 'string' || !kid.includes('@')) return true;
+  if (host === undefined || host === null) return true;
+  return String(host).toLowerCase() === kid.slice(kid.lastIndexOf('@') + 1).toLowerCase();
+}
+
+function refuseForeignHost(name: string, host: unknown, kid: unknown): void {
+  if (hostMatchesKid(host, kid)) return;
+  throw new ResolverFrameError(
+    'operator_only',
+    `${name}: 'host' must be the machine in the kid ('${String(kid)}'); only an operator may set another`,
+    { field: 'host' }
+  );
+}
+
+/**
+ * AgentIdentity create: a non-operator may not file a row whose `host` is a
+ * machine other than the one its kid names. The fleet audit trusts `host`
+ * (and `roaming` on that host) when it decides who may write a host's
+ * HostInstall rows.
+ */
+export function identityCreateGuard(
+  name: string,
+  inner: RegistryEntryResolver
+): RegistryEntryResolver {
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    if (!isOperator(ctx)) {
+      const params = args.params ?? {};
+      refuseForeignHost(name, params.host, params.kid);
+    }
+    return inner(ctx, args);
+  };
+}
+
+/**
  * AgentIdentity update: the identity itself (the caller's kid is the row's
  * kid) or an operator. `kid` is the row's identity, so changing it is an
  * operator act even on your own row: otherwise a row could be renamed onto a
- * kid whose mail it would then receive.
+ * kid whose mail it would then receive. `host` must stay the kid's machine,
+ * and reactivating a retired row is an operator act.
  */
 export function identitySelfOnly(
   installCtx: NamespaceInstallContext,
@@ -100,7 +139,17 @@ export function identitySelfOnly(
         { field: 'kid' }
       );
     }
-    if (callerKid(ctx) === row.kid) return inner(ctx, args);
+    if (callerKid(ctx) === row.kid) {
+      if ('host' in params) refuseForeignHost(name, params.host, row.kid);
+      if (params.active === true && row.active === false) {
+        throw new ResolverFrameError(
+          'operator_only',
+          `${name}: a retired identity may only be reactivated by an operator`,
+          { field: 'active' }
+        );
+      }
+      return inner(ctx, args);
+    }
     throw new ResolverFrameError(
       'not_self',
       `${name}: only '${String(row.kid)}' itself, or an operator, may edit this identity row`,
