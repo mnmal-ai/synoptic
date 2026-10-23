@@ -7,11 +7,10 @@ on:
 
 permissions: {}
 
-# Never cancel: a run cut short between the npm publish and the tag leaves a
-# release half-done.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+# Concurrency is set on the publish and release jobs, not here. GitHub keeps
+# one pending run per group and a newer pending run replaces it whatever
+# cancel-in-progress says, so a workflow-level group let an ordinary merge
+# replace a queued release. Ordinary merges skip those jobs and never join.
 
 jobs:
   detect-release:
@@ -42,6 +41,13 @@ jobs:
           SEMVER='v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?'
           if echo "$COMMIT_MSG" | grep -qE "^(release: |chore: bump version to |Merge pull request #[0-9]+ from [^/]+/release/)$SEMVER"; then
             VERSION=$(echo "$COMMIT_MSG" | grep -oE "$SEMVER" | head -1)
+            # The tag must name the version npm publishes, or the marketplace
+            # ref (stamped from package.json) points at a tag never created.
+            PKG_VERSION="v$(node -p "require('./packages/cortext/package.json').version")"
+            if [ "$VERSION" != "$PKG_VERSION" ]; then
+              echo "::error::commit names $VERSION but packages/cortext/package.json is $PKG_VERSION"
+              exit 1
+            fi
             echo "is_release=true" >> "$GITHUB_OUTPUT"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -191,6 +197,11 @@ jobs:
     # environment, so renaming either breaks publishing. The environment's
     # required reviewer is the human gate before anything irreversible.
     environment: release
+    # Never cancel: a run cut short between the npm publish and the tag leaves
+    # a release half-done.
+    concurrency:
+      group: ${{ github.workflow }}-publish
+      cancel-in-progress: false
     permissions:
       id-token: write  # npm trusted publishing (OIDC); provenance comes with it
     steps:
@@ -236,6 +247,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-release, publish]
     if: github.ref == 'refs/heads/main' && needs.detect-release.outputs.is_release == 'true'
+    concurrency:
+      group: ${{ github.workflow }}-release
+      cancel-in-progress: false
     permissions:
       contents: write  # tag + GitHub release
     env:
