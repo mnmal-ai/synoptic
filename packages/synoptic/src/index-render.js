@@ -52,7 +52,7 @@ function ruleLine(r) {
  * Render the rule index.
  *
  * @param {Array<{shortId: number, category?: string|null, severity?: string|null, pinned?: boolean|null, synopsis?: string|null}>} rules
- * @param {{ ns?: string, project: string|null }} opts
+ * @param {{ ns?: string, project: string|null }} opts  `project` null: the reads were unscoped
  * @returns {string}
  */
 export function renderRuleIndex(rules, { ns = 'cortext', project }) {
@@ -60,7 +60,7 @@ export function renderRuleIndex(rules, { ns = 'cortext', project }) {
   const musts = all.filter((r) => r?.severity === 'must').sort(compareRules);
   const pinned = all.filter((r) => r?.severity !== 'must' && r?.pinned === true).sort(compareRules);
   const rest = all.length - musts.length - pinned.length;
-  const scope = project ? `\`project\` in [\`${project}\`, null]` : '`project` = null';
+  const scope = project ? `\`project\` in [\`${project}\`, null]` : 'all projects';
 
   const lines = [
     `## Binding rules — ${musts.length} \`must\``,
@@ -74,7 +74,7 @@ export function renderRuleIndex(rules, { ns = 'cortext', project }) {
   lines.push(
     '',
     `Everything else is a query (${scope}): ${rest} more rules \`${ns}/AgentRule\`, ` +
-      `focus \`${ns}/AnchorIntent\`, open work \`${ns}/Todo\`, memory \`recall\` ` +
+      `focus \`${ns}/AnchorIntent\` (newest), open work \`${ns}/Todo\`, memory \`recall\` ` +
       `(\`type: "Memory"\`), concepts \`${ns}/Concept\`.`
   );
   return lines.join('\n');

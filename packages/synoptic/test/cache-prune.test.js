@@ -182,6 +182,23 @@ test('render: keeps are labelled with WHY they were kept', () => {
     compare
   });
   const out = renderPrunePlan(p, { apply: false });
-  assert.match(out, /KEEP {4}1\.9\.0 {6}\(installed\)/);
-  assert.match(out, /KEEP {4}1\.6\.0 {6}\(serving this session\)/);
+  assert.match(out, /KEEP {4}1\.9\.0 \(installed\)/);
+  assert.match(out, /KEEP {4}1\.6\.0 \(serving this session\)/);
+});
+
+test('render: KEEP reasons line up for versions longer than ten characters', () => {
+  const out = renderPrunePlan(
+    {
+      keep: ['1.0.0-alpha.8', '2.4.0'],
+      remove: [],
+      refusal: null,
+      protectedReason: { '1.0.0-alpha.8': 'active', '2.4.0': 'newest-N' }
+    },
+    { apply: false }
+  );
+  const cols = out
+    .split('\n')
+    .filter((l) => l.includes('KEEP'))
+    .map((l) => l.indexOf('('));
+  assert.equal(new Set(cols).size, 1);
 });

@@ -1964,11 +1964,6 @@ async function substrateQuery(substrateUrl, payload, opts = {}) {
 * misconfig arrived and looked exactly like a transient gap, every session,
 * for as long as the hook has been signing.
 *
-* It was observable the whole time and nobody was reading the instrument: the
-* Agent Memory heading renders as `(from cortext/Memory — N total, M top)`
-* when recall is unavailable and `(hybrid recall — RRF, unified)` when it is
-* not. Live cold-starts have been printing the former.
-*
 * `recall/Hit` runs through frame dispatch, which authenticates correctly.
 *
 * ## Two shape notes that will bite anyone editing this

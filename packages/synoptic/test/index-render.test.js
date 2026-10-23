@@ -80,3 +80,9 @@ test('pointer lines name the project and the namespace', () => {
   assert.match(out, /synoptic/);
   assert.match(out, /cortext\/Todo/);
 });
+
+test('a null project (SYNOPTIC_PROJECT_SCOPE=all) says all projects, not a project filter', () => {
+  const out = renderRuleIndex([], { ns: 'cortext', project: null });
+  assert.match(out, /query \(all projects\)/);
+  assert.doesNotMatch(out, /`project`/);
+});
