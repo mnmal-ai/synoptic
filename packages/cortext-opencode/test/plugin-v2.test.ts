@@ -278,6 +278,25 @@ describe('identity from plugin options (V2 ctx.options)', () => {
     expect(authHeaders.every((h) => h === '')).toBe(true);
   });
 
+  it("a key-only options entry never reads or reports as env's kid", async () => {
+    process.env.SUBSTRATE_AGENT_KEY_ID = 'envkid@host';
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', (async (_url: unknown, init?: { body?: unknown }) => {
+      bodies.push(String(init?.body ?? ''));
+      const data: Record<string, unknown> = {};
+      try {
+        for (const k of Object.keys(JSON.parse(String(init?.body ?? '{}')))) data[k] = [];
+      } catch {
+        // Non-frame request.
+      }
+      return { ok: true, status: 200, json: async () => ({ data }) };
+    }) as typeof fetch);
+    const hooks = await setup({ key: makeKeyFile() });
+    await hooks.context?.({ sessionID: 's1', system: [] as SystemPart[] });
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.some((b) => b.includes('envkid@host'))).toBe(false);
+  });
+
   it('no options, no env pair → anonymous reads, no warning (open mode)', async () => {
     const calls: string[] = [];
     const authHeaders: string[] = [];

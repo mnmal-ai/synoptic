@@ -169,6 +169,21 @@ describe('prompt seam', () => {
   });
 });
 
+describe('session.deleted', () => {
+  it("forgets a deleted session's state, so its next prompt counts as a first prompt", async () => {
+    const { hooks, emit } = await started();
+    mail = [message('m1', 944)];
+    await hooks.prompt?.({ sessionID: 's1' });
+    await hooks.prompt?.({ sessionID: 's1' });
+    expect((await dispatch(hooks, 's1')).some((p) => p.text.startsWith('📬'))).toBe(true);
+
+    emit({ type: 'session.deleted', data: { sessionID: 's1' } } as unknown as TurnEvent);
+    await new Promise((r) => setTimeout(r, 10));
+    await hooks.prompt?.({ sessionID: 's1' });
+    expect((await dispatch(hooks, 's1')).some((p) => p.text.startsWith('📬'))).toBe(false);
+  });
+});
+
 describe('end-of-turn seam', () => {
   it('queues one resuming synthetic nudge per unread message, in served sessions only', async () => {
     const { hooks, emit, synthetic } = await started();

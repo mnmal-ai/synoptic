@@ -167,7 +167,7 @@ async function deliver(b, $, m) {
 		type: "user",
 		content: [{
 			type: "text",
-			text: renderPushRow(m)
+			text: renderPushRow(m, b.ns)
 		}]
 	} });
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
@@ -201,6 +201,7 @@ async function originalPromptCheck($) {
 }
 const register = (on) => {
 	const b = {
+		ns: "cortext",
 		turnId: void 0,
 		interactive: false,
 		waking: false,
@@ -217,6 +218,7 @@ const register = (on) => {
 	on("session.start", async ($, e, next) => {
 		const started = await next(e);
 		b.interactive = e.isInteractive;
+		b.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
 		const bootAt = await $.clock.now();
 		const promptCheck = await originalPromptCheck($);
 		const run = async () => {

@@ -3347,13 +3347,16 @@ function offlineNote(env) {
 }
 async function renderColdStart(opts) {
 	const auth = createAgentAuth(opts.env, opts.identity);
+	const optionsIdentity = Boolean(opts.identity.kid || opts.identity.key);
+	const kid = optionsIdentity ? opts.identity.kid : opts.env.SUBSTRATE_AGENT_KEY_ID;
+	const { SUBSTRATE_AGENT_KEY_ID: _envKid, SUBSTRATE_AGENT_KEY_PATH: _envKey, ...envRest } = opts.env;
 	const doc = await runColdStart({
 		substrateUrl: opts.substrateUrl,
 		namespace: opts.namespace,
 		projectSlug: opts.projectSlug,
 		nowMs: Date.now(),
 		fetchImpl: makeSignedFetch(auth.getAuthHeader),
-		agentKid: opts.identity.kid ?? opts.env.SUBSTRATE_AGENT_KEY_ID,
+		agentKid: kid ?? null,
 		cwd: opts.cwd,
 		pluginRoot: null,
 		readFile: readOrNull,
@@ -3363,11 +3366,11 @@ async function renderColdStart(opts) {
 		pluginVersion: OWN_VERSION,
 		harness: "opencode",
 		hostReport: opts.env.SYNOPTIC_HOST_REPORT !== "off",
-		env: {
-			...opts.env,
+		env: optionsIdentity ? {
+			...envRest,
 			...opts.identity.kid ? { SUBSTRATE_AGENT_KEY_ID: opts.identity.kid } : {},
 			...opts.identity.key ? { SUBSTRATE_AGENT_KEY_PATH: opts.identity.key } : {}
-		},
+		} : opts.env,
 		authWarning: auth.warning ?? null
 	});
 	return truncateToBudget((auth.warning ?? "") + doc, parseMaxBytes(opts.env.SYNOPTIC_COLD_START_MAX_BYTES));
@@ -3508,11 +3511,22 @@ function createInboxSeams(identity, connection = {}, pushLive = () => false) {
 			});
 		} catch {}
 	}
+	/** A deleted session's state, dropped so a long-lived server does not keep it forever. */
+	function forget(sessionID) {
+		for (const c of [
+			prompted,
+			sessions,
+			armed
+		]) c.delete(sessionID);
+		notes.delete(sessionID);
+		nudged.delete(sessionID);
+	}
 	return {
 		onPrompt,
 		noteFor,
 		seen: (id) => sessions.add(id),
-		onTurnEnd
+		onTurnEnd,
+		forget
 	};
 }
 /** V1 entrypoint (OpenCode 1.x object-entrypoint shape). */
@@ -3718,6 +3732,15 @@ async function setup(ctx) {
 				for await (const ev of ctx.event.subscribe({ signal: abort.signal })) {
 					failures = 0;
 					bridge?.onEvent(ev);
+					if (ev.type === "session.deleted") {
+						const gone = ev.data?.sessionID;
+						if (gone !== void 0) {
+							store.invalidate(gone);
+							inbox.forget(gone);
+							children.delete(gone);
+						}
+						continue;
+					}
 					if (ev.type !== "session.execution.succeeded") continue;
 					if (bridge?.takeResumed(ev.data.sessionID)) continue;
 					const ended = ev.data.sessionID;

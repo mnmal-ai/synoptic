@@ -4,7 +4,7 @@
       "command": "sh",
       "args": [
         "-c",
-        "d=\"${CODEX_HOME:-$HOME/.codex}/plugins/cache/synoptic-codex-local/cortext\"; v=$(ls -1 \"$d\" 2>/dev/null | sort -V | tail -n 1); [ -n \"$v\" ] && exec node \"$d/$v/bin/substrate-mcp.mjs\"; echo 'cortext-substrate: plugin cache not found' >&2; exit 1"
+        "d=\"${CODEX_HOME:-$HOME/.codex}/plugins/cache/synoptic-codex-local/cortext\"; v=$(ls -1 \"$d\" 2>/dev/null | sed '/-/!s/$/-zzzz/' | sort -V | tail -n 1 | sed 's/-zzzz$//'); [ -n \"$v\" ] && exec node \"$d/$v/bin/substrate-mcp.mjs\"; echo 'cortext-substrate: plugin cache not found' >&2; exit 1"
       ]
     }
   }
