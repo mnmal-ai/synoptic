@@ -100,8 +100,7 @@ The default mode is read-only, and `s.mutate` throws in it.
    on its return value.
 2. Read `report.mutations`. Check the count, the ids, and a sample of the
    params against what you intended.
-3. Re-run the same script with `--write`, placed straight after `run`
-   (`node /abs/path/to/substrate.js run --write x.mts`; see step 6). It sends up to `--max-writes` frames
+3. Re-run the same script with `--write`. It sends up to `--max-writes` frames
    (default 50; an array under an op-key counts one per element). Raise it
    deliberately, not by habit.
 
@@ -134,21 +133,12 @@ Never pipe the run into `tail` or `jq` when its exit code matters. Use
 
 ## 6. Cut the permission prompts
 
-Each run asks for Bash permission. Suggest the user allow read and dry runs
-but keep a prompt on writes, in the repo's `.claude/settings.local.json`, using
-the absolute path from step 0:
+Each run asks for Bash permission. Suggest the user allow it in the repo's
+`.claude/settings.local.json`, using the absolute path from step 0:
 
 ```json
-{
-  "permissions": {
-    "allow": ["Bash(node /abs/path/to/substrate.js run:*)"],
-    "ask": ["Bash(node /abs/path/to/substrate.js run --write:*)"]
-  }
-}
+{ "permissions": { "allow": ["Bash(node /abs/path/to/substrate.js run:*)"] } }
 ```
 
-An `ask` rule beats an `allow` rule, so a write still prompts. The rules match
-command text by prefix, which is why **`--write` always goes straight after
-`run`**. `run x.mts --write` matches only the `allow` rule and writes without a
-prompt. `substrate run` accepts its flags in any order, so this placement costs
-nothing.
+This covers `--write` too, just as the MCP tools write without prompting. The
+dry run in step 4 is the guard on writes, not the permission prompt.
