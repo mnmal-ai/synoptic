@@ -28,6 +28,7 @@
 
 import type { KernelPlugin } from '@mnmal-ai/substrate/sdk';
 import { reportInvariantAudit, resolveCortextNamespaces } from './invariant-audit.js';
+import { reportedLayout } from './layout.js';
 import { cortextBaselineMigration } from './migrations/0001_baseline.js';
 import { repairIfRequested } from './repair.js';
 import { SUBSTRATE_CONTRACT_RANGE } from './substrate-contract.js';
@@ -48,6 +49,7 @@ export function createCortextKernelPlugin(): KernelPlugin {
         // binary predates coordinatorNamespacesByPlugin or
         // cortext is not loaded; repair declines in both cases.
         namespace: resolveCortextNamespaces(ctx.coordinatorNamespacesByPlugin)?.[0] ?? null,
+        layout: reportedLayout(ctx),
         env: process.env,
         metric: ctx.metric
       });
