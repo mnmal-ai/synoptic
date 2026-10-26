@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.9+9d0bf8e1 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.9+393f851e — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -6,7 +6,7 @@ You are an agent consuming the `cortext` coordinator on a Substrate server. Foll
 
 ## MCP first
 
-Use the `substrate` MCP tools (`mcp__substrate__*`) for all Substrate interactions. Call `schema` first on cold-start to discover types and mutations. Fall back to HTTP only when MCP is confirmed unreachable.
+Use the `substrate` MCP tools (`mcp__substrate__*`) for single lookups and writes. When the work takes three or more dependent calls (ids passed from one call to the next, a census that must page, a join, recall-then-hydrate, a batch of writes chosen by a read), write a `substrate run` script instead (the `substrate-run` skill). Call `schema` first on cold-start to discover types and mutations. Fall back to HTTP only when both are unreachable.
 
 **The tool set comes from your machine's substrate binary, not from this document.** The MCP server is a local install and ships on substrate's version line, while this fragment ships on cortext's, and nothing couples the two. So a `No such tool available: mcp__substrate__<name>` usually means the local binary is behind the service, not that the feature was never built. Check the installed `@mnmal-ai/substrate` version against the service's `/health` before concluding anything is missing.
 
@@ -24,13 +24,13 @@ Top-level `params` are not filters — they go in `where`. Example:
 { "cortext/Todo": { "params": { "where": { "status": { "eq": "open" } }, "limit": 10 }, "fields": { "id": true, "title": true } } }
 ```
 
-Retrieval-tuned handle fields (`name`, `title`, `topic`, `synopsis`, `description`) are indexed and filter freely. Long-form fields (`body`, `summary`, `notes`, `rationale`) are deliberately unindexed — a structural filter on them rejects with `unindexed_field` unless you pass `params._allowTableScan: true`. For content search, prefer `recall` (semantic) over scanning prose. **`eq: null` works** — it is the is-null filter, on every field kind (crossRef, promoted scalar, and unindexed with `_allowTableScan`). pg emits `IS NULL` for a null operand and the memory evaluator treats null and undefined as equal, so do not project the field and filter client-side.
+Every field filters. Retrieval-tuned handle fields (`name`, `title`, `topic`, `synopsis`, `description`) are the ones worth filtering on; a filter on a long-form field (`body`, `summary`, `notes`, `rationale`) is accepted but scans the type. For content search, prefer `recall` (semantic) over scanning prose. `_allowTableScan` is accepted and ignored, so never send it. **`eq: null` works** — it is the is-null filter, on every field kind. pg emits `IS NULL` for a null operand and the memory evaluator treats null and undefined as equal, so do not project the field and filter client-side.
 
-**A `field.json()` field is filtered through a PATH predicate, never directly**: `{ values: { path: ['year'], gt: 1990 } }`. Matching is type-strict — `1995` does not match `"1995"`. The equality-style predicates are index-served only when the field is declared `field.json({ indexed: true })`; anything else needs `params._allowTableScan: true`. A bare `{ values: { eq: ... } }` is refused, and the rejection names the path form — read it rather than guessing, per the next section.
+**A `field.json()` field is filtered through a PATH predicate, never directly**: `{ values: { path: ['year'], gt: 1990 } }`. Matching is type-strict — `1995` does not match `"1995"`. The equality-style predicates are index-served only when the field is declared `field.json({ indexed: true })`; otherwise they scan the type. A bare `{ values: { eq: ... } }` is refused, and the rejection names the path form — read it rather than guessing, per the next section.
 
 ### Which operators a field accepts — ASK, do not memorise
 
-**Do not carry a list of valid operators in your head, and do not trust one written down.** Which operators a field accepts depends on its *kind* (scalar, crossRef, list, unindexed), and the server's allowlist moves on the server's release cadence, not this document's, so a written-down list goes stale.
+**Do not carry a list of valid operators in your head, and do not trust one written down.** Which operators a field accepts depends on its *kind* (scalar, crossRef, list), and the server's allowlist moves on the server's release cadence, not this document's, so a written-down list goes stale.
 
 The server tells you, and its answer cannot go stale:
 
@@ -41,6 +41,18 @@ operator 'contains' is not valid for field 'sessionId' (kind=crossRef)
 That sentence names the operator, the field AND its kind. It is worth more than any list. If you need to know before trying, call `schema` for the type — it returns each field's kind, and the rejection above tells you the rest.
 
 Generalise it: anything of the form *"the server accepts exactly X, Y, Z"* has this defect. Anything of the form *"the server will tell you, here is how to read it"* does not.
+
+## Read order and paging
+
+**A read without `orderBy` comes back in the type's natural order**: `createdAt desc`, unless the type declares `orderedBy` (`schema` shows it). That covers queries, id-list reads, subscription snapshots and streams. Pass `orderBy` whenever order matters to the answer, and page a read whose completeness matters on `nextCursor` until `hasMore` is false.
+
+**A cursor is only good on the server that issued it.** One from before a server upgrade, or from another server, is refused with `invalid_cursor`. Restart paging from the first page rather than retrying the cursor. Never persist a cursor as a resume point; persist a timestamp or an id set instead.
+
+**Row ids are UUIDv7 and embed their creation time, but they are not an ordering signal.** Order and filter on `createdAt` / `updatedAt`.
+
+## Indexes are the engine's
+
+Substrate builds and owns the indexes. Its advisor records slow read shapes and writes `_system/IndexRecommendation` rows (`add` or `remove`, with evidence); it builds and drops nothing itself. A signed `_system_proposals/propose_index` (`params.namespace` names the target) is the approval, with `action` `add`, `remove`, `orderedBy` or `dismiss`. It needs the `substrate.index` grant in that namespace and takes effect on the call. **Send it alone**: anything else in the same transaction is refused `propose_index_not_alone`. `add` and `orderedBy` work on proposed types only; on a type defined in code, the recommendation is advice for that plugin's author. `propose_type` also accepts `orderedBy`, `indexes` and `expectedSize`.
 
 ## Server-managed metadata
 
@@ -87,7 +99,7 @@ Four ways in — HTTP routes, the MCP tools, WS and SSE — and the same operati
 
 - **Schema scoping is ARGUMENTS in MCP and PATH SEGMENTS over HTTP.** `schema { namespace, type }` is `GET /substrate/v1/schema/<ns>/<Type>`. Carrying the MCP shape across gives `GET /substrate/v1/schema?namespace=cortext`, which answers `400` naming the path form.
 - **Recall's search text is `query` on the route and the MCP tool, and `to` on the frame.** Each rejects the other's spelling. On the frame it also sits in `params`, NOT in `where`, against the rule above — `recall/Hit` is a virtual type whose params are a search input rather than a filter.
-- **Subscribe params are a strict subset of query params.** No `limit`: the allowlist is `where`, `orderBy`, `_allowTableScan`, and it is engine-wide rather than a namespace quirk. Reusing a query's params for a subscription gets `unknown_param` — and the server names the allowed set, so read the rejection rather than guessing.
+- **Subscribe params are a strict subset of query params.** No `limit`: the allowlist is engine-wide rather than a namespace quirk. Reusing a query's params for a subscription gets `unknown_param` — and the server names the allowed set, so read the rejection rather than guessing.
 - **Live updates are WS/SSE only.** There is no MCP subscription tool, so an MCP-only agent polls or does without.
 - **On SSE a refusal arrives IN-BAND.** The HTTP status is `200` and the failure is an `event: error` frame carrying `{ code, message }` — the same trap as the query envelope above, one layer out. Read the stream, not the status.
 
