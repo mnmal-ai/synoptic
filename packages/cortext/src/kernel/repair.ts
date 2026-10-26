@@ -40,6 +40,7 @@
 
 import type postgres from 'postgres';
 import { CORTEXT_NAMESPACE } from './cortext-namespace.js';
+import { storeLayout } from './layout.js';
 import {
   countDuplicateHostInstallKeys,
   countDuplicateKids,
@@ -175,6 +176,7 @@ export async function repairIfRequested(
   ctx: {
     readonly sql: unknown;
     readonly namespace: string | null;
+    readonly layout?: unknown;
     readonly env: Record<string, string | undefined>;
     metric(name: string, payload?: unknown): void;
   },
@@ -203,6 +205,15 @@ export async function repairIfRequested(
         'coordinatorNamespacesByPlugin.'
     );
     ctx.metric('cortext_kernel.repair_declined', { reason: 'target_unknown' });
+    return null;
+  }
+
+  if ((await storeLayout(ctx.sql, ctx.layout).catch(() => 'legacy')) === 'partitioned') {
+    warn(
+      `[cortext-kernel] ${REPAIR_ENV_VAR} is set, but rows is partitioned: the engine owns ` +
+        "cortext's indexes there and there are no parent-level objects to repair. Nothing to do."
+    );
+    ctx.metric('cortext_kernel.repair_declined', { reason: 'partitioned' });
     return null;
   }
 

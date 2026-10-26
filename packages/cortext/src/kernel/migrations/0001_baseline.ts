@@ -11,6 +11,7 @@
 import type { KernelMigration, KernelMigrationContext } from '@mnmal-ai/substrate/sdk';
 import type postgres from 'postgres';
 import { CORTEXT_NAMESPACE } from '../cortext-namespace.js';
+import { reportedLayout, storeLayout } from '../layout.js';
 import {
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
@@ -23,7 +24,8 @@ type Sql = ReturnType<typeof postgres>;
 
 export const cortextBaselineMigration: KernelMigration = {
   id: '0001_baseline',
-  apply: async ({ sql, metric }: KernelMigrationContext): Promise<void> => {
+  apply: async (ctx: KernelMigrationContext): Promise<void> => {
+    const { sql, metric } = ctx;
     if (sql === null) return;
     const s = sql as Sql;
 
@@ -34,6 +36,9 @@ export const cortextBaselineMigration: KernelMigration = {
         ADD COLUMN IF NOT EXISTS status   text    NULL,
         ADD COLUMN IF NOT EXISTS priority text    NULL
     `);
+    // Partitioned: the engine builds the declared and indexed:true indexes per
+    // partition; parent-level DDL would fail (unique) or fan out (the rest).
+    if ((await storeLayout(s, reportedLayout(ctx))) === 'partitioned') return;
     for (const column of ['archived', 'project', 'status', 'priority']) {
       await s.unsafe(`
         CREATE INDEX IF NOT EXISTS rows_ns_type_${column}_idx

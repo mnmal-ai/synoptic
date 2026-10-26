@@ -181,6 +181,20 @@ const CONCEPT_NAME_TTL_MS = 60_000;
 /** Long-form length past which `embed.source` appends the long form to the synopsis. */
 const LONGFORM_EMBED_CHARS = 1200;
 
+/**
+ * A declared index, as substrate's type definitions accept it.
+ * shortcut: local copy of substrate's IndexDecl until the catalog reaches the
+ * release that exports it; older runtimes ignore `indexes`, and kernel 0001
+ * builds the same unique indexes on their (legacy) stores.
+ */
+interface IndexDecl {
+  readonly fields: readonly string[];
+  readonly unique?: boolean;
+  readonly where?: 'live';
+  readonly name?: string;
+}
+type TypeWithIndexes = TypeInput & { readonly indexes?: readonly IndexDecl[] };
+
 export function buildClaudeNamespace(ns: string): NamespaceDefinition {
   /**
    * Concept names are near-static (concepts evolve rarely) but `Decision.embed.source`
@@ -240,7 +254,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
     return kept.length === 0 ? null : kept.join('\n\n');
   }
 
-  const types: Record<string, TypeInput> = {
+  const types: Record<string, TypeWithIndexes> = {
     SessionLog: {
       fields: {
         branch: field.string(),
@@ -378,7 +392,8 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // Lifecycle only; the outcome lives in `resolution`.
         status: field.vocab(TODO_LIFECYCLE_VOCAB, {
           aliases: TODO_STATUS_ALIASES,
-          implies: TODO_STATUS_IMPLIES
+          implies: TODO_STATUS_IMPLIES,
+          indexed: true
         }),
         // Why a closed Todo stopped. Set by the closing alias (`done` ->
         // completed) or explicitly; null while the Todo is live.
@@ -451,7 +466,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           nullable: true,
           onDelete: 'set_null'
         }),
-        project: field.string({ nullable: true })
+        project: field.string({ nullable: true, indexed: true })
       }
     },
     AgentRule: {
@@ -484,7 +499,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           onDelete: 'set_null'
         }),
         archived: field.boolean({ default: false }),
-        project: field.string({ nullable: true })
+        project: field.string({ nullable: true, indexed: true })
       },
       embed: {
         // Category is folded in as a topical anchor.
@@ -562,7 +577,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // text (see `embedText`).
         synopsis: field.string({ nullable: true }),
         archived: field.boolean({ default: false }),
-        project: field.string({ nullable: true })
+        project: field.string({ nullable: true, indexed: true })
       },
       embed: {
         source: (r) => {
@@ -607,7 +622,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // Project scope. Resolution selects newest-first across
         // (project = current OR project IS NULL); project specificity
         // does not outrank recency.
-        project: field.string({ nullable: true }),
+        project: field.string({ nullable: true, indexed: true }),
         archived: field.boolean({ default: false })
       },
       embed: {
@@ -742,7 +757,12 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // field have no value, and the same three-valued logic as above
         // applies to a `where` on it.
         roaming: field.boolean({ default: false })
-      }
+      },
+      // The mailbox's recipient-only trust model rests on one live row per kid.
+      // Named as kernel 0001 builds it on legacy stores, so the engine adopts it.
+      indexes: [
+        { fields: ['kid'], unique: true, where: 'live', name: 'rows_agent_identity_kid_unique' }
+      ]
     },
     AgentMessage: {
       // The write surface is the mailbox mutation family, NOT autoCRUD: opting
@@ -840,7 +860,11 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // whether the identity keys are set; the fleet audit compares them
         // across hosts. Never a key path or any other env value.
         settingsEnv: field.json({ nullable: true })
-      }
+      },
+      // One record per host, repo and harness. Named as kernel 0001 builds it.
+      indexes: [
+        { fields: ['key'], unique: true, where: 'live', name: 'rows_host_install_key_unique' }
+      ]
     }
     // ReviewSession + ReviewFinding live in the review plugin's review/* namespace.
   };

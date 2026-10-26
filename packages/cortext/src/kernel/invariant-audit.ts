@@ -39,6 +39,7 @@ import {
   CORTEXT_COORDINATOR_NAME,
   CORTEXT_NAMESPACE
 } from './cortext-namespace.js';
+import { reportedLayout, storeLayout } from './layout.js';
 
 /** A catalog object one of the migrations installs, and what rests on it. */
 export interface InvariantObject {
@@ -421,7 +422,13 @@ export async function reportInvariantAudit(
   // be the same lie in a new place.
   let objectsChecked = 0;
 
-  if (catalogRead) {
+  // The objects are parent-level DDL that a partitioned rows does not carry;
+  // there the engine builds the unique indexes and fails the boot if it cannot.
+  const layout = catalogRead
+    ? await storeLayout(ctx.sql, reportedLayout(ctx)).catch(() => 'legacy' as const)
+    : null;
+
+  if (catalogRead && layout === 'legacy') {
     try {
       const result = await auditObjects(ctx.sql, target);
       // Every object present and scoped to the configured namespace means the
@@ -465,7 +472,8 @@ export async function reportInvariantAudit(
     // WAS read this is now what the loop actually touched.
     checked: objectsChecked,
     findings: findings.length,
-    catalogRead
+    catalogRead,
+    layout
   });
   return findings;
 }
