@@ -6,8 +6,8 @@ catalog:
   # cortext-opencode build-time types only (erased at bundle — the shipped
   # dist/plugin.js has zero runtime deps; @opencode/plugin's `define` is an
   # identity function that tsdown inlines). Public npm, not GitHub Packages.
-  "@opencode-ai/plugin": "^1.18.35"
-  "@opencode/plugin": "^2.0.24"
+  "@opencode-ai/plugin": "^1.19.0"
+  "@opencode/plugin": "^2.0.28"
   "@types/node": "^26.6.4"
   "@mnmal-ai/substrate": "1.0.0-alpha.0"
   postgres: "3.4.9"
@@ -35,5 +35,5 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@mnmal-ai/holomap-clusterer@0.2.1'
   - '@mnmal-ai/substrate@1.0.0-alpha.0'
-  - "@opencode-ai/plugin@1.18.35"
-  - "@opencode-ai/sdk@1.18.35"
+  - "@opencode-ai/plugin@1.19.0"
+  - "@opencode-ai/sdk@1.19.0"
