@@ -39,7 +39,7 @@ import {
   CORTEXT_COORDINATOR_NAME,
   CORTEXT_NAMESPACE
 } from './cortext-namespace.js';
-import { reportedLayout, storeLayout } from './layout.js';
+import { storeLayout } from './layout.js';
 
 /** A catalog object one of the migrations installs, and what rests on it. */
 export interface InvariantObject {
@@ -59,8 +59,8 @@ export interface InvariantObject {
  * if this list and the migrations disagree — which is the check that actually
  * holds them together.
  *
- * Note there is no `architecture/*` entry, and that is correct: migration 0002
- * is a one-time body normalisation, not a standing invariant. A drifted
+ * Note there is no `architecture/*` entry, and that is correct: the
+ * pre-baseline architecture migration was a one-time body normalisation, not a standing invariant. A drifted
  * architecture namespace means that normalisation never ran for those rows —
  * real, but a different and lesser thing than "kid uniqueness is not held".
  */
@@ -76,12 +76,6 @@ export const INVARIANT_OBJECTS: readonly InvariantObject[] = [
     kind: 'constraint',
     migration: '0001_baseline',
     guarantee: 'Todo.priority is restricted to its controlled vocabulary'
-  },
-  {
-    name: 'rows_agent_message_recipient_idx',
-    kind: 'index',
-    migration: '0001_baseline',
-    guarantee: 'mailbox inbox reads are index-backed rather than heap scans'
   },
   {
     name: 'rows_agent_identity_kid_unique',
@@ -424,9 +418,7 @@ export async function reportInvariantAudit(
 
   // The objects are parent-level DDL that a partitioned rows does not carry;
   // there the engine builds the unique indexes and fails the boot if it cannot.
-  const layout = catalogRead
-    ? await storeLayout(ctx.sql, reportedLayout(ctx)).catch(() => 'legacy' as const)
-    : null;
+  const layout = catalogRead ? await storeLayout(ctx.sql).catch(() => 'legacy' as const) : null;
 
   if (catalogRead && layout === 'legacy') {
     try {

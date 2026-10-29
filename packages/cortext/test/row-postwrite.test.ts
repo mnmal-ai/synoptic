@@ -157,7 +157,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('auth\n\nrotate tokens\n\nleak');
+      expect(embedSpy).toHaveBeenCalledWith('auth\n\nrotate tokens\n\nleak', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -175,7 +175,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('test hook\n\nfull memory body');
+      expect(embedSpy).toHaveBeenCalledWith('test hook\n\nfull memory body', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -194,7 +194,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('short synopsis');
+      expect(embedSpy).toHaveBeenCalledWith('short synopsis', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -213,7 +213,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('shipped increment 3a');
+      expect(embedSpy).toHaveBeenCalledWith('shipped increment 3a', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -233,7 +233,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('concise synopsis');
+      expect(embedSpy).toHaveBeenCalledWith('concise synopsis', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -247,7 +247,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('an intent synopsis');
+      expect(embedSpy).toHaveBeenCalledWith('an intent synopsis', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -282,7 +282,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('desc\n\nbody');
+      expect(embedSpy).toHaveBeenCalledWith('desc\n\nbody', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -300,7 +300,7 @@ describe('postWrite wiring — kernel-driven', () => {
         },
         embedder
       );
-      expect(embedSpy).toHaveBeenCalledWith('concise');
+      expect(embedSpy).toHaveBeenCalledWith('concise', expect.anything());
       expect(upserts).toHaveLength(1);
     });
   });
@@ -382,7 +382,7 @@ describe('postWrite wiring — loadPlugins integration', () => {
       project: 'substrate'
     };
     await memoryHook(fakeRow as never, makeCtx());
-    expect(embedSpy).toHaveBeenCalledWith('desc\n\nbody text');
+    expect(embedSpy).toHaveBeenCalledWith('desc\n\nbody text', expect.anything());
     expect(upserts).toHaveLength(1);
     expect(upserts[0]?.rowNamespace).toBe('claude');
     expect(upserts[0]?.rowType).toBe('Memory');
@@ -480,7 +480,8 @@ describe('postWrite wiring — loadPlugins integration', () => {
       // No resolveDataset → ctx undefined → embed.source skips the read,
       // returns the base topic+choice+rationale string.
       expect(embedSpy).toHaveBeenCalledWith(
-        'recall attention\n\nadd per-row salience signal\n\nusage-weighted ranking'
+        'recall attention\n\nadd per-row salience signal\n\nusage-weighted ranking',
+        expect.anything()
       );
     });
 
@@ -520,7 +521,7 @@ describe('postWrite wiring — loadPlugins integration', () => {
         fields: { id: true }
       });
 
-      expect(embedSpy).toHaveBeenCalledWith('topic\n\nchoice\n\nrationale');
+      expect(embedSpy).toHaveBeenCalledWith('topic\n\nchoice\n\nrationale', expect.anything());
     });
   });
 });

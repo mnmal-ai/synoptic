@@ -11,11 +11,9 @@
 import type { KernelMigration, KernelMigrationContext } from '@mnmal-ai/substrate/sdk';
 import type postgres from 'postgres';
 import { CORTEXT_NAMESPACE } from '../cortext-namespace.js';
-import { reportedLayout, storeLayout } from '../layout.js';
 import {
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
-  rescopeRecipientIndex,
   rescopeVocabConstraint,
   VOCAB_CONSTRAINTS
 } from '../rescope.js';
@@ -38,24 +36,16 @@ export const cortextBaselineMigration: KernelMigration = {
     `);
     // Partitioned: the engine builds the declared and indexed:true indexes per
     // partition; parent-level DDL would fail (unique) or fan out (the rest).
-    if ((await storeLayout(s, reportedLayout(ctx))) === 'partitioned') return;
-    for (const column of ['archived', 'project', 'status', 'priority']) {
-      await s.unsafe(`
-        CREATE INDEX IF NOT EXISTS rows_ns_type_${column}_idx
-          ON rows (namespace, type, ${column}) WHERE deleted_at IS NULL
-      `);
-    }
-    // The cold-start read: live rows of a type in a project.
+    if (ctx.layout === 'partitioned') return;
+    // project and status are indexed:true, so the engine builds theirs.
     await s.unsafe(`
-      CREATE INDEX IF NOT EXISTS rows_cold_start_idx
-        ON rows (namespace, type, project)
-        WHERE deleted_at IS NULL AND archived IS NOT TRUE
+      CREATE INDEX IF NOT EXISTS rows_ns_type_archived_idx
+        ON rows (namespace, type, archived) WHERE deleted_at IS NULL
     `);
 
     for (const spec of VOCAB_CONSTRAINTS) {
       await rescopeVocabConstraint(s, metric, spec, CORTEXT_NAMESPACE);
     }
-    await rescopeRecipientIndex(s, CORTEXT_NAMESPACE);
     await rescopeKidUniqueIndex(s, CORTEXT_NAMESPACE);
     await rescopeHostInstallKeyIndex(s, CORTEXT_NAMESPACE);
   },

@@ -14,21 +14,12 @@ type SqlTag = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
 export type StoreLayout = 'legacy' | 'partitioned';
 
 /**
- * The layout the host reports, else the catalog's answer.
- *
- * `reported` is `KernelMigrationContext.layout` on hosts that carry it.
- * shortcut: catalog fallback for hosts without `ctx.layout`; drop it once the
- * contract floor is a substrate that always reports the layout.
+ * The layout as the catalog reports it. Migrations read `ctx.layout` instead;
+ * this is for boot-time code, whose lifecycle context does not carry it.
  */
-export async function storeLayout(sql: unknown, reported?: unknown): Promise<StoreLayout> {
-  if (reported === 'legacy' || reported === 'partitioned') return reported;
+export async function storeLayout(sql: unknown): Promise<StoreLayout> {
   const [row] = (await (sql as SqlTag)`
     SELECT c.relkind AS kind FROM pg_class c WHERE c.oid = to_regclass('rows')
   `) as unknown as [{ kind: string } | undefined];
   return row?.kind === 'p' ? 'partitioned' : 'legacy';
-}
-
-/** `ctx.layout` where the host's context carries it. */
-export function reportedLayout(ctx: object): unknown {
-  return (ctx as { layout?: unknown }).layout;
 }
