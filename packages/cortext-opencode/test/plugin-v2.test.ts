@@ -87,7 +87,8 @@ const ENV_KEYS = [
   'SUBSTRATE_AGENT_KEY_ID',
   'SUBSTRATE_AGENT_KEY_PATH',
   'SYNOPTIC_COLD_START_MAX_BYTES',
-  'SYNOPTIC_INBOX_PUSH'
+  'SYNOPTIC_INBOX_PUSH',
+  'SYNOPTIC_COMPACTION'
 ];
 let savedEnv: Record<string, string | undefined>;
 
@@ -96,6 +97,7 @@ beforeEach(() => {
   process.env.SUBSTRATE_URL = 'https://substrate.test:3100';
   process.env.SUBSTRATE_NAMESPACE = 'cortext';
   delete process.env.SYNOPTIC_PROJECT_SCOPE;
+  delete process.env.SYNOPTIC_COMPACTION;
   // Agent identity starts unset so every suite is deterministic regardless
   // of the ambient shell; identity tests set their own pair explicitly.
   delete process.env.SUBSTRATE_AGENT_KEY_ID;
@@ -230,6 +232,21 @@ describe('session lifecycle hooks (V2)', () => {
     expect(compactEvent.system).toHaveLength(1);
     await hooks.context?.({ sessionID: 's1', system: [] });
     expect(calls.length).toBeGreaterThan(afterFirst);
+  });
+
+  it('SYNOPTIC_COMPACTION=pointer sets the result, so no summary request is made', async () => {
+    stubFetch([]);
+    process.env.SYNOPTIC_COMPACTION = 'pointer';
+    const hooks = await setup();
+    const compactEvent: { sessionID: string; system: SystemPart[]; result?: { summary: string } } =
+      {
+        sessionID: 's1',
+        system: []
+      };
+    await hooks.compaction?.(compactEvent);
+    expect(compactEvent.result?.summary).toMatch(/^## Objective/);
+    expect(compactEvent.result?.summary).toContain('## Next Move');
+    expect(compactEvent.system).toHaveLength(0);
   });
 });
 

@@ -103,9 +103,36 @@ const INBOX_TIMEOUT_MS = 3000;
 const COLD_START_TIMEOUT_MS = SESSION_START_BUDGET_MS;
 
 /** Left in the compaction transcript so the summary records where live store
- *  state lives instead of trusting the snapshot. */
+ *  state lives instead of restating it. */
 const COMPACTION_POINTER =
-  'Synoptic cold-start rule index (binding and always-on AgentRules, plus pointers) is injected at the next dispatch; query the store rather than trusting this summary for store state.';
+  'Synoptic: durable state lives in Substrate, not in this summary. Decisions, Todos, SessionLogs and the current AnchorIntent are store rows, and the cold-start rule index is injected again at the next dispatch. In the summary, cite such rows by shortId (#N) instead of restating them, and query the store rather than trusting this summary for store state.';
+
+/** `SYNOPTIC_COMPACTION=pointer` replaces the model summary with a fixed
+ *  pointer at the store. Read per compaction, so no restart is needed. */
+const pointerCompaction = (): boolean => process.env.SYNOPTIC_COMPACTION === 'pointer';
+
+/** V2 pointer mode: the whole compaction result, so no model request is made.
+ *  Uses the host template's headings. */
+const POINTER_SUMMARY = [
+  '## Objective',
+  '- Continue the work recorded in Substrate; the newest AnchorIntent for this project states the current focus.',
+  '',
+  '## Work State',
+  '### Active',
+  '- Recorded in Substrate (newest AnchorIntent, SessionLog and open Todos), not in this summary.',
+  '',
+  '## Next Move',
+  '1. Read the injected cold-start index, then the newest AnchorIntent and SessionLog for this project, before acting.',
+  '2. Check `git status` and `git log` for uncommitted or unpushed work.',
+  '',
+  '## Important Context',
+  '- The model summary was skipped (SYNOPTIC_COMPACTION=pointer). Anything not in the store, git or the recent turns kept after this checkpoint is gone.'
+].join('\n');
+
+/** V1 pointer mode: V1 cannot skip the model request, so the prompt is
+ *  replaced with a short one instead. */
+const POINTER_PROMPT =
+  'Summarize the conversation above for another agent in at most 15 terse bullets: the objective, what is done, what is in progress, the next action, and the exact file paths, commands and identifiers still needed. Durable state (Decisions, Todos, SessionLogs, AnchorIntent) lives in Substrate: cite it by shortId (#N) and do not restate it. No preamble.';
 
 /** This skin's own version, recorded in HostInstall. `dist/plugin.js` sits one
  *  level below `package.json`, both in the source tree and in an npm install. */
@@ -483,7 +510,8 @@ export const CortextPlugin: V1Plugin = async ({ directory }) => {
         // anchor): drop the cached render so the next dispatch rebuilds it,
         // and leave a pointer so the summary records where context lives.
         store.invalidate(input.sessionID);
-        output.context.push(COMPACTION_POINTER);
+        if (pointerCompaction()) output.prompt = POINTER_PROMPT;
+        else output.context.push(COMPACTION_POINTER);
       } catch {
         // Compaction proceeds regardless.
       }
@@ -675,7 +703,8 @@ async function setup(ctx: PluginContext): Promise<() => void> {
       // next dispatch rebuilds it, and leave a pointer so the summary
       // records where context lives.
       store.invalidate(event.sessionID);
-      event.system.push({ type: 'text', text: COMPACTION_POINTER });
+      if (pointerCompaction()) event.result = { summary: POINTER_SUMMARY };
+      else event.system.push({ type: 'text', text: COMPACTION_POINTER });
     } catch {
       // Compaction proceeds regardless.
     }

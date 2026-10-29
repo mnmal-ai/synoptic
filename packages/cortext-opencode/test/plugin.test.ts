@@ -36,7 +36,12 @@ function stubFetch(calls: string[]): void {
   }) as typeof fetch);
 }
 
-const ENV_KEYS = ['SUBSTRATE_URL', 'SUBSTRATE_NAMESPACE', 'SYNOPTIC_PROJECT_SCOPE'];
+const ENV_KEYS = [
+  'SUBSTRATE_URL',
+  'SUBSTRATE_NAMESPACE',
+  'SYNOPTIC_PROJECT_SCOPE',
+  'SYNOPTIC_COMPACTION'
+];
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -44,6 +49,7 @@ beforeEach(() => {
   process.env.SUBSTRATE_URL = 'https://substrate.test:3100';
   process.env.SUBSTRATE_NAMESPACE = 'cortext';
   delete process.env.SYNOPTIC_PROJECT_SCOPE;
+  delete process.env.SYNOPTIC_COMPACTION;
 });
 
 afterEach(() => {
@@ -177,5 +183,15 @@ describe('session lifecycle hooks', () => {
       { system: [] }
     );
     expect(calls.length).toBeGreaterThan(afterFirst);
+  });
+
+  it('SYNOPTIC_COMPACTION=pointer replaces the compaction prompt', async () => {
+    stubFetch([]);
+    process.env.SYNOPTIC_COMPACTION = 'pointer';
+    const h = await hooks();
+    const output: { context: string[]; prompt?: string } = { context: [] };
+    await h['experimental.session.compacting']?.({ sessionID: 's1' }, output);
+    expect(output.prompt).toMatch(/shortId \(#N\)/);
+    expect(output.context).toHaveLength(0);
   });
 });

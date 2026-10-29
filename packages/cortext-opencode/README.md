@@ -103,6 +103,7 @@ OpenCode 1.x compat).
 | `SYNOPTIC_INBOX_PUSH` | `off` disables mid-turn push (V2); the prompt and end-of-turn seams carry on | on |
 | `SYNOPTIC_INBOX_WAKE` | `on` lets new mail start a turn in an idle session (6 per hour, 2 per thread) | off |
 | `SYNOPTIC_INBOX_URGENT_FROM` | Comma-separated kids whose `priority:urgent` mail may interrupt a turn (3 per hour, 20 s grace for a running tool) | unset |
+| `SYNOPTIC_COMPACTION` | `pointer` skips OpenCode's summary: V2 sets the compaction `result` to a fixed pointer at the store (no model request; only the store, git and the turns the host keeps survive), V1 replaces the prompt with a 15-bullet one. Unset, the summarizer is told to cite store rows by shortId instead of restating them | unset |
 
 ## How it maps to the Claude skin
 
@@ -116,7 +117,7 @@ OpenCode 1.x compat).
 | `skills/substrate-run` | `skills/substrate-run` — shared steps 1–5, own binary/identity and permission steps (`test/skills-sync.test.ts` enforces) |
 | `fragments/substrate-conventions.md` | `instructions/substrate-conventions.md` — shared body, own marker (`test/instructions-sync.test.ts` enforces) |
 | `/substrate-setup` skill | `skills/substrate-setup` — opencode paths + MCP dialect |
-| SessionStart `compact` re-run | `compaction` session hook: drops the cache (next dispatch rebuilds) + leaves a pointer in the summary |
+| SessionStart `compact` re-run | `compaction` session hook: drops the cache (next dispatch rebuilds) + leaves a pointer in the summary, or replaces the summary under `SYNOPTIC_COMPACTION=pointer` |
 | Fragment-drift watchdog | **Deferred** — the check reads the `.claude/` install path; see `src/plugin.ts` header |
 
 ## Build
