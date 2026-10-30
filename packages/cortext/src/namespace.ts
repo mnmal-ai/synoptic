@@ -176,24 +176,12 @@ export const HOST_INSTALL_FRAGMENT_STATES = [
 /** HostInstall's per-check verdicts: the worst finding each check produced. */
 export const HOST_INSTALL_CHECK_STATES = ['ok', 'warn', 'unknown'] as const;
 
+export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
+
 const CONCEPT_NAME_TTL_MS = 60_000;
 
 /** Long-form length past which `embed.source` appends the long form to the synopsis. */
 const LONGFORM_EMBED_CHARS = 1200;
-
-/**
- * A declared index, as substrate's type definitions accept it.
- * shortcut: local copy of substrate's IndexDecl until the catalog reaches the
- * release that exports it; older runtimes ignore `indexes`, and kernel 0001
- * builds the same unique indexes on their (legacy) stores.
- */
-interface IndexDecl {
-  readonly fields: readonly string[];
-  readonly unique?: boolean;
-  readonly where?: 'live';
-  readonly name?: string;
-}
-type TypeWithIndexes = TypeInput & { readonly indexes?: readonly IndexDecl[] };
 
 export function buildClaudeNamespace(ns: string): NamespaceDefinition {
   /**
@@ -254,7 +242,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
     return kept.length === 0 ? null : kept.join('\n\n');
   }
 
-  const types: Record<string, TypeWithIndexes> = {
+  const types: Record<string, TypeInput> = {
     SessionLog: {
       fields: {
         branch: field.string(),
@@ -865,6 +853,44 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
       indexes: [
         { fields: ['key'], unique: true, where: 'live', name: 'rows_host_install_key_unique' }
       ]
+    },
+    // A unit of work in flight: the stable identity a fresh session resumes by,
+    // whatever its session id. Not a Todo: a Todo is a backlog ticket, and
+    // much work has none; `todo` links the two when it does.
+    Task: {
+      fields: {
+        title: field.string(),
+        status: field.enum(TASK_STATUS_VOCAB, { default: 'active' }),
+        todo: field.crossRef(ns, 'Todo', { nullable: true, onDelete: 'set_null' }),
+        archived: field.boolean({ default: false }),
+        project: field.string({ nullable: true, indexed: true })
+      }
+    },
+    // One acknowledged step of a Task: what was completed and what comes next.
+    // Points at files and rows rather than retelling them. The latest
+    // checkpoint is the highest revision, never the most similar.
+    ExecutionCheckpoint: {
+      fields: {
+        task: field.crossRef(ns, 'Task', { onDelete: 'cascade' }),
+        // Writer-assigned, one higher than the latest. The unique index below
+        // refuses a second write at the same revision, so a retried write
+        // cannot duplicate and two concurrent writers cannot both advance.
+        revision: field.number(),
+        completed: field.string({ indexed: false }),
+        nextAction: field.string({ indexed: false }),
+        blockers: field.string({ nullable: true, indexed: false }),
+        // File paths, #shortIds, PR or commit references.
+        refs: field.list(field.string(), { nullable: true }),
+        project: field.string({ nullable: true, indexed: true })
+      },
+      indexes: [
+        {
+          fields: ['task', { field: 'revision', dir: 'desc' }],
+          unique: true,
+          where: 'live',
+          name: 'rows_execution_checkpoint_task_revision_unique'
+        }
+      ]
     }
     // ReviewSession + ReviewFinding live in the review plugin's review/* namespace.
   };
@@ -946,7 +972,9 @@ export const CLAUDE_TYPE_NAMES = [
   'Skill',
   'AgentIdentity',
   'AgentMessage',
-  'HostInstall'
+  'HostInstall',
+  'Task',
+  'ExecutionCheckpoint'
 ] as const;
 
 /**

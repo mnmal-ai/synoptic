@@ -797,6 +797,78 @@
         "type": "string"
       }
     },
+    "ExecutionCheckpoint": {
+      "blockers": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "completed": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "nextAction": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "refs": {
+        "kind": "list",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "list<string>"
+      },
+      "revision": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "number"
+      },
+      "task": {
+        "kind": "crossRef",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "target": "Task"
+      }
+    },
     "HostInstall": {
       "authorityNote": {
         "kind": "scalar",
@@ -1264,6 +1336,63 @@
         "type": "string"
       }
     },
+    "Task": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "status": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "active",
+          "done",
+          "paused"
+        ]
+      },
+      "title": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "todo": {
+        "kind": "crossRef",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "target": "Todo"
+      }
+    },
     "Todo": {
       "archived": {
         "kind": "scalar",
@@ -1497,6 +1626,7 @@
         ".:ReleaseSurface",
         ".:SurfaceChange",
         ".:SurfaceField",
+        ".:TASK_STATUS_VOCAB",
         ".:TODO_RESOLUTION_ALIASES",
         ".:TODO_STATUS_ALIASES",
         ".:TODO_STATUS_IMPLIES",
@@ -1515,7 +1645,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "10ac9c89"
+      "dtsDigest": "8329f9a9"
     }
   },
   "surfaceFormat": 2
