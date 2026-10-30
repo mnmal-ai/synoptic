@@ -18,10 +18,13 @@ describe('createCortextKernelPlugin', () => {
     expect(plugin.contractVersion).toBe(SUBSTRATE_CONTRACT_RANGE);
   });
 
-  it('declares one baseline migration, with a rollback', () => {
+  it('declares the baseline then the engine-owned index drop, each with a rollback', () => {
     const migrations = createCortextKernelPlugin().migrations ?? [];
-    expect(migrations.map((m) => m.id)).toEqual(['0001_baseline']);
-    expect(migrations[0]?.rollback).toBeTypeOf('function');
+    expect(migrations.map((m) => m.id)).toEqual([
+      '0001_baseline',
+      '0002_drop_engine_owned_indexes'
+    ]);
+    for (const m of migrations) expect(m.rollback).toBeTypeOf('function');
   });
 
   it('contributes migrations and the boot audit — no filter operators, routes, or MCP tools', () => {

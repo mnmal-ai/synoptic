@@ -289,9 +289,8 @@ describe('Todo.revisitWhen', () => {
   });
 
   it('is unindexed, matching its Decision and ArchitectureConcern twins', async () => {
-    // Asserted rather than assumed: it is prose for a reader to evaluate, not
-    // a filter target, and a structural filter must therefore be REJECTED
-    // rather than quietly table-scanning the corpus.
+    // Prose for a reader to evaluate, not a filter target: a filter on it is
+    // accepted and scans the type rather than being index-served.
     const { server, stop } = await setup();
     cleanup = stop;
 
@@ -303,8 +302,7 @@ describe('Todo.revisitWhen', () => {
         }
       })
     );
-    expect(env.errors?.[0]?.code).toBe('unindexed_field');
-    // The rejected frame's key is ABSENT — not present-and-empty.
-    expect(Object.keys(env.data)).not.toContain(`${NS}/Todo`);
+    expect(env.errors ?? []).toEqual([]);
+    expect(env.data[`${NS}/Todo`]).toEqual([]);
   });
 });

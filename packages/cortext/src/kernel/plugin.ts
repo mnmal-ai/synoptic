@@ -29,6 +29,7 @@
 import type { KernelPlugin } from '@mnmal-ai/substrate/sdk';
 import { reportInvariantAudit, resolveCortextNamespaces } from './invariant-audit.js';
 import { cortextBaselineMigration } from './migrations/0001_baseline.js';
+import { cortextDropEngineOwnedIndexesMigration } from './migrations/0002_drop_engine_owned_indexes.js';
 import { repairIfRequested } from './repair.js';
 import { SUBSTRATE_CONTRACT_RANGE } from './substrate-contract.js';
 
@@ -42,6 +43,9 @@ export function createCortextKernelPlugin(): KernelPlugin {
       // running with the condition it observes, and nor should a maintenance
       // env var.
       await reportInvariantAudit(ctx);
+      // A boot without background work (migrate-store preparing a target)
+      // must not take DDL locks mid-copy.
+      if (!ctx.background) return;
       await repairIfRequested({
         sql: ctx.sql,
         // Only a host-supplied target, never a guess. null here means the
@@ -52,6 +56,6 @@ export function createCortextKernelPlugin(): KernelPlugin {
         metric: ctx.metric
       });
     },
-    migrations: [cortextBaselineMigration]
+    migrations: [cortextBaselineMigration, cortextDropEngineOwnedIndexesMigration]
   };
 }

@@ -516,7 +516,7 @@ describe('buildClaudeNamespace', () => {
     expect(rows?.[0]?.authoredBy?.kind).toBe('agent');
   });
 
-  it('rejects where-filters on indexed:false fields with unindexed_field', async () => {
+  it('accepts a where-filter on an indexed:false field, which scans the type', async () => {
     const { server, stop } = await setup();
     cleanup = stop;
 
@@ -534,8 +534,8 @@ describe('buildClaudeNamespace', () => {
       )
     });
     const env = jsonBody<PackEnvelope>(res);
-    expect(env.errors).toBeDefined();
-    expect(env.errors?.[0]?.code).toBe('unindexed_field');
+    expect(env.errors ?? []).toEqual([]);
+    expect(Object.keys(env.data)).toContain(`${NS}/SessionLog`);
   });
 
   it('retrieval-handle fields (synopsis/description tier) filter without _allowTableScan', async () => {

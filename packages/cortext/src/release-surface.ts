@@ -33,10 +33,9 @@
  * enum, or moving the substrate contract range are all breaks for someone holding
  * data or code against this schema.
  *
- * `indexed` is included and it is not cosmetic: un-indexing a field turns a
- * working `where` filter into an `unindexed_field` rejection. That is a
- * runtime break for a caller who changed nothing, and it would otherwise be
- * invisible to a version-bump decision.
+ * `indexed` is included as a review item, not a break: every field filters,
+ * so un-indexing one turns an index-served `where` into a scan of the type.
+ * The caller's query still works, but slower, and a human should weigh it.
  */
 
 import { SUBSTRATE_CONTRACT_RANGE } from './kernel/index.js';
@@ -383,8 +382,8 @@ export function classifySurfaceChange(
       if (bf.required && !af.required) additive.push(`field relaxed to optional: ${at}`);
       // Nullable -> non-nullable breaks every existing ROW carrying a null.
       if (bf.nullable && !af.nullable) breaking.push(`field no longer nullable: ${at}`);
-      // Un-indexing turns a working filter into an unindexed_field rejection.
-      if (bf.indexed && !af.indexed) breaking.push(`field no longer indexed: ${at}`);
+      // Un-indexing turns an index-served filter into a scan of the type.
+      if (bf.indexed && !af.indexed) review.push(`field no longer indexed: ${at}`);
       if (!bf.indexed && af.indexed) additive.push(`field now indexed: ${at}`);
 
       const bEnum = bf.enum ?? null;

@@ -25,6 +25,10 @@ export {
   type UntargetableReason
 } from './invariant-audit.js';
 export { cortextBaselineMigration } from './migrations/0001_baseline.js';
+export {
+  cortextDropEngineOwnedIndexesMigration,
+  ENGINE_OWNED_INDEXES
+} from './migrations/0002_drop_engine_owned_indexes.js';
 export { createCortextKernelPlugin } from './plugin.js';
 export {
   REPAIR_ENV_VAR,
@@ -39,7 +43,6 @@ export {
   countDuplicateKids,
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
-  rescopeRecipientIndex,
   rescopeVocabConstraint,
   VOCAB_CONSTRAINTS,
   type VocabConstraint

@@ -168,13 +168,13 @@ catalogs:
       specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
-      specifier: 1.0.0-alpha.0
-      version: 1.0.0-alpha.0
+      specifier: 1.0.0-alpha.10
+      version: 1.0.0-alpha.10
     '@opencode-ai/plugin':
-      specifier: ^1.18.35
+      specifier: ^1.19.0
       version: 1.19.0
     '@opencode/plugin':
-      specifier: ^2.0.24
+      specifier: ^2.0.28
       version: 2.0.28
     '@types/node':
       specifier: ^26.6.4
@@ -226,7 +226,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.0
+        version: 1.0.0-alpha.10
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -584,9 +584,9 @@ packages:
   '@mnmal-ai/holomap-clusterer@0.2.1':
     resolution: {integrity: sha512-X3d4Zj0IQoliinQ6ajjZOMYJ5AyfXZZoaZxyTJWJWmxCNNN2ZbP/nnt8WLS/Ddbrs3WxdfreAyzGX9pDCAKxRQ==}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.0':
-    resolution: {integrity: sha512-5+OgdueSz7K87k2nHYH2U4UnTdzEMQ2MG5rnj6nFDL4xMH5yEiSxJmpzaPoVBJWlzq2aIagH0v16tahhlNWMuA==}
-    engines: {node: '>=26.2.0'}
+  '@mnmal-ai/substrate@1.0.0-alpha.10':
+    resolution: {integrity: sha512-i07SdYx4KGK4c0BvHahYcGrZ4ScPxVqxjbIFrlQBwnEbJS/0UmtN1kDeawDSKDKEz4ZTeGvze8c09iYT+ZGdRQ==}
+    engines: {node: '>=26.12.1'}
     hasBin: true
 
   '@modelcontextprotocol/sdk@1.32.1':
@@ -3208,7 +3208,7 @@ snapshots:
 
   '@mnmal-ai/holomap-clusterer@0.2.1': {}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.0':
+  '@mnmal-ai/substrate@1.0.0-alpha.10':
     dependencies:
       '@fastify/compress': 9.2.2
       '@fastify/cors': 11.3.1

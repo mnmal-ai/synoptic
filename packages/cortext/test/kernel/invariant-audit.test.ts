@@ -20,6 +20,7 @@ import {
   scopedNamespace
 } from '../../src/kernel/invariant-audit.js';
 import { createCortextKernelPlugin } from '../../src/kernel/plugin.js';
+import { REPAIR_ENV_VAR } from '../../src/kernel/repair.js';
 import { VOCAB_CONSTRAINTS } from '../../src/kernel/rescope.js';
 
 describe('namespace coverage', () => {
@@ -306,9 +307,33 @@ describe('plugin wiring', () => {
         lifecycle: 'kernel',
         sql: null,
         coordinatorNamespaces: [CORTEXT_NAMESPACE],
-        metric: vi.fn()
+        metric: vi.fn(),
+        background: true
       })
     ).resolves.toBeUndefined();
+  });
+
+  it('skips repair on a boot without background work', async () => {
+    const plugin = createCortextKernelPlugin();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env[REPAIR_ENV_VAR] = '1';
+    try {
+      const boot = (background: boolean) =>
+        plugin.onKernelReady?.({
+          lifecycle: 'kernel',
+          sql: null,
+          coordinatorNamespaces: [CORTEXT_NAMESPACE],
+          metric: vi.fn(),
+          background
+        });
+      await boot(false);
+      expect(warn.mock.calls.flat().join('\n')).not.toContain(REPAIR_ENV_VAR);
+      await boot(true);
+      expect(warn.mock.calls.flat().join('\n')).toContain(REPAIR_ENV_VAR);
+    } finally {
+      delete process.env[REPAIR_ENV_VAR];
+      warn.mockRestore();
+    }
   });
 });
 

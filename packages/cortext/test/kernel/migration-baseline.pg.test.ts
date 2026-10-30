@@ -8,6 +8,10 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CORTEXT_NAMESPACE } from '../../src/kernel/cortext-namespace.js';
 import { cortextBaselineMigration } from '../../src/kernel/migrations/0001_baseline.js';
+import {
+  cortextDropEngineOwnedIndexesMigration,
+  ENGINE_OWNED_INDEXES
+} from '../../src/kernel/migrations/0002_drop_engine_owned_indexes.js';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
 const describePg = POSTGRES_URL ? describe : describe.skip;
@@ -35,10 +39,37 @@ describePg('cortext baseline migration', () => {
         PRIMARY KEY (namespace, type, id)
       )
     `);
-    const ctx = { sql: tx, metric: (): void => {} };
+    const ctx = { sql: tx, metric: (): void => {}, layout: 'legacy' };
     await cortextBaselineMigration.apply(ctx as never);
     await cortextBaselineMigration.apply(ctx as never);
   }, 60_000);
+
+  const indexNames = async (): Promise<string[]> =>
+    (
+      await tx.unsafe(`
+        SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+         WHERE i.indrelid = 'rows'::regclass
+      `)
+    ).map((r) => r.relname as string);
+
+  it('builds none of the engine-owned indexes', async () => {
+    const names = await indexNames();
+    for (const name of ENGINE_OWNED_INDEXES) expect(names).not.toContain(name);
+  });
+
+  it('0002 drops the engine-owned indexes an older 0001 built, and runs twice', async () => {
+    await fenced(async () => {
+      await tx.unsafe('CREATE INDEX rows_cold_start_idx ON rows (namespace, type, project)');
+      await tx.unsafe('CREATE INDEX rows_ns_type_status_idx ON rows (namespace, type, status)');
+      const ctx = { sql: tx, layout: 'legacy' };
+      await cortextDropEngineOwnedIndexesMigration.apply(ctx as never);
+      await cortextDropEngineOwnedIndexesMigration.apply(ctx as never);
+      const names = await indexNames();
+      expect(names).not.toContain('rows_cold_start_idx');
+      expect(names).not.toContain('rows_ns_type_status_idx');
+      expect(names).toContain('rows_agent_identity_kid_unique');
+    });
+  });
 
   afterAll(async () => {
     await tx?.unsafe('ROLLBACK');

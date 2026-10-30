@@ -47,12 +47,12 @@ export const CORTEXT_NAMESPACE = 'cortext';
 
 /**
  * The namespace the architecture-findings surface registers under, and which
- * migration 0002 scopes its body normalization to.
+ * the pre-baseline body-normalization migration was scoped to.
  *
  * Separate from CORTEXT_NAMESPACE because the two have separate operator
  * knobs and diverging lifecycle policies (compaction, retention, audit) — but
  * subject to exactly the same gap, which is why it is stated here rather than
- * left as a bare literal inside 0002.
+ * left as a bare literal inside that migration.
  */
 export const ARCHITECTURE_NAMESPACE = 'architecture';
 
