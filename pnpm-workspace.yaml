@@ -9,7 +9,7 @@ catalog:
   "@opencode-ai/plugin": "^1.19.0"
   "@opencode/plugin": "^2.0.28"
   "@types/node": "^26.6.4"
-  "@mnmal-ai/substrate": "1.0.0-alpha.0"
+  "@mnmal-ai/substrate": "1.0.0-alpha.10"
   postgres: "3.4.9"
   tsdown: "^0.23.0"
   typescript: "^7.0.2"
@@ -34,6 +34,6 @@ allowBuilds:
 # exactly, so a grep of the repo's package.json files will never show it.
 minimumReleaseAgeExclude:
   - '@mnmal-ai/holomap-clusterer@0.2.1'
-  - '@mnmal-ai/substrate@1.0.0-alpha.0'
+  - '@mnmal-ai/substrate@1.0.0-alpha.10'
   - "@opencode-ai/plugin@1.19.0"
   - "@opencode-ai/sdk@1.19.0"
