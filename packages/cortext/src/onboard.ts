@@ -29,6 +29,7 @@ import {
   DECISION_STATUS_VOCAB,
   HOST_INSTALL_CHECK_STATES,
   HOST_INSTALL_FRAGMENT_STATES,
+  TASK_STATUS_VOCAB,
   TODO_STATUS_ALIASES
 } from './namespace.js';
 
@@ -381,6 +382,41 @@ function buildBody(namespace: string, retention: number): OnboardBody {
         },
         writeWhen: [
           'Written by the cold-start of every session with an agent identity; agents read it, they do not write it'
+        ]
+      },
+      Task: {
+        purpose:
+          'A unit of work in flight: the stable identity a fresh session resumes by after a reset, independent of session id. Not a backlog ticket; link one via `todo`',
+        fields: {
+          id: 'auto-generated',
+          title: 'what the work is',
+          status: `${vocabUnion(TASK_STATUS_VOCAB)} (default active)`,
+          todo: 'UUID crossRef to the Todo this work implements, set_null on delete (nullable)',
+          archived: 'true if retired',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: [
+          'When starting work that may outlive the context window',
+          'Flip status to done when the work is finished, paused when set aside'
+        ]
+      },
+      ExecutionCheckpoint: {
+        purpose:
+          "One acknowledged step of a Task: what was completed and the next action. The latest is the Task's highest revision",
+        fields: {
+          id: 'auto-generated',
+          task: 'UUID crossRef to the Task, cascade on delete',
+          revision:
+            "one higher than the Task's latest; unique per Task, so a second write at the same revision is refused",
+          completed: 'what this step finished (not indexed)',
+          nextAction: 'the exact next operation (not indexed)',
+          blockers: 'what stands in the way (not indexed, nullable)',
+          refs: 'file paths, #shortIds, PR or commit references (nullable)',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: [
+          'After a completed subtask, a blocker, or before a reset; point at files and rows, never retell them',
+          'Treat the step as done only once the write is acknowledged; on a refused revision, re-read the latest and retry'
         ]
       }
     },
