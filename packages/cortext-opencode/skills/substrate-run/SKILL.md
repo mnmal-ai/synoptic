@@ -1,6 +1,6 @@
 ---
 name: substrate-run
-description: "Run a short TypeScript script against Substrate with `substrate run`, so many reads and writes cost one tool call and return one small result. Use for multi-step store work: censuses and counts, joins across types, recall-then-hydrate, and batch writes driven by reads. Do NOT use for a single lookup or a single write; the substrate MCP tools are simpler there. Requires substrate >= 1.0.0-alpha.6."
+description: "Run a short TypeScript script against Substrate with `substrate run`, so many reads and writes cost one tool call and return one small result. Use it when the work takes three or more dependent MCP calls (ids passed from one call to the next): a census or count that must page, a join across types, recall-then-hydrate, or a batch of writes driven by a read. Do NOT use for a single lookup or a single write; the substrate MCP tools are simpler there. Requires substrate >= 1.0.0-alpha.6."
 ---
 
 `substrate run` imports one `.mts` script, calls its default export with a signed
@@ -48,8 +48,9 @@ than a broken script.
 | Recall, then fetch the bodies of the few hits worth reading | Exploring the schema |
 | A batch of writes chosen by what a read found | Anything you will read only once, row by row |
 
-The test: if you would otherwise make three or more MCP calls and pass ids from
-one call to the next, write a script.
+The switch point: three or more dependent MCP calls (ids passed from one call to
+the next), a census or count that must page, a join, recall-then-hydrate, or a
+batch of writes chosen by a read. Any of those, write a script.
 
 ## 2. Write the script outside the repo
 
@@ -102,6 +103,15 @@ the file.
 
 The default mode is read-only, and `s.mutate` throws in it.
 
+**Small batch (five frames or fewer): write directly.** Run once with
+`--write --max-writes N`, where N is the number of frames you expect, and put
+every write in ONE `s.mutate` call. The cap is checked per call, so with a
+single call an unexpected sixth frame is refused before anything is sent. With
+several calls, the earlier ones would already have landed. Then read
+`report.mutations` as in step 5.
+
+**Anything larger, or any batch whose size you cannot predict: dry run first.**
+
 1. Run with `--dry-run`. Each payload is recorded in `report.mutations` and
    nothing is sent; `s.mutate` returns `null`, so do not let later logic depend
    on its return value.
@@ -151,4 +161,5 @@ If OpenCode asks before each run, suggest the user allow the command in
 ```
 
 This covers `--write` too, just as the MCP tools write without prompting. The
-dry run in step 4 is the guard on writes, not the permission prompt.
+dry run in step 4, or the single-call cap on a small batch, is the guard on
+writes, not the permission prompt.
