@@ -45,8 +45,7 @@ describePg('cortext baseline migration on a partitioned rows', () => {
         `CREATE TEMP TABLE rows_cortext_${type.toLowerCase()} PARTITION OF rows_cortext FOR VALUES IN ('${type}')`
       );
     }
-    // No ctx.layout, as on hosts that predate it: the catalog decides.
-    const ctx = { sql: tx, metric: (): void => {} };
+    const ctx = { sql: tx, metric: (): void => {}, layout: 'partitioned' };
     await cortextBaselineMigration.apply(ctx as never);
     await cortextBaselineMigration.apply(ctx as never);
   }, 60_000);
@@ -57,9 +56,8 @@ describePg('cortext baseline migration on a partitioned rows', () => {
     await sql?.end({ timeout: 5 });
   });
 
-  it('reads the layout from the catalog, and prefers a reported one', async () => {
+  it('reads the layout from the catalog', async () => {
     expect(await storeLayout(tx)).toBe('partitioned');
-    expect(await storeLayout(tx, 'legacy')).toBe('legacy');
   });
 
   it('adds the promoted columns', async () => {

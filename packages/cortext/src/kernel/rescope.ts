@@ -135,25 +135,6 @@ export async function rescopeVocabConstraint(
 }
 
 /**
- * Re-scope the mailbox inbox index (0003) to `namespace`.
- *
- * Dropped and rebuilt rather than left alongside a correctly-scoped sibling:
- * two partial indexes over the same expression is one the planner can never
- * use, plus write amplification on every AgentMessage insert.
- */
-export async function rescopeRecipientIndex(s: Sql, namespace: string): Promise<void> {
-  await s.unsafe('DROP INDEX IF EXISTS rows_agent_message_recipient_idx');
-  await s.unsafe(`
-    CREATE INDEX IF NOT EXISTS rows_agent_message_recipient_idx
-      ON rows ((body->>'recipient'), status)
-      WHERE namespace = '${namespace}'
-        AND type = 'AgentMessage'
-        AND deleted_at IS NULL
-        AND archived IS NOT TRUE
-  `);
-}
-
-/**
  * How many kids would collide if the unique index were scoped to `namespace`.
  *
  * Exposed separately because a UNIQUE index has no `NOT VALID` equivalent —

@@ -68,7 +68,7 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
-    "@mnmal-ai/substrate": ">=1.0.0-alpha.0 <2.0.0"
+    "@mnmal-ai/substrate": ">=1.0.0-alpha.10 <2.0.0"
   },
   "devDependencies": {
     "@mnmal-ai/substrate": "catalog:",

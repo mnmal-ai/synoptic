@@ -16,4 +16,4 @@
  * by reflex: widen it only after reading what the new major changed.
  * `substrate-contract-parity.test.ts` holds the manifest to this literal.
  */
-export const SUBSTRATE_CONTRACT_RANGE = '>=1.0.0-alpha.0 <2.0.0';
+export const SUBSTRATE_CONTRACT_RANGE = '>=1.0.0-alpha.10 <2.0.0';

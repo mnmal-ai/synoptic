@@ -233,17 +233,15 @@ describe('classifySurfaceChange — breaking', () => {
     expect(r.breaking.join()).toMatch(/enum narrowed.*lost done/);
   });
 
-  it('un-indexing is major — a working filter starts rejecting', () => {
-    // The one a version-bump decision would otherwise never see: the caller
-    // changed nothing and their `where` now returns unindexed_field.
+  it('un-indexing is a review item, not a break — the filter still works, as a scan', () => {
     const r = classifySurfaceChange(
       base(),
       withTodo((s) => {
         s.types.Todo!.title!.indexed = false;
       })
     );
-    expect(r.class).toBe('major');
-    expect(r.breaking.join()).toMatch(/no longer indexed/);
+    expect(r.breaking).toEqual([]);
+    expect(r.review.join()).toMatch(/no longer indexed/);
   });
 
   it('moving the substrate contract range is major', () => {
