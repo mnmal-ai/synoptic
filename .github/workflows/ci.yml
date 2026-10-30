@@ -15,9 +15,12 @@ on:
   push:
     branches: [main]
 
-# Cancel any in-flight CI on the same ref when a new commit lands.
+# Cancel any in-flight CI on the same ref when a new commit lands. The draft
+# flag keeps draft and ready runs in separate groups: a push and a
+# ready_for_review fired together would otherwise let the draft run, which
+# skips every job, cancel the ready run and leave the required checks skipped.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.draft }}
   cancel-in-progress: true
 
 permissions: {}
