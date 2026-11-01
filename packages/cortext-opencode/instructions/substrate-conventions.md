@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.10+393f851e — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.10+f36fdc5e — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
 
 # Substrate interaction conventions
 
@@ -178,6 +178,15 @@ Do not write "the agent said X earlier" into any protocol, and do not infer a se
 ## Context store conventions
 
 Write context as it happens, no prompt needed: **Decision** when one is made; **Todo** when a gap surfaces (close with `archived: true`); **SessionLog** at every stable milestone (with a retrieval-tuned `synopsis`); **AnchorIntent** at session boot if stale and on any focus shift. Per-project rows carry a `project` field set to the repo basename; cross-cutting rows use `project: null`.
+
+## Tasks and checkpoints
+
+A `<ns>/Task` is a unit of work in flight, scoped to one repo by `project`. Each `<ns>/ExecutionCheckpoint` under it records one acknowledged step: `completed`, `nextAction`, optional `blockers`, and `refs` that point at files and rows rather than retelling them. A Task is not a Todo: a Todo is the backlog ticket, and `todo` links the two when there is one. Where the skin supports it (OpenCode), the cold-start lists the project's active Tasks with each latest `next`. A new session, `/clear` or compaction resumes from that list, not from a transcript.
+
+- **The latest checkpoint is the highest `revision`.** Read it with `where: { task: { eq: <task uuid> } }, orderBy: [{ revision: 'desc' }], limit: 1`, never by similarity. A crossRef refuses `in`, so read one task at a time.
+- **Write after each meaningful step, at revision one above the latest.** Write steps, not thoughts. Read the `refs` before redoing work they point at.
+- **A step is done only when its write is acknowledged.** If the write fails, keep the state in context, retry, and do not report the step complete. `unique_violation` means that revision already exists: a retry landed, or another writer advanced the task. Re-read the latest; do not bump the number blindly.
+- **Close a Task** with `status: 'done'`, or `paused` to take it off the list without finishing it. `task` is required on create, and deleting a Task deletes its checkpoints.
 
 ## What other hosts have installed
 
