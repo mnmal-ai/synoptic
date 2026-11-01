@@ -980,6 +980,20 @@ function fleetCaveat() {
 }
 
 //#endregion
+//#region ../synoptic/src/inbox-push.js
+/** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
+function sanitizeText(text) {
+	if (!text) return text;
+	const str = String(text);
+	let result = "";
+	for (let i = 0; i < str.length; i++) {
+		const code = str.charCodeAt(i);
+		result += code <= 31 || code === 127 || code === 133 || code === 8232 || code === 8233 ? " " : str[i];
+	}
+	return result;
+}
+
+//#endregion
 //#region ../synoptic/src/audit/mcp-json.js
 /**
 * Is a TRACKED `.mcp.json` still the committable form?
@@ -2545,9 +2559,10 @@ async function loadActiveTasks({ substrateUrl, namespace = "cortext", projectSlu
 		};
 	}));
 }
-/** One line, bounded, unable to start a new markdown block. */
+/** One line, bounded: control characters and line separators become spaces,
+*  so store text cannot start a new block or pose as a header. */
 function oneLine(text) {
-	const flat = String(text ?? "").replace(/\s+/g, " ").trim();
+	const flat = String(sanitizeText(String(text ?? ""))).replace(/\s+/g, " ").trim();
 	return flat.length > TEXT_MAX ? `${flat.slice(0, 199)}…` : flat;
 }
 /**
@@ -2558,10 +2573,10 @@ function renderTasks(entries, { ns = "cortext" } = {}) {
 	if (!Array.isArray(entries) || entries.length === 0) return "";
 	const count = entries.length >= 10 ? `${entries.length}+` : String(entries.length);
 	const lines = entries.map(({ task, checkpoint }) => {
-		const head = `- #${task.shortId} ${oneLine(task.title)} (\`${task.id}\`)`;
+		const head = `- #${Number(task.shortId)} ${oneLine(task.title)} (\`${oneLine(task.id).replaceAll("`", "")}\`)`;
 		if (checkpoint === null) return `${head} — no checkpoint yet`;
 		const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : "";
-		return `${head} — rev ${checkpoint.revision}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
+		return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
 	});
 	return [`Active tasks: ${count} — resume from \`next\`. After each acknowledged step, write \`${ns}/createExecutionCheckpoint { task, revision, completed, nextAction }\` with revision one above the latest.`, ...lines].join("\n");
 }

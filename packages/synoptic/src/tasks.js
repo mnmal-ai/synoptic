@@ -4,6 +4,7 @@
 // Strictly project-scoped (no `project = null` branch): a Task is work in one
 // repo, and a cross-cutting one would surface in every repo's cold-start.
 
+import { sanitizeText } from './inbox-push.js';
 import { substrateQuery } from './substrate-http.js';
 
 /** Tasks shown; a full page renders as "10+". */
@@ -70,9 +71,10 @@ export async function loadActiveTasks({
   );
 }
 
-/** One line, bounded, unable to start a new markdown block. */
+/** One line, bounded: control characters and line separators become spaces,
+ *  so store text cannot start a new block or pose as a header. */
 function oneLine(text) {
-  const flat = String(text ?? '')
+  const flat = String(sanitizeText(String(text ?? '')))
     .replace(/\s+/g, ' ')
     .trim();
   return flat.length > TEXT_MAX ? `${flat.slice(0, TEXT_MAX - 1)}…` : flat;
@@ -86,10 +88,10 @@ export function renderTasks(entries, { ns = 'cortext' } = {}) {
   if (!Array.isArray(entries) || entries.length === 0) return '';
   const count = entries.length >= TASK_LIMIT ? `${entries.length}+` : String(entries.length);
   const lines = entries.map(({ task, checkpoint }) => {
-    const head = `- #${task.shortId} ${oneLine(task.title)} (\`${task.id}\`)`;
+    const head = `- #${Number(task.shortId)} ${oneLine(task.title)} (\`${oneLine(task.id).replaceAll('`', '')}\`)`;
     if (checkpoint === null) return `${head} — no checkpoint yet`;
     const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : '';
-    return `${head} — rev ${checkpoint.revision}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
+    return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
   });
   return [
     `Active tasks: ${count} — resume from \`next\`. After each acknowledged step, write \`${ns}/createExecutionCheckpoint { task, revision, completed, nextAction }\` with revision one above the latest.`,
