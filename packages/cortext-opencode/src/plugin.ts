@@ -228,6 +228,7 @@ async function renderColdStart(opts: {
     sessionId: opts.sessionId,
     pluginVersion: OWN_VERSION,
     harness: 'opencode',
+    tasks: true,
     hostReport: opts.env.SYNOPTIC_HOST_REPORT !== 'off',
     // An identity set in the plugin options counts as set, as it does for
     // signing; the snapshot records only whether each key is present.

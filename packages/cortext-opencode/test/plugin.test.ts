@@ -91,6 +91,24 @@ describe('system.transform cold-start injection', () => {
     expect(calls.length).toBeGreaterThan(0);
   });
 
+  it("lists the project's active tasks", async () => {
+    vi.stubGlobal('fetch', (async (_url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      const data: Record<string, unknown> = {};
+      for (const k of Object.keys(body)) {
+        data[k] = k === 'cortext/Task' ? [{ id: 't-uuid', shortId: 7, title: 'probe' }] : [];
+      }
+      return { ok: true, status: 200, json: async () => ({ data }) };
+    }) as typeof fetch);
+    const h = await hooks();
+    const output = { system: [] as string[] };
+    await h['experimental.chat.system.transform']?.(
+      { sessionID: 's1', model: {} as never },
+      output
+    );
+    expect(output.system[0]).toContain('- #7 probe (`t-uuid`) — no checkpoint yet');
+  });
+
   it('serves repeat dispatches in the same session from cache', async () => {
     const calls: string[] = [];
     stubFetch(calls);

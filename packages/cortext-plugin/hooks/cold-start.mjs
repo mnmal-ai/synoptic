@@ -980,6 +980,20 @@ function fleetCaveat() {
 }
 
 //#endregion
+//#region ../synoptic/src/inbox-push.js
+/** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
+function sanitizeText(text) {
+	if (!text) return text;
+	const str = String(text);
+	let result = "";
+	for (let i = 0; i < str.length; i++) {
+		const code = str.charCodeAt(i);
+		result += code <= 31 || code === 127 || code === 133 || code === 8232 || code === 8233 ? " " : str[i];
+	}
+	return result;
+}
+
+//#endregion
 //#region ../synoptic/src/audit/mcp-json.js
 /**
 * Is a TRACKED `.mcp.json` still the committable form?
@@ -1808,7 +1822,7 @@ const RANK = {
 const NOTE_MAX = 200;
 const WHOAMI_TIMEOUT_MS = 1e3;
 const GIT_TIMEOUT_MS = 1e3;
-function oneLine(text) {
+function oneLine$1(text) {
 	const flat = String(text ?? "").replace(/\s+/g, " ").trim();
 	return flat.length > NOTE_MAX ? `${flat.slice(0, NOTE_MAX)}…` : flat;
 }
@@ -1830,7 +1844,7 @@ function reduceFindings(findings, { ignore = [] } = {}) {
 	const worst = kept.reduce((a, b) => (RANK[b.state] ?? 1) >= (RANK[a.state] ?? 1) ? b : a);
 	return {
 		state: worst.state,
-		note: oneLine(worst.text)
+		note: oneLine$1(worst.text)
 	};
 }
 /**
@@ -1859,7 +1873,7 @@ async function guarded(run) {
 	} catch (err) {
 		return {
 			state: "unknown",
-			note: oneLine(`the check failed: ${err?.message ?? err}`)
+			note: oneLine$1(`the check failed: ${err?.message ?? err}`)
 		};
 	}
 }
@@ -2495,6 +2509,79 @@ function renderSessionBlock({ sessionId = null, kid = null } = {}) {
 }
 
 //#endregion
+//#region ../synoptic/src/tasks.js
+/** Tasks shown; a full page renders as "10+". */
+const TASK_LIMIT = 10;
+/** Longest `nextAction` / title rendered, in characters. */
+const TEXT_MAX = 200;
+/**
+* @returns {Promise<Array<{ task: object, checkpoint: object|null }>|null>}
+*   null when there is no project to scope by, or the server has no Task type
+*   (a runtime older than the cortext that declares it). Throws on transport
+*   failure; the caller degrades visibly.
+*/
+async function loadActiveTasks({ substrateUrl, namespace = "cortext", projectSlug, fetchImpl = fetch }) {
+	if (!projectSlug) return null;
+	const taskKey = `${namespace}/Task`;
+	const data = await substrateQuery(substrateUrl, { [taskKey]: {
+		params: {
+			where: {
+				project: { eq: projectSlug },
+				status: { eq: "active" },
+				archived: { eq: false }
+			},
+			orderBy: [{ updatedAt: "desc" }],
+			limit: 10
+		},
+		fields: {
+			id: true,
+			shortId: true,
+			title: true
+		}
+	} }, { fetchImpl });
+	if (!(taskKey in data)) return null;
+	const cpKey = `${namespace}/ExecutionCheckpoint`;
+	return Promise.all(data[taskKey].map(async (task) => {
+		return {
+			task,
+			checkpoint: ((await substrateQuery(substrateUrl, { [cpKey]: {
+				params: {
+					where: { task: { eq: task.id } },
+					orderBy: [{ revision: "desc" }],
+					limit: 1
+				},
+				fields: {
+					revision: true,
+					nextAction: true,
+					blockers: true
+				}
+			} }, { fetchImpl }))[cpKey] ?? [])[0] ?? null
+		};
+	}));
+}
+/** One line, bounded: control characters and line separators become spaces,
+*  so store text cannot start a new block or pose as a header. */
+function oneLine(text) {
+	const flat = String(sanitizeText(String(text ?? ""))).replace(/\s+/g, " ").trim();
+	return flat.length > TEXT_MAX ? `${flat.slice(0, 199)}…` : flat;
+}
+/**
+* The active Tasks as a short block: one line per task with its latest step.
+* Empty or null → ''.
+*/
+function renderTasks(entries, { ns = "cortext" } = {}) {
+	if (!Array.isArray(entries) || entries.length === 0) return "";
+	const count = entries.length >= 10 ? `${entries.length}+` : String(entries.length);
+	const lines = entries.map(({ task, checkpoint }) => {
+		const head = `- #${Number(task.shortId)} ${oneLine(task.title)} (\`${oneLine(task.id).replaceAll("`", "")}\`)`;
+		if (checkpoint === null) return `${head} — no checkpoint yet`;
+		const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : "";
+		return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
+	});
+	return [`Active tasks: ${count} — resume from \`next\`. After each acknowledged step, write \`${ns}/createExecutionCheckpoint { task, revision, completed, nextAction }\` with revision one above the latest.`, ...lines].join("\n");
+}
+
+//#endregion
 //#region ../synoptic/src/cold-start.js
 function backupWarning(env = process.env, now = Date.now()) {
 	if (env.SYNOPTIC_BACKUP_CHECK !== "on") return "";
@@ -2533,7 +2620,7 @@ const COLD_START_POINTER = "\n<!-- truncated for a hook-output ceiling: the sect
 * @returns {Promise<string>}
 */
 async function runColdStart(opts) {
-	const { substrateUrl, namespace = "cortext", projectSlug, nowMs = Date.now(), fetchImpl = fetch, agentKid = process.env.SUBSTRATE_AGENT_KEY_ID, cwd = null, pluginRoot = null, readFile = null, sessionId = null, listDir = null, cacheDir = null, pluginVersion = null, harness = "hook", hostReport = process.env.SYNOPTIC_HOST_REPORT !== "off", hostname: hostname$1 = hostname(), env = process.env, authWarning = null } = opts;
+	const { substrateUrl, namespace = "cortext", projectSlug, nowMs = Date.now(), fetchImpl = fetch, agentKid = process.env.SUBSTRATE_AGENT_KEY_ID, cwd = null, pluginRoot = null, readFile = null, sessionId = null, listDir = null, cacheDir = null, pluginVersion = null, harness = "hook", hostReport = process.env.SYNOPTIC_HOST_REPORT !== "off", hostname: hostname$1 = hostname(), env = process.env, authWarning = null, tasks = false } = opts;
 	const drift = cwd && readFile ? fragmentDriftCheck({
 		cwd,
 		pluginRoot,
@@ -2597,6 +2684,19 @@ async function runColdStart(opts) {
 				return `<!-- inbox unavailable: ${String(err?.message ?? err)} -->`;
 			}
 		})();
+		const tasksP = tasks ? (async () => {
+			try {
+				const entries = await loadActiveTasks({
+					substrateUrl,
+					namespace,
+					projectSlug,
+					fetchImpl
+				});
+				return renderTasks(entries ?? [], { ns: namespace });
+			} catch (err) {
+				return `<!-- tasks unavailable: ${String(err?.message ?? err)} -->`;
+			}
+		})() : Promise.resolve("");
 		const rulesKey = `${namespace}/AgentRule`;
 		const rulesP = (async () => {
 			const rows = [];
@@ -2636,7 +2736,11 @@ async function runColdStart(opts) {
 			}
 			throw new Error(`${rulesKey}: more than 20 pages of rules`);
 		})();
-		const [data, inboxMd] = await Promise.all([rulesP, inboxP]);
+		const [data, inboxMd, tasksMd] = await Promise.all([
+			rulesP,
+			inboxP,
+			tasksP
+		]);
 		await hostReportP;
 		const body = [
 			rulesKey in data ? renderRuleIndex(data[rulesKey], {
@@ -2647,6 +2751,7 @@ async function runColdStart(opts) {
 				sessionId,
 				kid: agentKid ?? null
 			}),
+			tasksMd,
 			inboxMd
 		].filter((s) => s !== "").join("\n\n");
 		return `${warn}${projectionAudit.render()}${hostReportNote}${body}\n`;
