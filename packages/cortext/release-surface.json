@@ -1,5 +1,5 @@
 {
-  "contractVersion": ">=1.0.0-alpha.10 <2.0.0",
+  "contractVersion": ">=1.0.0-alpha.11 <2.0.0",
   "types": {
     "AgentIdentity": {
       "active": {
@@ -1645,7 +1645,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "8329f9a9"
+      "dtsDigest": "fe38bfa3"
     }
   },
   "surfaceFormat": 2

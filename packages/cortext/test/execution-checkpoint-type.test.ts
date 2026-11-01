@@ -116,6 +116,17 @@ describe('cortext/ExecutionCheckpoint', () => {
     ]);
   });
 
+  it('refuses a checkpoint without a task', async () => {
+    const server = await setup();
+    const env = await call(server, '/substrate/v1/mutate', {
+      [`${NS}/createExecutionCheckpoint`]: {
+        params: { revision: 1, completed: 'c', nextAction: 'n', project: 'example' },
+        fields: { id: true }
+      }
+    });
+    expect(env.errors?.[0]?.code).toBe('missing_required_field');
+  });
+
   it("resumes from the task's highest revision", async () => {
     const server = await setup();
     const task = await createTask(server, { title: 'audit the GGUF loader', project: 'example' });
