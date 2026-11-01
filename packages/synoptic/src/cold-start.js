@@ -25,6 +25,7 @@ import { createProjectionAudit } from './projection-audit.js';
 import { projectWhere } from './scope.js';
 import { renderSessionBlock } from './session.js';
 import { substrateQuery } from './substrate-http.js';
+import { loadActiveTasks, renderTasks } from './tasks.js';
 
 // Host-specific backup watchdog. Opt-in via SYNOPTIC_BACKUP_CHECK=on — default-off
 // so generic plugin consumers never stat a backup directory. The operator (e.g.
@@ -100,7 +101,10 @@ export async function runColdStart(opts) {
     // The overlaid env the entry resolved, for the settings snapshot, and the
     // signer's own warning, for the authority check.
     env = process.env,
-    authWarning = null
+    authWarning = null,
+    // Render the project's active Tasks with their latest checkpoint. Off by
+    // default; a skin turns it on once it carries the checkpoint workflow.
+    tasks = false
   } = opts;
 
   // Backup watchdog runs independent of Substrate — compute it first so a
@@ -210,6 +214,24 @@ export async function runColdStart(opts) {
       }
     })();
 
+    // Swallows its own failure like the inbox: a missing Task block must not
+    // cost the session its rules.
+    const tasksP = tasks
+      ? (async () => {
+          try {
+            const entries = await loadActiveTasks({
+              substrateUrl,
+              namespace,
+              projectSlug,
+              fetchImpl
+            });
+            return renderTasks(entries ?? [], { ns: namespace });
+          } catch (err) {
+            return `<!-- tasks unavailable: ${String(err?.message ?? err)} -->`;
+          }
+        })()
+      : Promise.resolve('');
+
     const rulesKey = `${namespace}/AgentRule`;
     // Pages to the end: a `must` past the first page would otherwise drop silently.
     const rulesP = (async () => {
@@ -254,7 +276,7 @@ export async function runColdStart(opts) {
       throw new Error(`${rulesKey}: more than 20 pages of rules`);
     })();
 
-    const [data, inboxMd] = await Promise.all([rulesP, inboxP]);
+    const [data, inboxMd, tasksMd] = await Promise.all([rulesP, inboxP, tasksP]);
     // The HostInstall report, started before the reads, is awaited so the
     // hook process does not exit mid-write.
     await hostReportP;
@@ -267,7 +289,7 @@ export async function runColdStart(opts) {
         : '';
     const sessionMd = renderSessionBlock({ sessionId, kid: agentKid ?? null });
 
-    const body = [indexMd, sessionMd, inboxMd].filter((s) => s !== '').join('\n\n');
+    const body = [indexMd, sessionMd, tasksMd, inboxMd].filter((s) => s !== '').join('\n\n');
     return `${warn}${projectionAudit.render()}${hostReportNote}${body}\n`;
   } catch (err) {
     // The audit still renders on the failure path: a projection that stopped
