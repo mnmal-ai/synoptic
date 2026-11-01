@@ -2634,6 +2634,8 @@ function renderSessionBlock({ sessionId = null, kid = null } = {}) {
 const TASK_LIMIT = 10;
 /** Longest `nextAction` / title rendered, in characters. */
 const TEXT_MAX = 200;
+/** Refs shown per checkpoint; the rest are a read away. */
+const REFS_MAX = 3;
 /**
 * @returns {Promise<Array<{ task: object, checkpoint: object|null }>|null>}
 *   null when there is no project to scope by, or the server has no Task type
@@ -2673,7 +2675,8 @@ async function loadActiveTasks({ substrateUrl, namespace = "cortext", projectSlu
 				fields: {
 					revision: true,
 					nextAction: true,
-					blockers: true
+					blockers: true,
+					refs: true
 				}
 			} }, { fetchImpl }))[cpKey] ?? [])[0] ?? null
 		};
@@ -2696,7 +2699,11 @@ function renderTasks(entries, { ns = "cortext" } = {}) {
 		const head = `- #${Number(task.shortId)} ${oneLine(task.title)} (\`${oneLine(task.id).replaceAll("`", "")}\`)`;
 		if (checkpoint === null) return `${head} — no checkpoint yet`;
 		const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : "";
-		return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
+		const refs = Array.isArray(checkpoint.refs) ? checkpoint.refs : [];
+		const shown = refs.slice(0, REFS_MAX).map(oneLine).join(", ");
+		const more = refs.length > REFS_MAX ? ", …" : "";
+		const refsPart = shown ? `; refs: ${shown}${more}` : "";
+		return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}${refsPart}`;
 	});
 	return [`Active tasks: ${count} — resume from \`next\`. After each acknowledged step, write \`${ns}/createExecutionCheckpoint { task, revision, completed, nextAction }\` with revision one above the latest.`, ...lines].join("\n");
 }
@@ -3431,7 +3438,7 @@ const INBOX_TIMEOUT_MS = 3e3;
 const COLD_START_TIMEOUT_MS = SESSION_START_BUDGET_MS;
 /** Left in the compaction transcript so the summary records where live store
 *  state lives instead of restating it. */
-const COMPACTION_POINTER = "Synoptic: durable state lives in Substrate, not in this summary. Decisions, Todos, SessionLogs and the current AnchorIntent are store rows, and the cold-start rule index is injected again at the next dispatch. In the summary, cite such rows by shortId (#N) instead of restating them, and query the store rather than trusting this summary for store state.";
+const COMPACTION_POINTER = "Synoptic: durable state lives in Substrate, not in this summary. Decisions, Todos, SessionLogs, the current AnchorIntent and the checkpoints of each active Task are store rows, and the cold-start (rule index and active Tasks with their latest next action) is injected again at the next dispatch. In the summary, cite such rows by shortId (#N) instead of restating them, and query the store rather than trusting this summary for store state.";
 /** `SYNOPTIC_COMPACTION=pointer` replaces the model summary with a fixed
 *  pointer at the store. Read per compaction, so no restart is needed. */
 const pointerCompaction = () => process.env.SYNOPTIC_COMPACTION === "pointer";
@@ -3443,10 +3450,10 @@ const POINTER_SUMMARY = [
 	"",
 	"## Work State",
 	"### Active",
-	"- Recorded in Substrate (newest AnchorIntent, SessionLog and open Todos), not in this summary.",
+	"- Recorded in Substrate, not in this summary: the injected cold-start lists each active Task with its latest checkpoint and next action; the newest AnchorIntent, SessionLog and open Todos hold the rest.",
 	"",
 	"## Next Move",
-	"1. Read the injected cold-start index, then the newest AnchorIntent and SessionLog for this project, before acting.",
+	"1. Resume an active Task from its latest checkpoint's next action in the injected cold-start, reading its refs before redoing any work. With no active Task, read the newest AnchorIntent and SessionLog for this project before acting.",
 	"2. Check `git status` and `git log` for uncommitted or unpushed work.",
 	"",
 	"## Important Context",
@@ -3454,7 +3461,7 @@ const POINTER_SUMMARY = [
 ].join("\n");
 /** V1 pointer mode: V1 cannot skip the model request, so the prompt is
 *  replaced with a short one instead. */
-const POINTER_PROMPT = "Summarize the conversation above for another agent in at most 15 terse bullets: the objective, what is done, what is in progress, the next action, and the exact file paths, commands and identifiers still needed. Durable state (Decisions, Todos, SessionLogs, AnchorIntent) lives in Substrate: cite it by shortId (#N) and do not restate it. No preamble.";
+const POINTER_PROMPT = "Summarize the conversation above for another agent in at most 15 terse bullets: the objective, what is done, what is in progress, the next action, and the exact file paths, commands and identifiers still needed. Durable state (Decisions, Todos, SessionLogs, AnchorIntent, Tasks and their checkpoints) lives in Substrate: cite it by shortId (#N) and do not restate it. No preamble.";
 /** This skin's own version, recorded in HostInstall. `dist/plugin.js` sits one
 *  level below `package.json`, both in the source tree and in an npm install. */
 const OWN_VERSION = (() => {

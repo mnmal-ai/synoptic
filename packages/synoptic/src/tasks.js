@@ -13,6 +13,9 @@ export const TASK_LIMIT = 10;
 /** Longest `nextAction` / title rendered, in characters. */
 const TEXT_MAX = 200;
 
+/** Refs shown per checkpoint; the rest are a read away. */
+const REFS_MAX = 3;
+
 /**
  * @returns {Promise<Array<{ task: object, checkpoint: object|null }>|null>}
  *   null when there is no project to scope by, or the server has no Task type
@@ -61,7 +64,7 @@ export async function loadActiveTasks({
               orderBy: [{ revision: 'desc' }],
               limit: 1
             },
-            fields: { revision: true, nextAction: true, blockers: true }
+            fields: { revision: true, nextAction: true, blockers: true, refs: true }
           }
         },
         { fetchImpl }
@@ -91,7 +94,11 @@ export function renderTasks(entries, { ns = 'cortext' } = {}) {
     const head = `- #${Number(task.shortId)} ${oneLine(task.title)} (\`${oneLine(task.id).replaceAll('`', '')}\`)`;
     if (checkpoint === null) return `${head} — no checkpoint yet`;
     const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : '';
-    return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}`;
+    const refs = Array.isArray(checkpoint.refs) ? checkpoint.refs : [];
+    const shown = refs.slice(0, REFS_MAX).map(oneLine).join(', ');
+    const more = refs.length > REFS_MAX ? ', …' : '';
+    const refsPart = shown ? `; refs: ${shown}${more}` : '';
+    return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}${refsPart}`;
   });
   return [
     `Active tasks: ${count} — resume from \`next\`. After each acknowledged step, write \`${ns}/createExecutionCheckpoint { task, revision, completed, nextAction }\` with revision one above the latest.`,

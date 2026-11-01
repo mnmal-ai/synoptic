@@ -84,7 +84,12 @@ describe('renderTasks', () => {
       [
         {
           task: task(1),
-          checkpoint: { revision: 2, nextAction: 'check\nquantisation', blockers: 'needs GPU' }
+          checkpoint: {
+            revision: 2,
+            nextAction: 'check\nquantisation',
+            blockers: 'needs GPU',
+            refs: ['src/a.ts:1', '#12', 'PR 4', 'src/b.ts']
+          }
         },
         { task: task(2), checkpoint: null }
       ],
@@ -92,7 +97,7 @@ describe('renderTasks', () => {
     );
     expect(out.split('\n')).toEqual([
       expect.stringMatching(/^Active tasks: 2 — .*`cortext\/createExecutionCheckpoint /),
-      '- #41 task 1 (`00000001-uuid`) — rev 2, next: check quantisation; blocked: needs GPU',
+      '- #41 task 1 (`00000001-uuid`) — rev 2, next: check quantisation; blocked: needs GPU; refs: src/a.ts:1, #12, PR 4, …',
       '- #42 task 2 (`00000002-uuid`) — no checkpoint yet'
     ]);
   });
