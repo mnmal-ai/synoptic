@@ -11,6 +11,17 @@ import { type CompactResult, registerCompactRoute, runCompact } from '../src/com
 import type { CortextAuthConfig } from '../src/index.js';
 import { buildClaudeForTest } from './_helpers.js';
 
+/** `real`, with `mutate` replaced; every other member is `real`'s, bound to it. */
+function withMutate(real: EngineHandle, mutate: EngineHandle['mutate']): EngineHandle {
+  return new Proxy(real, {
+    get: (target, key) => {
+      if (key === 'mutate') return mutate;
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+  });
+}
+
 const NS = 'claude';
 
 function bodyToString(res: SubstrateResponse): string {
@@ -532,31 +543,17 @@ describe('runCompact', () => {
       arrayLength: number;
     }> = [];
     const real = harness.engine;
-    const spy: EngineHandle = {
-      query: real.query.bind(real),
-      invalidateSchemaCaches: real.invalidateSchemaCaches.bind(real),
-      addNamespace: real.addNamespace.bind(real),
-      tombstoneNamespace: real.tombstoneNamespace.bind(real),
-      removeNamespace: real.removeNamespace.bind(real),
-      namespaceState: real.namespaceState.bind(real),
-      onNamespaceTombstoned: real.onNamespaceTombstoned.bind(real),
-      addDropParticipant: real.addDropParticipant.bind(real),
-      dropParticipants: real.dropParticipants.bind(real),
-      createRegistry: real.createRegistry.bind(real),
-      datasetFor: real.datasetFor.bind(real),
-      evaluateReadPolicy: real.evaluateReadPolicy.bind(real),
-      mutate: async (input) => {
-        const keys = Object.keys(input.frame);
-        const first = keys[0];
-        const entry = first ? input.frame[first] : undefined;
-        mutateCalls.push({
-          keys,
-          shape: Array.isArray(entry) ? 'array' : 'single',
-          arrayLength: Array.isArray(entry) ? entry.length : -1
-        });
-        return real.mutate(input);
-      }
-    };
+    const spy = withMutate(real, async (input) => {
+      const keys = Object.keys(input.frame);
+      const first = keys[0];
+      const entry = first ? input.frame[first] : undefined;
+      mutateCalls.push({
+        keys,
+        shape: Array.isArray(entry) ? 'array' : 'single',
+        arrayLength: Array.isArray(entry) ? entry.length : -1
+      });
+      return real.mutate(input);
+    });
 
     const result = await runCompact(spy, NS, 2, false);
     expect(result.sessionsArchived).toBe(3);
@@ -638,25 +635,14 @@ describe('runCompact', () => {
     await createSession(harness.server, 'b', 'acacacac-0002-4000-8000-000000000002');
 
     const real = harness.engine;
-    const spy: EngineHandle = {
-      query: real.query.bind(real),
-      invalidateSchemaCaches: real.invalidateSchemaCaches.bind(real),
-      addNamespace: real.addNamespace.bind(real),
-      tombstoneNamespace: real.tombstoneNamespace.bind(real),
-      removeNamespace: real.removeNamespace.bind(real),
-      namespaceState: real.namespaceState.bind(real),
-      onNamespaceTombstoned: real.onNamespaceTombstoned.bind(real),
-      addDropParticipant: real.addDropParticipant.bind(real),
-      dropParticipants: real.dropParticipants.bind(real),
-      createRegistry: real.createRegistry.bind(real),
-      datasetFor: real.datasetFor.bind(real),
-      evaluateReadPolicy: real.evaluateReadPolicy.bind(real),
-      mutate: async () =>
+    const spy = withMutate(
+      real,
+      async () =>
         ({
           data: {},
           errors: [{ message: 'policy denied', code: 'policy_denied', path: [] }]
         }) as unknown as PackEnvelope
-    };
+    );
 
     await expect(runCompact(spy, NS, 1, false)).rejects.toThrow(/policy denied/);
   });
@@ -675,24 +661,10 @@ describe('runCompact', () => {
 
     const real = harness.engine;
     const seen: unknown[] = [];
-    const spy: EngineHandle = {
-      query: real.query.bind(real),
-      invalidateSchemaCaches: real.invalidateSchemaCaches.bind(real),
-      addNamespace: real.addNamespace.bind(real),
-      tombstoneNamespace: real.tombstoneNamespace.bind(real),
-      removeNamespace: real.removeNamespace.bind(real),
-      namespaceState: real.namespaceState.bind(real),
-      onNamespaceTombstoned: real.onNamespaceTombstoned.bind(real),
-      addDropParticipant: real.addDropParticipant.bind(real),
-      dropParticipants: real.dropParticipants.bind(real),
-      createRegistry: real.createRegistry.bind(real),
-      datasetFor: real.datasetFor.bind(real),
-      evaluateReadPolicy: real.evaluateReadPolicy.bind(real),
-      mutate: async (args) => {
-        seen.push(args.ctx?.identity);
-        return real.mutate(args);
-      }
-    };
+    const spy = withMutate(real, async (args) => {
+      seen.push(args.ctx?.identity);
+      return real.mutate(args);
+    });
 
     const result = await runCompact(spy, NS, 1, false);
     expect(result.sessionsArchived).toBe(1);

@@ -27,6 +27,20 @@ describe('createCortextKernelPlugin', () => {
     for (const m of migrations) expect(m.rollback).toBeTypeOf('function');
   });
 
+  it('runs no SQL on a per-type tables store, applying or rolling back', async () => {
+    const used: string[] = [];
+    const sql = new Proxy(() => {}, {
+      apply: () => used.push('tag'),
+      get: (_t, key) => () => used.push(String(key))
+    });
+    for (const m of createCortextKernelPlugin().migrations ?? []) {
+      const ctx = { sql, layout: 'tables', metric: () => {} } as never;
+      await m.apply(ctx);
+      await m.rollback?.(ctx);
+    }
+    expect(used).toEqual([]);
+  });
+
   it('contributes migrations and the boot audit — no filter operators, routes, or MCP tools', () => {
     // The hook receives a sql handle, and the audit is what it is for. See
     // ../src/kernel/invariant-audit.ts.

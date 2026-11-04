@@ -3,6 +3,10 @@
  * body (see `CORTEXT_PROMOTED_COLUMNS`), their indexes, and the invariants
  * on cortext's own types.
  *
+ * Only a store with a shared `rows` table gets any of it; on per-type tables
+ * the engine builds the columns, indexes and enum CHECKs from cortext's
+ * namespace definition, so both `apply` and `rollback` return first.
+ *
  * The kernel runner does not wrap `apply` in a transaction, so each statement
  * commits on its own and a run that dies part-way re-applies cleanly: every
  * statement is idempotent.
@@ -11,6 +15,7 @@
 import type { KernelMigration, KernelMigrationContext } from '@mnmal-ai/substrate/sdk';
 import type postgres from 'postgres';
 import { CORTEXT_NAMESPACE } from '../cortext-namespace.js';
+import { hasRowsTable } from '../layout.js';
 import {
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
@@ -24,7 +29,7 @@ export const cortextBaselineMigration: KernelMigration = {
   id: '0001_baseline',
   apply: async (ctx: KernelMigrationContext): Promise<void> => {
     const { sql, metric } = ctx;
-    if (sql === null) return;
+    if (sql === null || !hasRowsTable(ctx.layout)) return;
     const s = sql as Sql;
 
     await s.unsafe(`
@@ -36,7 +41,8 @@ export const cortextBaselineMigration: KernelMigration = {
     `);
     // Partitioned: the engine builds the declared and indexed:true indexes per
     // partition; parent-level DDL would fail (unique) or fan out (the rest).
-    if (ctx.layout === 'partitioned') return;
+    // Widened: the peer range spans hosts whose layout type differs.
+    if ((ctx.layout as unknown) === 'partitioned') return;
     // project and status are indexed:true, so the engine builds theirs.
     await s.unsafe(`
       CREATE INDEX IF NOT EXISTS rows_ns_type_archived_idx
@@ -49,8 +55,8 @@ export const cortextBaselineMigration: KernelMigration = {
     await rescopeKidUniqueIndex(s, CORTEXT_NAMESPACE);
     await rescopeHostInstallKeyIndex(s, CORTEXT_NAMESPACE);
   },
-  rollback: async ({ sql }: KernelMigrationContext): Promise<void> => {
-    if (sql === null) return;
+  rollback: async ({ sql, layout }: KernelMigrationContext): Promise<void> => {
+    if (sql === null || !hasRowsTable(layout)) return;
     const s = sql as Sql;
     for (const { constraint } of VOCAB_CONSTRAINTS) {
       await s.unsafe(`ALTER TABLE rows DROP CONSTRAINT IF EXISTS ${constraint}`);

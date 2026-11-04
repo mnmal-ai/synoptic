@@ -3,7 +3,8 @@
  * the engine serves the same reads: the derived recipient index for the
  * inbox, and the `indexed: true` indexes on project and status.
  *
- * A partitioned `rows` never had them. Idempotent, like 0001: the runner does
+ * A partitioned `rows` never had them, and a per-type tables store has no
+ * `rows` at all. Idempotent, like 0001: the runner does
  * not wrap `apply` in a transaction.
  */
 
@@ -23,7 +24,8 @@ export const ENGINE_OWNED_INDEXES = [
 export const cortextDropEngineOwnedIndexesMigration: KernelMigration = {
   id: '0002_drop_engine_owned_indexes',
   apply: async ({ sql, layout }: KernelMigrationContext): Promise<void> => {
-    if (sql === null || layout === 'partitioned') return;
+    // Widened: the peer range spans hosts whose layout type differs.
+    if (sql === null || (layout as unknown) !== 'legacy') return;
     await (sql as Sql).unsafe(`DROP INDEX IF EXISTS ${ENGINE_OWNED_INDEXES.join(', ')}`);
   },
   // Nothing to restore: the engine's indexes serve the same reads.
