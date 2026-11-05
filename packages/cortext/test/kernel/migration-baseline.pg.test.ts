@@ -119,7 +119,11 @@ describePg('cortext baseline migration', () => {
 
   it('rolls back to the engine table', async () => {
     await fenced(async () => {
-      await cortextBaselineMigration.rollback?.({ sql: tx, metric: () => {} } as never);
+      await cortextBaselineMigration.rollback?.({
+        sql: tx,
+        metric: () => {},
+        layout: 'legacy'
+      } as never);
       const cols = await tx.unsafe(
         `SELECT column_name FROM information_schema.columns
           WHERE table_name = 'rows' AND table_schema LIKE 'pg_temp%' ORDER BY 1`

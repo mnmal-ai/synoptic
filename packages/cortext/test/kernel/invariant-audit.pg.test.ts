@@ -81,7 +81,7 @@ describePg('invariant audit against a real catalog', () => {
       )
     `);
 
-    const ctx = { sql: tx, metric: (): void => {} };
+    const ctx = { sql: tx, metric: (): void => {}, layout: 'legacy' };
     await cortextBaselineMigration.apply(ctx as never);
 
     // --- the decoys ---
@@ -141,6 +141,8 @@ describePg('invariant audit against a real catalog', () => {
       SELECT count(*)::int AS count FROM pg_class c
         JOIN pg_index i ON c.oid = i.indexrelid
        WHERE c.relname = 'rows_agent_identity_kid_unique'
+         -- Other suites' stores declare an index of this name too; count only this file's two.
+         AND c.relnamespace IN (pg_my_temp_schema(), '${DECOY_SCHEMA}'::regnamespace)
     `)) as unknown as [{ count: number }];
     expect(indexes.count, 'decoy index did not collide with the real one').toBe(2);
   });

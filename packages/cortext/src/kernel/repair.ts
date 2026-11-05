@@ -203,12 +203,13 @@ export async function repairIfRequested(
     return null;
   }
 
-  if ((await storeLayout(ctx.sql).catch(() => 'legacy')) === 'partitioned') {
+  const layout = await storeLayout(ctx.sql).catch(() => 'legacy' as const);
+  if (layout !== 'legacy') {
     warn(
-      `[cortext-kernel] ${REPAIR_ENV_VAR} is set, but rows is partitioned: the engine owns ` +
-        "cortext's indexes there and there are no parent-level objects to repair. Nothing to do."
+      `[cortext-kernel] ${REPAIR_ENV_VAR} is set, but the store layout is ${layout}: the engine ` +
+        "owns cortext's indexes and CHECKs there, and there are no objects on rows to repair. Nothing to do."
     );
-    ctx.metric('cortext_kernel.repair_declined', { reason: 'partitioned' });
+    ctx.metric('cortext_kernel.repair_declined', { reason: layout });
     return null;
   }
 

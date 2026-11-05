@@ -395,9 +395,21 @@ export async function reportInvariantAudit(
   },
   warn: (message: string) => void = console.warn
 ): Promise<Finding[]> {
-  let findings: Finding[] = [
-    ...auditNamespaceCoverage(ctx.coordinatorNamespaces, ctx.coordinatorNamespacesByPlugin)
-  ];
+  // null on the in-memory dataset — there is no catalog to read, and that is a
+  // supported configuration, not a fault. Recorded rather than inferred, so
+  // `checked: 0` cannot be confused with "checked and found none".
+  const catalogRead = ctx.sql !== null && ctx.sql !== undefined;
+
+  // The objects are DDL on a legacy `rows`. On partitioned and per-type tables
+  // the engine builds the same guarantees from the namespace definition, in
+  // whichever namespace the coordinator declares, and fails the boot if it
+  // cannot; so neither the objects nor the namespace literal apply there.
+  const layout = catalogRead ? await storeLayout(ctx.sql).catch(() => 'legacy' as const) : null;
+  const engineOwned = layout !== null && layout !== 'legacy';
+
+  let findings: Finding[] = engineOwned
+    ? []
+    : auditNamespaceCoverage(ctx.coordinatorNamespaces, ctx.coordinatorNamespacesByPlugin);
   // The namespace the objects SHOULD be scoped to: the literal while a
   // coordinator declares it, else the one the cortext coordinator uses. After
   // a repair re-scopes the objects there, auditing against the literal would
@@ -406,19 +418,10 @@ export async function reportInvariantAudit(
     ? CORTEXT_NAMESPACE
     : (resolveCortextNamespaces(ctx.coordinatorNamespacesByPlugin)?.[0] ?? CORTEXT_NAMESPACE);
 
-  // null on the in-memory dataset — there is no catalog to read, and that is a
-  // supported configuration, not a fault. Recorded rather than inferred, so
-  // `checked: 0` cannot be confused with "checked and found none".
-  const catalogRead = ctx.sql !== null && ctx.sql !== undefined;
-
   // Stays 0 when the catalog is unreadable OR when auditObjects throws — in
   // both cases nothing was inspected, and a tally that survived a throw would
   // be the same lie in a new place.
   let objectsChecked = 0;
-
-  // The objects are parent-level DDL that a partitioned rows does not carry;
-  // there the engine builds the unique indexes and fails the boot if it cannot.
-  const layout = catalogRead ? await storeLayout(ctx.sql).catch(() => 'legacy' as const) : null;
 
   if (catalogRead && layout === 'legacy') {
     try {

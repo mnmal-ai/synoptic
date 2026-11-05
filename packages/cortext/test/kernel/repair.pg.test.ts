@@ -56,7 +56,7 @@ describePg('opt-in repair against a drifted store', () => {
       )
     `);
 
-    const ctx = { sql: tx, metric: (): void => {} };
+    const ctx = { sql: tx, metric: (): void => {}, layout: 'legacy' };
     await cortextBaselineMigration.apply(ctx as never);
   }, 60_000);
 
