@@ -24,8 +24,6 @@ import type {
 } from '@mnmal-ai/substrate/sdk';
 import {
   formatQualifiedKey,
-  grantedIn,
-  grantOf,
   jsonResponse,
   makeCtx,
   queryAll,
@@ -33,6 +31,7 @@ import {
 } from '@mnmal-ai/substrate/sdk';
 import { DEFAULT_AUTH } from './auth-policy.js';
 import type { CortextAuthConfig } from './config.js';
+import { isOperatorIdentity } from './participants.js';
 
 export interface CompactResult {
   dryRun: boolean;
@@ -305,11 +304,10 @@ export function registerCompactRoute(
     // archives across every project, so under gated writes it is an
     // operator's call; an open posture stays open, as it does for writes.
     if (auth.writes === 'identity') {
-      const caps = grantedIn(grantOf(req.identity ?? null), namespace);
-      if (!caps.includes('admin') && !caps.includes('*')) {
+      if (!isOperatorIdentity(req.identity ?? null, namespace)) {
         return jsonResponse(403, {
           code: 'operator_only',
-          message: `POST /compact archives across every project and needs an operator (admin in '${namespace}')`
+          message: `POST /compact archives across every project and needs an operator (admin in '${namespace}', or the deployment admin)`
         });
       }
     }
