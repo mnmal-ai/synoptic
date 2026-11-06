@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CompactResult, registerCompactRoute, runCompact } from '../src/compact.js';
 import type { CortextAuthConfig } from '../src/index.js';
+import { isOperatorIdentity } from '../src/participants.js';
 import { buildClaudeForTest } from './_helpers.js';
 
 /** `real`, with `mutate` replaced; every other member is `real`'s, bound to it. */
@@ -758,6 +759,20 @@ describe('registerCompactRoute', () => {
       identity: { id: 'op@h', grants: { [NS]: ['read', 'mutate', 'admin'] } }
     });
     expect(operator.status).toBe(200);
+    // The deployment admin counts too: admin in `_system`, not in this namespace.
+    const deploymentAdmin = await handler!({
+      body,
+      identity: { id: 'root@h', grants: { _system: ['admin'], [NS]: ['read'] } }
+    });
+    expect(deploymentAdmin.status).toBe(200);
+  });
+
+  it('isOperatorIdentity honours SUBSTRATE_ADMIN_CAPABILITY in _system', () => {
+    const identity = { kind: 'agent', id: 'root@h', grants: { _system: ['root'] } } as never;
+    expect(isOperatorIdentity(identity, NS, {})).toBe(false);
+    expect(isOperatorIdentity(identity, NS, { SUBSTRATE_ADMIN_CAPABILITY: 'root' })).toBe(true);
+    const plainAdmin = { kind: 'agent', id: 'x@h', grants: { _system: ['admin'] } } as never;
+    expect(isOperatorIdentity(plainAdmin, NS, { SUBSTRATE_ADMIN_CAPABILITY: 'root' })).toBe(false);
   });
 
   it('rejects malformed JSON with a 400 and a bad_request code', async () => {

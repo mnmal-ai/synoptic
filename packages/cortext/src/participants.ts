@@ -19,12 +19,35 @@ import type {
   ResolverArgs,
   Row
 } from '@mnmal-ai/substrate/sdk';
-import { grantedIn, grantOf, ResolverFrameError, resolveEntityRow } from '@mnmal-ai/substrate/sdk';
+import {
+  grantedIn,
+  grantOf,
+  ResolverFrameError,
+  resolveEntityRow,
+  SYSTEM_NAMESPACE
+} from '@mnmal-ai/substrate/sdk';
 
-/** Whether the caller holds `admin` (or `*`) in the namespace it is calling. */
+/**
+ * Whether `identity` is an operator: it holds `admin` (or `*`) in `namespace`,
+ * or the deployment admin capability (`SUBSTRATE_ADMIN_CAPABILITY`, default
+ * `admin`) in `_system`, as substrate's own admin gate reads it.
+ */
+export function isOperatorIdentity(
+  identity: RequestContext['identity'],
+  namespace: string,
+  env: { SUBSTRATE_ADMIN_CAPABILITY?: string } = process.env
+): boolean {
+  const grant = grantOf(identity);
+  const caps = grantedIn(grant, namespace);
+  if (caps.includes('admin') || caps.includes('*')) return true;
+  const adminCap = env.SUBSTRATE_ADMIN_CAPABILITY || 'admin';
+  const system = grantedIn(grant, SYSTEM_NAMESPACE);
+  return system.includes(adminCap) || system.includes('*');
+}
+
+/** Whether the caller is an operator in the namespace it is calling. */
 export function isOperator(ctx: RequestContext): boolean {
-  const caps = grantedIn(grantOf(ctx.identity), ctx.namespace);
-  return caps.includes('admin') || caps.includes('*');
+  return isOperatorIdentity(ctx.identity, ctx.namespace);
 }
 
 function rowId(args: ResolverArgs): string | number | undefined {
