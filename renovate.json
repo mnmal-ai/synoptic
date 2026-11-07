@@ -1,4 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>mnmal-ai/substrate//renovate-presets/fleet-follower"]
+  "extends": ["github>mnmal-ai/substrate//renovate-presets/fleet-follower"],
+  "packageRules": [
+    {
+      "description": "postgres must match the driver substrate ships: cortext's kernel receives substrate's handle. It moves with a substrate bump, never by a bot PR.",
+      "matchPackageNames": ["postgres"],
+      "enabled": false
+    }
+  ]
 }
