@@ -51,7 +51,7 @@ Status: **active** — Cortext and its skins ride one tag (see `AGENTS.md`). Ver
     pnpm install
     pnpm build && pnpm check-types && pnpm lint && pnpm test
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests and labels, and [SECURITY.md](SECURITY.md) to report a vulnerability.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to report a bug or suggest an idea, and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## License
 
