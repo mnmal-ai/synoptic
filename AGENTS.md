@@ -1,6 +1,6 @@
 # synoptic
 
-The agent-coordination host. It ships **Cortext**, an agent-neutral workflow and coordination capability delivered as a Substrate plugin, plus the skins that onboard Claude Code, Codex and OpenCode to it. The README maps the packages, and CONTRIBUTING.md covers PRs and labels.
+The agent-coordination host. It ships **Cortext**, an agent-neutral workflow and coordination capability delivered as a Substrate plugin, plus the skins that onboard Claude Code, Codex and OpenCode to it. The README maps the packages.
 
 ## Layout
 
