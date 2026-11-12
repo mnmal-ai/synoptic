@@ -168,8 +168,8 @@ catalogs:
       specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
-      specifier: 1.0.0-alpha.17
-      version: 1.0.0-alpha.17
+      specifier: 1.0.0-alpha.18
+      version: 1.0.0-alpha.18
     '@opencode-ai/plugin':
       specifier: ^1.19.0
       version: 1.19.5
@@ -230,7 +230,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.17
+        version: 1.0.0-alpha.18
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -597,8 +597,8 @@ packages:
   '@mnmal-ai/holomap-clusterer@0.2.1':
     resolution: {integrity: sha512-X3d4Zj0IQoliinQ6ajjZOMYJ5AyfXZZoaZxyTJWJWmxCNNN2ZbP/nnt8WLS/Ddbrs3WxdfreAyzGX9pDCAKxRQ==}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.17':
-    resolution: {integrity: sha512-XZ+W+cIo7yB9f+XU8uNiihMeGsMCAS3A4r8WuAT1mRLITp87dub26zwIyReQwpPndROr9QYIMmyrjo8jEZEA4A==}
+  '@mnmal-ai/substrate@1.0.0-alpha.18':
+    resolution: {integrity: sha512-YUlnRGSdK6QO+4BVVymPIxC9PUb8aKZAsErBeqZfWHsXtGhd3Y3spM19sSR9xovtc8T7OkcP5qIbn0x6SHGKWQ==}
     engines: {node: '>=26.13.1'}
     hasBin: true
 
@@ -3363,7 +3363,7 @@ snapshots:
 
   '@mnmal-ai/holomap-clusterer@0.2.1': {}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.17':
+  '@mnmal-ai/substrate@1.0.0-alpha.18':
     dependencies:
       '@fastify/compress': 9.2.2
       '@fastify/cors': 11.3.1
