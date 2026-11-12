@@ -14,7 +14,14 @@ catalog:
   tsdown: "^0.23.0"
   typescript: "^7.0.2"
   vitest: "^5.0.3"
-  zod: "^4.6.6"
+  zod: "^4.6.7"
+
+# Security floors for transitive deps that a dependency pins exactly
+# (@opencode-ai/plugin pins zod 4.1.8; its effect beta pulls toml 4.x). Both
+# reach only build-time types, never the shipped bundle.
+overrides:
+  "zod@<4.6.6": "^4.6.7"
+  "toml@<=5.0.0": "^5.0.1"
 
 allowBuilds:
   esbuild: true

@@ -210,11 +210,11 @@ jobs:
           name: npm-packages
           path: ${{ runner.temp }}/pkg
 
-      # npm >= 11.5.1 does the OIDC exchange itself; Node 22 is above the
-      # 22.14.0 trusted publishing needs.
+      # npm >= 11.5.1 does the OIDC exchange itself; trusted publishing needs
+      # Node >= 22.14.0. Pinned to the patched Node the rest of the repo uses.
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v5.0.0
         with:
-          node-version: 22
+          node-version: 26.13.1
           package-manager-cache: false
 
       # Idempotent: a version already on npmjs is skipped, so a re-run after a
