@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.13+f36fdc5e — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.13+2f5157d7 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -6,7 +6,7 @@ You are an agent consuming the `cortext` coordinator on a Substrate server. Foll
 
 ## MCP first
 
-Use the `substrate` MCP tools (`mcp__substrate__*`) for single lookups and writes. When the work takes three or more dependent calls (ids passed from one call to the next, a census that must page, a join, recall-then-hydrate, a batch of writes chosen by a read), write a `substrate run` script instead (the `substrate-run` skill). Call `schema` first on cold-start to discover types and mutations. Fall back to HTTP only when both are unreachable.
+Use the `substrate` MCP tools (`mcp__substrate__*`) for single lookups and writes. When the work takes three or more dependent calls (ids passed from one call to the next, a census that must page, a join, recall-then-hydrate, a batch of writes chosen by a read), write a script instead and run it with the substrate MCP `run` tool, or with the `substrate run` CLI where the local install predates the tool (the `substrate-run` skill). Call `schema` first on cold-start to discover types and mutations. Fall back to HTTP only when both are unreachable.
 
 **The tool set comes from your machine's substrate binary, not from this document.** The MCP server is a local install and ships on substrate's version line, while this fragment ships on cortext's, and nothing couples the two. So a `No such tool available: mcp__substrate__<name>` usually means the local binary is behind the service, not that the feature was never built. Check the installed `@mnmal-ai/substrate` version against the service's `/health` before concluding anything is missing.
 
