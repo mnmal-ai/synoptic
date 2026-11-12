@@ -527,7 +527,7 @@ export function installMailboxMutations(
     resolver: messageParticipantsOnly(
       ctx,
       `delete${TYPE}`,
-      deleteResolver(TYPE, ctx.dataset, ctx.edges)
+      deleteResolver(TYPE, ctx.dataset, ctx.edges, { policy: writePolicy })
     ),
     kind: 'mutation',
     verb: 'delete',
