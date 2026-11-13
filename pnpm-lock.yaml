@@ -246,6 +246,9 @@ importers:
 
   packages/cortext-codex:
     devDependencies:
+      '@mnmal-ai/substrate':
+        specifier: 'catalog:'
+        version: 1.0.0-alpha.19
       '@mnmal-ai/synoptic':
         specifier: workspace:*
         version: link:../synoptic
