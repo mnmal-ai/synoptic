@@ -9,7 +9,7 @@
  * ackedBy, ackedAt) are locked to the dedicated mutations.
  */
 
-import type { PackEnvelope, SubstrateResponse } from '@mnmal-ai/substrate/sdk';
+import { type PackEnvelope, row, type SubstrateResponse } from '@mnmal-ai/substrate/sdk';
 import {
   type ComposeResult,
   compose,
@@ -40,7 +40,7 @@ function jsonBody<T>(res: SubstrateResponse): T {
   return JSON.parse(bodyToString(res)) as T;
 }
 
-async function setup(): Promise<{
+async function setup(policies?: Parameters<typeof row>[0][]): Promise<{
   server: MemorySubstrateServer;
   composed: ComposeResult;
   dataset: MemoryDataset;
@@ -50,7 +50,9 @@ async function setup(): Promise<{
   const defaultDataset = new MemoryDataset({ namespace: 'default' });
   const claudeDataset = new MemoryDataset({ namespace: NS });
   const architectureDataset = new MemoryDataset({ namespace: 'architecture' });
-  const plugin = buildClaudeForTest({ namespace: NS });
+  const built = buildClaudeForTest({ namespace: NS });
+  const plugin =
+    policies === undefined ? built : { ...built, policies: policies.map((p) => row(p)) };
   const composed: ComposeResult = await compose({
     server,
     dataset: defaultDataset,
@@ -930,6 +932,26 @@ describe('row-level authority: mail participants and identity self-edits', () =>
       'claude/deleteAgentMessage': { params: { id: msgId }, fields: { id: true } }
     });
     expect(jsonBody<PackEnvelope>(del).errors).toBeUndefined();
+  });
+
+  it("a plugin row policy hides a message from deleteAgentMessage, even an operator's", async () => {
+    const { server, dataset, stop } = await setup([
+      // Hides sealed mail from the operator only, so the sender's send still returns the row.
+      (ctx, r) =>
+        !((r as { subject?: unknown }).subject === 'sealed' && ctx.identity?.id === 'operator@Host')
+    ]);
+    cleanup = stop;
+    await makeIdentity(server, NOTES);
+    const env = await send(server, SENDER, { to: NOTES, subject: 'sealed', body: 'b' });
+    const msgId = (env.data['claude/sendAgentMessage'] as SentMessage[])[0]?.id as string;
+    const del = await mutateAsOperator(server, {
+      'claude/deleteAgentMessage': { params: { id: msgId }, fields: { id: true, deleted: true } }
+    });
+    expect(jsonBody<PackEnvelope>(del).data['claude/deleteAgentMessage']).toEqual({
+      id: msgId,
+      deleted: false
+    });
+    expect((await dataset.read('AgentMessage', { id: msgId })).rows).toHaveLength(1);
   });
 
   it('only the identity itself may edit its row; nobody else may deactivate it', async () => {
