@@ -58,10 +58,7 @@ async function setup(policies?: Parameters<typeof row>[0][]): Promise<{
     dataset: defaultDataset,
     datasets: { [NS]: claudeDataset, architecture: architectureDataset },
     coordinators: [plugin],
-    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-    // substrate fails compose() closed when auth is on and this is absent
-    // or <16 chars — it is the sole auth on the ungated SSE GET routes.
-    streamTicketSecret: 'test-stream-ticket-secret'
+    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
   });
   await server.start();
   return {

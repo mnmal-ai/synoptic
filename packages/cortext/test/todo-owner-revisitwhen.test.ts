@@ -63,8 +63,7 @@ async function setup(): Promise<{
       architecture: new MemoryDataset({ namespace: 'architecture' })
     },
     coordinators: [buildClaudeForTest({ namespace: NS, compactRetention: 3 })],
-    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-    streamTicketSecret: 'test-stream-ticket-secret'
+    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
   });
   await server.start();
   return { server, composed, stop: () => composed.stop() };

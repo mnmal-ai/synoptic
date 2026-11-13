@@ -53,8 +53,7 @@ async function substrateWithKey(namespaces: string, capabilities: string) {
     server,
     dataset: new MemoryDataset({ namespace: 'default' }),
     datasets: { _system: substrateDataset },
-    auth: { keys: [], mode: 'attribute' },
-    streamTicketSecret: 'test-stream-ticket-secret'
+    auth: { keys: [], mode: 'attribute' }
   });
   await server.start();
   stop = () => composed.stop();
@@ -109,8 +108,7 @@ describe('whoami contract, executed against a composed substrate', () => {
     const composed = await compose({
       server,
       dataset: new MemoryDataset({ namespace: 'default' }),
-      auth: { keys: [], mode: 'attribute' },
-      streamTicketSecret: 'test-stream-ticket-secret'
+      auth: { keys: [], mode: 'attribute' }
     });
     await server.start();
     try {

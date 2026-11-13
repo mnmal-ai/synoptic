@@ -7,6 +7,7 @@
 import { hostname as osHostname } from 'node:os';
 import { basename } from 'node:path';
 import { truncateToBudget as truncateGeneric } from '@mnmal-ai/context-render';
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import {
   checkBackupFreshness,
   checkBackupOutcome,
@@ -84,7 +85,7 @@ export async function runColdStart(opts) {
     namespace = 'cortext',
     projectSlug,
     nowMs = Date.now(),
-    fetchImpl = fetch,
+    fetchImpl = substrateFetch,
     agentKid = process.env.SUBSTRATE_AGENT_KEY_ID,
     cwd = null,
     pluginRoot = null,

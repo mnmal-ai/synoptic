@@ -30,6 +30,7 @@
 
 import { createPrivateKey, sign as cryptoSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 
 const TTL_SECONDS = 3600; // 1h token; refreshed when within 60s of expiry.
 const REFRESH_SKEW = 60;
@@ -237,7 +238,7 @@ export function createAgentAuth(env, opts) {
  * is available. The single seam for the whole hook — every HTTP helper takes
  * an injectable fetchImpl, so signing needs no per-call-site changes.
  */
-export function makeSignedFetch(getAuthHeader, fetchImpl = fetch) {
+export function makeSignedFetch(getAuthHeader, fetchImpl = substrateFetch) {
   return (url, init = {}) => {
     const header = getAuthHeader(url);
     if (header === null) return fetchImpl(url, init);

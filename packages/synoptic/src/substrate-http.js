@@ -1,6 +1,7 @@
 // HTTP client for the synoptic cold-start hook. No postgres dependency.
 // All calls accept an injectable fetchImpl for testing.
 
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { frameErrors, unansweredFrames, unexpectedProjections } from './projection-audit.js';
 
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -31,7 +32,7 @@ function withTimeout(timeoutMs) {
  */
 export async function substrateQuery(substrateUrl, payload, opts = {}) {
   const {
-    fetchImpl = fetch,
+    fetchImpl = substrateFetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     expectUnknown = [],
     onUnexpectedProjection = null,
@@ -119,7 +120,7 @@ export async function recall(substrateUrl, opts = {}) {
     type,
     k = 60,
     threshold,
-    fetchImpl = fetch,
+    fetchImpl = substrateFetch,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     onFrameFailure = null,
     boost,
@@ -245,7 +246,7 @@ export async function recall(substrateUrl, opts = {}) {
  *                     failed?: string }>}
  */
 export async function probeWhoami(substrateUrl, opts = {}) {
-  const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+  const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
   const { signal, done } = withTimeout(timeoutMs);
   try {
     const res = await fetchImpl(`${substrateUrl}/substrate/v1/whoami`, { signal });
@@ -345,7 +346,11 @@ function asGrants(raw) {
  * refusal from a no-op. `onFrameFailure` is the seam that keeps that visible.
  */
 export async function substrateMutate(substrateUrl, payload, opts = {}) {
-  const { fetchImpl = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null } = opts;
+  const {
+    fetchImpl = substrateFetch,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    onFrameFailure = null
+  } = opts;
   const { signal, done } = withTimeout(timeoutMs);
   try {
     const res = await fetchImpl(`${substrateUrl}/substrate/v1/mutate`, {

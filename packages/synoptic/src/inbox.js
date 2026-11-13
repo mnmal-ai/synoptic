@@ -6,6 +6,7 @@
 // project-scoped query path: AgentMessage has no project field; an inbox is
 // scoped by addressee, orthogonal to which repo the session is in.
 
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { substrateQuery } from './substrate-http.js';
 
 /** One page of unread mail. A full page renders as "50+": the read does not
@@ -24,7 +25,7 @@ export async function resolveIdentityId({
   substrateUrl,
   namespace = 'cortext',
   agentKid,
-  fetchImpl = fetch
+  fetchImpl = substrateFetch
 }) {
   if (!agentKid) return null;
   const dir = await substrateQuery(
@@ -50,7 +51,7 @@ export async function loadInbox({
   substrateUrl,
   namespace = 'cortext',
   agentKid,
-  fetchImpl = fetch
+  fetchImpl = substrateFetch
 }) {
   const meId = await resolveIdentityId({ substrateUrl, namespace, agentKid, fetchImpl });
   if (meId === null) return null;
