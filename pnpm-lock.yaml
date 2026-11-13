@@ -168,8 +168,8 @@ catalogs:
       specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
-      specifier: 1.0.0-alpha.12
-      version: 1.0.0-alpha.12
+      specifier: 1.0.0-alpha.18
+      version: 1.0.0-alpha.18
     '@opencode-ai/plugin':
       specifier: ^1.19.0
       version: 1.19.5
@@ -180,8 +180,8 @@ catalogs:
       specifier: ^26.6.4
       version: 26.6.4
     postgres:
-      specifier: 3.4.9
-      version: 3.4.9
+      specifier: 4.1.0
+      version: 4.1.0
     tsdown:
       specifier: ^0.23.0
       version: 0.23.0
@@ -223,14 +223,14 @@ importers:
     dependencies:
       postgres:
         specifier: 'catalog:'
-        version: 3.4.9
+        version: 4.1.0
       zod:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.12
+        version: 1.0.0-alpha.18
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -597,9 +597,9 @@ packages:
   '@mnmal-ai/holomap-clusterer@0.2.1':
     resolution: {integrity: sha512-X3d4Zj0IQoliinQ6ajjZOMYJ5AyfXZZoaZxyTJWJWmxCNNN2ZbP/nnt8WLS/Ddbrs3WxdfreAyzGX9pDCAKxRQ==}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.12':
-    resolution: {integrity: sha512-r0NGdULwnGt86NurIxOGJ4H09u1NwNYTQDS10h9CJmHRAIa7E3A532Iyh7CLj6Dedxl47R6xCP/RQO4vESLUPg==}
-    engines: {node: '>=26.12.1'}
+  '@mnmal-ai/substrate@1.0.0-alpha.18':
+    resolution: {integrity: sha512-YUlnRGSdK6QO+4BVVymPIxC9PUb8aKZAsErBeqZfWHsXtGhd3Y3spM19sSR9xovtc8T7OkcP5qIbn0x6SHGKWQ==}
+    engines: {node: '>=26.13.1'}
     hasBin: true
 
   '@modelcontextprotocol/sdk@1.32.1':
@@ -2428,9 +2428,9 @@ packages:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postgres@3.4.9:
-    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
-    engines: {node: '>=12'}
+  postgres@4.1.0:
+    resolution: {integrity: sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ==}
+    engines: {node: '>=18'}
 
   powershell-utils@0.2.1:
     resolution: {integrity: sha512-C+y9x90UElAddDZmV4qOx9W53B61PO7cIqWz2dQsWlwswuq4mr8NEwytdGKboYbQlGZ3awrkTeNvcZiZNHnQ8A==}
@@ -3363,7 +3363,7 @@ snapshots:
 
   '@mnmal-ai/holomap-clusterer@0.2.1': {}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.12':
+  '@mnmal-ai/substrate@1.0.0-alpha.18':
     dependencies:
       '@fastify/compress': 9.2.2
       '@fastify/cors': 11.3.1
@@ -3373,7 +3373,7 @@ snapshots:
       '@preact/signals-core': 1.14.4
       fastify: 5.12.7
       msgpackr: 2.1.0
-      postgres: 3.4.9
+      postgres: 4.1.0
       semver: 7.8.5
       ws: 8.22.0
       zod: 4.6.7
@@ -5097,7 +5097,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  postgres@3.4.9: {}
+  postgres@4.1.0: {}
 
   powershell-utils@0.2.1: {}
 
