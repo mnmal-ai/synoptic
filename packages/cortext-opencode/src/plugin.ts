@@ -547,8 +547,8 @@ function abortableSleep(signal: AbortSignal): (ms: number) => Promise<void> {
     });
 }
 
-/** Runs the shared SSE watcher in-process until `signal` aborts. runWatcher
- *  takes no signal, so its sleep and fetch are made abortable instead: an
+/** Runs the shared watcher in-process until `signal` aborts. runWatcher ends
+ *  its subscription on the signal; its sleep and fetch are abortable too, so an
  *  aborted sleep rejects and ends the loop. A watcher that rejects for any
  *  other reason (a mid-stream network error escapes it) is reported
  *  `disabled`, so the prompt summary comes back, and restarted after a
@@ -578,6 +578,7 @@ function startWatcher(
           fetchImpl,
           since,
           namespace: access.env.SUBSTRATE_NAMESPACE ?? 'cortext',
+          signal,
           emit: (ev: WatchEvent) => {
             if (signal.aborted) return;
             if (ev.type === 'status' && ev.state === 'live') wentLive = true;

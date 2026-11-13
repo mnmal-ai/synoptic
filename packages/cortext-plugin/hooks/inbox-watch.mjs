@@ -13,6 +13,16 @@ var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
 //#endregion
 //#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/env-utils-CGNazUNt.js
 createRequire(import.meta.url);
+/**
+* `url` with its trailing slashes removed, for joining a configured base URL
+* to a path. A loop rather than `/\/+$/`, which backtracks quadratically on a
+* long run of slashes that does not end the string.
+*/
+function trimTrailingSlashes(url) {
+	let end = url.length;
+	while (end > 0 && url.charCodeAt(end - 1) === 47) end--;
+	return url.slice(0, end);
+}
 
 //#endregion
 //#region ../../node_modules/.pnpm/msgpackr@2.1.0/node_modules/msgpackr/unpack.js
@@ -2453,11 +2463,19 @@ if (!(process.env.MSGPACKR_NATIVE_ACCELERATION_DISABLED !== void 0 && process.en
 //#endregion
 //#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-B6nsPVmD.js
 createRequire(import.meta.url);
+/**
+* Exhaustiveness guard for the `default:` arm of a `switch` over a
+* discriminated union. An unhandled variant makes the call fail to
+* type-check; at runtime it throws rather than returning `undefined`.
+*/
+function assertNever(x) {
+	throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
+}
 const DEFAULT_FILTER_WRITE_LIMITS = Object.freeze({
 	maxMatch: 1e4,
 	idsCap: 1e3
 });
-const sig = (name, args, returns, description) => ({
+const sig$1 = (name, args, returns, description) => ({
 	name,
 	args,
 	returns,
@@ -2465,47 +2483,568 @@ const sig = (name, args, returns, description) => ({
 });
 const CMP = "both sides the same type; int64 and number compare as number.";
 const EXPR_FUNCTIONS = [
-	sig("add", ["number", "number"], "any", "Sum; int64 when both are int64 (or a safe-integer literal), else number. Errors on overflow."),
-	sig("sub", ["number", "number"], "any", "Difference; int64 when both are int64, else number. Errors on overflow."),
-	sig("mul", ["number", "number"], "any", "Product; int64 when both are int64, else number. Errors on overflow, and on a nonzero product that underflows to zero."),
-	sig("div", ["number", "number"], "number", "Quotient as a number; null when the divisor is zero. Errors on overflow, and on a nonzero quotient that underflows to zero."),
-	sig("mod", ["int64", "int64"], "int64", "Remainder of int64 arguments (a safe-integer literal counts); null when the divisor is zero."),
-	sig("neg", ["number"], "any", "Arithmetic negation; keeps int64."),
-	sig("eq", ["any", "any"], "boolean", `Equal; ${CMP}`),
-	sig("neq", ["any", "any"], "boolean", `Not equal; ${CMP}`),
-	sig("gt", ["any", "any"], "boolean", `Greater than; ${CMP}`),
-	sig("gte", ["any", "any"], "boolean", `Greater than or equal; ${CMP}`),
-	sig("lt", ["any", "any"], "boolean", `Less than; ${CMP}`),
-	sig("lte", ["any", "any"], "boolean", `Less than or equal; ${CMP}`),
-	sig("and", "variadic", "boolean", "True when every boolean argument (one or more) is true."),
-	sig("or", "variadic", "boolean", "True when any boolean argument (one or more) is true."),
-	sig("not", ["boolean"], "boolean", "Boolean negation."),
-	sig("isNull", ["any"], "boolean", "True when its one argument is null; any type."),
-	sig("in", "variadic", "boolean", "True when the first argument equals any later one (two or more arguments share a type)."),
-	sig("length", ["string"], "number", "Length in characters."),
-	sig("lower", ["string"], "string", "Lower-cased text; ASCII letters only, every other character is unchanged."),
-	sig("upper", ["string"], "string", "Upper-cased text; ASCII letters only, every other character is unchanged."),
-	sig("substring", [
+	sig$1("add", ["number", "number"], "any", "Sum; int64 when both are int64 (or a safe-integer literal), else number. Errors on overflow."),
+	sig$1("sub", ["number", "number"], "any", "Difference; int64 when both are int64, else number. Errors on overflow."),
+	sig$1("mul", ["number", "number"], "any", "Product; int64 when both are int64, else number. Errors on overflow, and on a nonzero product that underflows to zero."),
+	sig$1("div", ["number", "number"], "number", "Quotient as a number; null when the divisor is zero. Errors on overflow, and on a nonzero quotient that underflows to zero."),
+	sig$1("mod", ["int64", "int64"], "int64", "Remainder of int64 arguments (a safe-integer literal counts); null when the divisor is zero."),
+	sig$1("neg", ["number"], "any", "Arithmetic negation; keeps int64."),
+	sig$1("eq", ["any", "any"], "boolean", `Equal; ${CMP}`),
+	sig$1("neq", ["any", "any"], "boolean", `Not equal; ${CMP}`),
+	sig$1("gt", ["any", "any"], "boolean", `Greater than; ${CMP}`),
+	sig$1("gte", ["any", "any"], "boolean", `Greater than or equal; ${CMP}`),
+	sig$1("lt", ["any", "any"], "boolean", `Less than; ${CMP}`),
+	sig$1("lte", ["any", "any"], "boolean", `Less than or equal; ${CMP}`),
+	sig$1("and", "variadic", "boolean", "True when every boolean argument (one or more) is true."),
+	sig$1("or", "variadic", "boolean", "True when any boolean argument (one or more) is true."),
+	sig$1("not", ["boolean"], "boolean", "Boolean negation."),
+	sig$1("isNull", ["any"], "boolean", "True when its one argument is null; any type."),
+	sig$1("in", "variadic", "boolean", "True when the first argument equals any later one (two or more arguments share a type)."),
+	sig$1("length", ["string"], "number", "Length in characters."),
+	sig$1("lower", ["string"], "string", "Lower-cased text; ASCII letters only, every other character is unchanged."),
+	sig$1("upper", ["string"], "string", "Upper-cased text; ASCII letters only, every other character is unchanged."),
+	sig$1("substring", [
 		"string",
 		"number",
 		"number"
 	], "string", "Substring from a 1-based start for a length."),
-	sig("concat", "variadic", "string", "Concatenation of one or more string arguments."),
-	sig("like", ["string", "likePattern"], "boolean", "SQL LIKE, case-sensitive: % and _ wildcards, backslash escape. The pattern is a lit that does not end in an unescaped backslash."),
-	sig("notLike", ["string", "likePattern"], "boolean", "Negated SQL LIKE, case-sensitive."),
-	sig("regexpMatch", ["string", "pattern"], "boolean", "True when the portable-subset regex (a lit) matches anywhere."),
-	sig("regexpReplace", [
+	sig$1("concat", "variadic", "string", "Concatenation of one or more string arguments."),
+	sig$1("like", ["string", "likePattern"], "boolean", "SQL LIKE, case-sensitive: % and _ wildcards, backslash escape. The pattern is a lit that does not end in an unescaped backslash."),
+	sig$1("notLike", ["string", "likePattern"], "boolean", "Negated SQL LIKE, case-sensitive."),
+	sig$1("regexpMatch", ["string", "pattern"], "boolean", "True when the portable-subset regex (a lit) matches anywhere."),
+	sig$1("regexpReplace", [
 		"string",
 		"pattern",
 		"string"
 	], "string", "Replace the leftmost-longest regex (a lit) match; the replacement may use \\1 to \\9. The pattern may use capturing groups or |, not both."),
-	sig("dateTrunc", ["unit", "date"], "date", "Truncate a date (UTC) to a unit given as a lit."),
-	sig("extract", ["unit", "date"], "number", "A date part (UTC) as a number; the unit is a lit."),
-	sig("case", "variadic", "any", "Pairs [cond, then] then a final else; branches share a type."),
-	sig("coalesce", "variadic", "any", "First non-null of one or more arguments sharing a type.")
+	sig$1("dateTrunc", ["unit", "date"], "date", "Truncate a date (UTC) to a unit given as a lit."),
+	sig$1("extract", ["unit", "date"], "number", "A date part (UTC) as a number; the unit is a lit."),
+	sig$1("case", "variadic", "any", "Pairs [cond, then] then a final else; branches share a type."),
+	sig$1("coalesce", "variadic", "any", "First non-null of one or more arguments sharing a type.")
 ];
+function parseQualifiedKey(key) {
+	const slash = key.indexOf("/");
+	if (slash <= 0 || slash === key.length - 1) return null;
+	return {
+		ns: key.slice(0, slash),
+		name: key.slice(slash + 1)
+	};
+}
 /** Natural order of a type that declares none: newest first. */
 const DEFAULT_ORDERED_BY = Object.freeze({ createdAt: "desc" });
+const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+/** The slot for one selection entry, or undefined for a plain field. */
+function walkSlot(name, sel, fieldMap) {
+	if (!isObj(sel)) return void 0;
+	if (name === "_agg") return {
+		kind: "agg",
+		names: Object.keys(sel)
+	};
+	const walk = sel._walk;
+	if (!isObj(walk)) return void 0;
+	let type;
+	if (typeof walk.in === "string") type = /^[^/]+\/([^./]+)\./.exec(walk.in)?.[1];
+	else if (typeof walk.out === "string") {
+		const def = Object.hasOwn(fieldMap, walk.out) ? fieldMap[walk.out] : void 0;
+		if (def?.kind === "crossRef") type = def.type;
+	}
+	if (type === void 0) return void 0;
+	const fields = isObj(sel.fields) ? sel.fields : {};
+	return {
+		kind: "nested",
+		type,
+		fields: {
+			id: true,
+			...fields
+		}
+	};
+}
+/**
+* Lookup-or-build the per-(fields, fieldMap) plan. O(1) on hit; O(F) on miss
+* for F selected fields.
+*/
+function getRowPlan$2(cache, fields, fieldMap) {
+	let perFieldMap = cache.get(fields);
+	if (perFieldMap === void 0) {
+		perFieldMap = /* @__PURE__ */ new WeakMap();
+		cache.set(fields, perFieldMap);
+	}
+	const cached = perFieldMap.get(fieldMap);
+	if (cached !== void 0) return cached;
+	const entries = Object.entries(fields);
+	const plan = new Array(entries.length);
+	let nested = false;
+	for (let i = 0; i < entries.length; i++) {
+		const pair = entries[i];
+		const def = Object.hasOwn(fieldMap, pair[0]) ? fieldMap[pair[0]] : void 0;
+		const slot = def === void 0 ? walkSlot(pair[0], pair[1], fieldMap) : void 0;
+		if (slot?.kind === "nested") nested = true;
+		plan[i] = slot === void 0 ? [
+			pair[0],
+			pair[1],
+			def
+		] : [
+			pair[0],
+			pair[1],
+			def,
+			slot
+		];
+	}
+	if (nested) plan.push([
+		"_truncated",
+		true,
+		void 0,
+		{ kind: "truncated" }
+	]);
+	perFieldMap.set(fieldMap, plan);
+	return plan;
+}
+/**
+* Lookup-or-build the per-fields FieldDefPlan. O(1) on hit; O(F) on miss.
+*/
+function getFieldDefPlan$2(cache, fields) {
+	const cached = cache.get(fields);
+	if (cached !== void 0) return cached;
+	const entries = Object.entries(fields);
+	const plan = new Array(entries.length);
+	for (let i = 0; i < entries.length; i++) {
+		const pair = entries[i];
+		plan[i] = [pair[0], pair[1]];
+	}
+	cache.set(fields, plan);
+	return plan;
+}
+/**
+* Schema lookup for a type name. Tries the regular type registry first; falls
+* back to mutations whose `returns` is a struct (the natural lookup for
+* nested selection through a mutation-typed frame key). Returns `undefined`
+* when the type is unknown — callers throw their own typed error with the
+* appropriate path context.
+*
+* Non-struct mutation returns (e.g. delete's `{id, deleted}`) intentionally
+* surface as an empty field map rather than undefined — the lookup
+* succeeded; the type has no nested selection. Both codecs treat the empty
+* map as "no fields to project".
+*/
+function lookupFieldMap(schema, typeName) {
+	const typeEntry = Object.hasOwn(schema.types, typeName) ? schema.types[typeName] : void 0;
+	if (typeEntry !== void 0) return typeEntry.fields;
+	const mutationEntry = Object.hasOwn(schema.mutations, typeName) ? schema.mutations[typeName] : void 0;
+	if (mutationEntry !== void 0) {
+		const ret = mutationEntry.returns;
+		if (ret.kind === "struct") return ret.fields;
+		return {};
+	}
+}
+/**
+* Resolve a type's field map, or throw the error `makeError` builds when the
+* type is unknown.
+*/
+function resolveFieldMap$2(schema, typeName, path, makeError) {
+	const fieldMap = lookupFieldMap(schema, typeName);
+	if (fieldMap === void 0) throw makeError(`unknown type '${typeName}' in schema`, path);
+	return fieldMap;
+}
+/**
+* Positional encoder. Spec: §7.0, §7.5.
+*
+* Strips field names from the wire. For a selected FieldInput, emits a tuple
+* of values in iteration order; the decoder reconstructs the named object
+* using the same FieldInput plus the schema cached at client init. The win is
+* parse time (§7.5) — msgpackr handles named objects fine, but positional
+* arrays skip the key lookup per cell, which compounds across thousand-row
+* responses.
+*
+* Contract: `encodePositional` is shape-blind. Callers decide single-vs-list
+* via `PackEnvelope.shapes[key]` (§7.2) and pass either a row or an array
+* of rows; the encoder emits the corresponding tuple or array-of-tuples. It does
+* NOT infer list-vs-single from the value shape.
+*
+* Mutation responses use `encodePositionalFromFieldDef` — mutations don't
+* carry a client-sent `FieldInput`, so the FieldDef declared at registration
+* (MutationSchema.returns) drives the encoding directly.
+*/
+/**
+* @internal — error thrown by the positional encoder on malformed input.
+* Exported, but treat as package-private.
+*/
+var PackEncodeError = class extends Error {
+	name = "PackEncodeError";
+	path;
+	constructor(message, path) {
+		super(`${message} at ${path.length === 0 ? "<root>" : path.join(".")}`);
+		this.path = path.slice();
+	}
+};
+/** A shape whose value is a `{ count }` or `{ groups }` map, not rows. */
+function isAggShape(shape) {
+	return shape === "count" || shape === "groups";
+}
+/** Frame `idx`'s return shape: its own entry for a batched key, else the key's one shape. */
+function frameDef(def, idx) {
+	if (!Array.isArray(def)) return def;
+	const one = def[idx];
+	if (one === void 0) throw new PackEncodeError(`no return shape for frame ${idx}`, []);
+	return one;
+}
+/**
+* Positional decoder. Spec: §7.0, §7.2.
+*
+* Mirror of `encoder.ts`. Rebuilds named objects from positional tuples using
+* the same `FieldInput` the client originally sent plus the schema cached at
+* init. Single-vs-list dispatch is driven by `PackEnvelope.shapes[key]`
+* (§7.2) — no inference from the tuple shape.
+*
+* Schema drift (§7.1) is detected here when the caller passes
+* `expectedSchemaVersion`: the decoder throws `SchemaDriftError` before
+* decoding any data value, so drift fails loudly instead of corrupting row
+* shapes. Refetch-and-retry is the caller's job. Without
+* `expectedSchemaVersion` no check is made.
+*/
+/**
+* @internal — error thrown by the positional decoder on malformed input.
+* Exported, but treat as package-private; signature may change without a
+* major bump.
+*/
+var PackDecodeError = class extends Error {
+	name = "PackDecodeError";
+	path;
+	constructor(message, path) {
+		super(`${message} at ${path.length === 0 ? "<root>" : path.join(".")}`);
+		this.path = path.slice();
+	}
+};
+/**
+* §7.1 loud-failure. Thrown by `decodeEnvelope` when the caller supplied an
+* `expectedSchemaVersion` that disagrees with the envelope's declared version.
+* Carries both sides of the mismatch so the caller can decide whether to
+* refetch the federated schema and retry or surface the error.
+*/
+var SchemaDriftError = class extends Error {
+	envelopeSchemaVersion;
+	expectedSchemaVersion;
+	name = "SchemaDriftError";
+	constructor(envelopeSchemaVersion, expectedSchemaVersion) {
+		super(`schema drift: envelope schemaVersion '${envelopeSchemaVersion}' does not match expected '${expectedSchemaVersion}'`);
+		this.envelopeSchemaVersion = envelopeSchemaVersion;
+		this.expectedSchemaVersion = expectedSchemaVersion;
+	}
+};
+function decodePositional(encoded, fields, schema, typeName, ctx) {
+	if (encoded === null || encoded === void 0) return null;
+	return decodeValueByArity(encoded, fields, resolveFieldMap(schema, typeName, [typeName]), schema, [typeName], ctx);
+}
+/**
+* Decode a mutation response against its declared `FieldDef`. Symmetric to
+* `encodePositionalFromFieldDef`.
+*
+* @internal — used by `decodeEnvelope` for mutation returns. Treat as
+* package-private.
+*/
+function decodePositionalFromFieldDef(encoded, def, schema, ctx, path = []) {
+	if (encoded === null || encoded === void 0) return null;
+	return decodeFieldDef(encoded, def, schema, path, ctx);
+}
+function decodeEnvelope(bytes, ctx) {
+	const raw = unpack(bytes);
+	if (ctx.expectedSchemaVersion !== void 0 && raw.schemaVersion !== ctx.expectedSchemaVersion) throw new SchemaDriftError(raw.schemaVersion, ctx.expectedSchemaVersion);
+	const rewritten = {};
+	for (const [key, value] of Object.entries(raw.data)) {
+		if (isAggShape(raw.shapes[key])) {
+			rewritten[key] = value;
+			continue;
+		}
+		const returns = ctx.returnsByKey?.[key];
+		if (returns !== void 0) {
+			const currentNs = ctx.currentNsByKey[key];
+			const schema = currentNs !== void 0 ? ctx.schemas[currentNs] : void 0;
+			if (currentNs === void 0 || schema === void 0) {
+				rewritten[key] = value;
+				continue;
+			}
+			rewritten[key] = decodeByShapeFromDef(value, returns, schema, raw.shapes[key], {
+				schemas: ctx.schemas,
+				currentNs
+			});
+			continue;
+		}
+		const fields = ctx.fieldsByKey[key];
+		const typeName = ctx.typeByKey[key];
+		const currentNs = ctx.currentNsByKey[key];
+		if (fields === void 0 || typeName === void 0 || currentNs === void 0) {
+			rewritten[key] = value;
+			continue;
+		}
+		const schema = ctx.schemas[currentNs];
+		if (schema === void 0) {
+			rewritten[key] = value;
+			continue;
+		}
+		const rawShape = raw.shapes[key];
+		rewritten[key] = decodeByShape(value, fields, schema, typeName, Array.isArray(rawShape) || isAggShape(rawShape) ? void 0 : rawShape, {
+			schemas: ctx.schemas,
+			currentNs
+		});
+	}
+	const out = {
+		schemaVersion: raw.schemaVersion,
+		data: rewritten,
+		shapes: raw.shapes
+	};
+	if (raw._meta !== void 0) out._meta = raw._meta;
+	if (raw._pagination !== void 0) out._pagination = raw._pagination;
+	if (raw._completeness !== void 0) out._completeness = raw._completeness;
+	if (raw._diagnostics !== void 0) out._diagnostics = raw._diagnostics;
+	if (raw.errors !== void 0) out.errors = raw.errors;
+	return out;
+}
+function decodeByShape(value, fields, schema, typeName, shape, ctx) {
+	if (value === null || value === void 0) return null;
+	const plan = getRowPlan(fields, resolveFieldMap(schema, typeName, [typeName]));
+	if (shape === "list") {
+		if (!Array.isArray(value)) throw new PackDecodeError("expected array for list shape", [typeName]);
+		return value.map((elem) => decodeRowWithPlan(elem, plan, schema, [typeName], ctx));
+	}
+	return decodeRowWithPlan(value, plan, schema, [typeName], ctx);
+}
+function decodeByShapeFromDef(value, def, schema, shape, ctx) {
+	if (value === null || value === void 0) return null;
+	if (Array.isArray(shape)) {
+		if (!Array.isArray(value)) throw new PackDecodeError("expected array for batched shape", []);
+		return value.map((elem, idx) => decodeByShapeFromDef(elem, frameDef(def, idx), schema, shape[idx], ctx));
+	}
+	const one = frameDef(def, 0);
+	if (shape === "list" && one.kind !== "list") {
+		if (!Array.isArray(value)) throw new PackDecodeError("expected array for list shape", []);
+		return value.map((elem, idx) => decodePositionalFromFieldDef(elem, one, schema, ctx, [`[${idx}]`]));
+	}
+	return decodePositionalFromFieldDef(value, one, schema, ctx);
+}
+function resolveFieldMap(schema, typeName, path) {
+	return resolveFieldMap$2(schema, typeName, path, (message, p) => new PackDecodeError(message, p));
+}
+/**
+* Decide whether `value` is a single tuple or a list of tuples based on its
+* shape plus the FieldInput — used only by the top-level `decodePositional`
+* helper (the envelope decoder uses `shapes[key]` directly). Heuristic:
+* - null → null
+* - Array where the first element is itself an array → list of rows
+* - Array otherwise → single row (tuple)
+*
+* This heuristic is the ambiguity §7.2 calls out, so callers SHOULD go through
+* `decodeEnvelope` to use explicit shape metadata.
+*/
+function decodeValueByArity(value, fields, fieldMap, schema, path, ctx) {
+	if (value === null || value === void 0) return null;
+	if (!Array.isArray(value)) throw new PackDecodeError("expected array (tuple) for positional row", path);
+	const plan = getRowPlan(fields, fieldMap);
+	if (value.length > 0 && Array.isArray(value[0])) return value.map((elem) => decodeRowWithPlan(elem, plan, schema, path, ctx));
+	return decodeRowWithPlan(value, plan, schema, path, ctx);
+}
+const DECODE_PLAN_CACHE = /* @__PURE__ */ new WeakMap();
+function getRowPlan(fields, fieldMap) {
+	return getRowPlan$2(DECODE_PLAN_CACHE, fields, fieldMap);
+}
+function decodeRowWithPlan(tuple, plan, schema, path, ctx) {
+	if (tuple === null || tuple === void 0) return null;
+	if (!Array.isArray(tuple)) throw new PackDecodeError("expected array (tuple) for row", path);
+	const out = {};
+	const len = plan.length;
+	for (let i = 0; i < len; i++) {
+		const entry = plan[i];
+		const field = entry[0];
+		const selection = entry[1];
+		const def = entry[2];
+		const cell = tuple[i] ?? null;
+		const slot = entry[3];
+		if (slot?.kind === "truncated" && cell === null) continue;
+		path.push(field);
+		out[field] = slot === void 0 ? decodeField(cell, selection, def, schema, path, ctx) : decodeWalkSlot(cell, slot, schema, path, ctx);
+		path.pop();
+	}
+	return out;
+}
+function decodeWalkSlot(cell, slot, schema, path, ctx) {
+	if (cell === null || cell === void 0) return null;
+	switch (slot.kind) {
+		case "truncated": return cell;
+		case "agg":
+			if (!Array.isArray(cell)) throw new PackDecodeError("expected array for _agg", path);
+			return Object.fromEntries(slot.names.map((n, i) => [n, cell[i] ?? null]));
+		case "nested": {
+			if (!Array.isArray(cell)) throw new PackDecodeError("expected array for nested selection", path);
+			const plan = getRowPlan(slot.fields, resolveFieldMap(schema, slot.type, path));
+			return cell.map((tuple, idx) => {
+				path.push(`[${idx}]`);
+				const out = decodeRowWithPlan(tuple, plan, schema, path, ctx);
+				path.pop();
+				return out;
+			});
+		}
+		default: return assertNever(slot);
+	}
+}
+function decodeField(cell, selection, def, schema, path, ctx) {
+	if (cell === null || cell === void 0) return null;
+	if (def === void 0) return cell;
+	if (selection === true) return decodeLeaf(cell, def, path);
+	switch (def.kind) {
+		case "scalar": throw new PackDecodeError(`field is a scalar (${def.type}); cannot select sub-fields`, path);
+		case "struct": return decodeStruct(cell, selection, def, schema, path, ctx);
+		case "list": return decodeList(cell, selection, def, schema, path, ctx);
+		case "crossRef": return decodeCrossRef(cell, selection, def, schema, path, ctx);
+		default: return assertNever(def);
+	}
+}
+function decodeLeaf(cell, def, path) {
+	switch (def.kind) {
+		case "scalar": return cell;
+		case "list":
+			if (!Array.isArray(cell)) throw new PackDecodeError("expected array for list leaf", path);
+			return cell;
+		case "struct":
+		case "crossRef": return cell;
+		default: return assertNever(def);
+	}
+}
+function decodeStruct(cell, selection, def, schema, path, ctx) {
+	return decodeRowWithPlan(cell, getRowPlan(selection, def.fields), schema, path, ctx);
+}
+function decodeList(cell, selection, def, schema, path, ctx) {
+	if (!Array.isArray(cell)) throw new PackDecodeError("expected array for list field", path);
+	const inner = def.of;
+	const innerPlan = inner.kind === "struct" ? getRowPlan(selection, inner.fields) : void 0;
+	const out = [];
+	for (let idx = 0; idx < cell.length; idx++) {
+		const elem = cell[idx];
+		if (elem === null || elem === void 0) {
+			out.push(null);
+			continue;
+		}
+		path.push(`[${idx}]`);
+		out.push(decodeListElement(elem, selection, inner, schema, path, ctx, innerPlan));
+		path.pop();
+	}
+	return out;
+}
+function decodeListElement(elem, selection, inner, schema, elemPath, ctx, structPlan) {
+	switch (inner.kind) {
+		case "scalar": throw new PackDecodeError(`list element is scalar (${inner.type}); cannot select sub-fields`, elemPath);
+		case "struct": return decodeRowWithPlan(elem, structPlan ?? getRowPlan(selection, inner.fields), schema, elemPath, ctx);
+		case "list": return decodeList(elem, selection, inner, schema, elemPath, ctx);
+		case "crossRef": return decodeCrossRef(elem, selection, inner, schema, elemPath, ctx);
+		default: return assertNever(inner);
+	}
+}
+function decodeCrossRef(cell, selection, def, schema, path, ctx) {
+	if (def.ns === ctx.currentNs) return decodeRowWithPlan(cell, getRowPlan(selection, resolveFieldMap(schema, def.type, path)), schema, path, ctx);
+	const schemas = ctx.schemas;
+	if (schemas === void 0) throw new PackDecodeError(`cross-namespace crossRef '${def.ns}/${def.type}' requires ctx.schemas`, path);
+	const targetSchema = schemas[def.ns];
+	if (targetSchema === void 0) throw new PackDecodeError(`cross-namespace crossRef target namespace '${def.ns}' not in ctx.schemas`, path);
+	return decodeRowWithPlan(cell, getRowPlan(selection, resolveFieldMap(targetSchema, def.type, path)), targetSchema, path, {
+		...ctx,
+		currentNs: def.ns
+	});
+}
+function decodeFieldDef(value, def, schema, path, ctx) {
+	if (value === null || value === void 0) return null;
+	switch (def.kind) {
+		case "scalar": return value;
+		case "struct": return decodeStructFromDef(value, def, schema, path, ctx);
+		case "list": return decodeListFromDef(value, def, schema, path, ctx);
+		case "crossRef": return value;
+		default: return assertNever(def);
+	}
+}
+const DECODE_FIELDDEF_PLAN_CACHE = /* @__PURE__ */ new WeakMap();
+function getFieldDefPlan(fields) {
+	return getFieldDefPlan$2(DECODE_FIELDDEF_PLAN_CACHE, fields);
+}
+function decodeStructFromDef(value, def, schema, path, ctx) {
+	if (!Array.isArray(value)) throw new PackDecodeError("expected array (tuple) for struct", path);
+	const out = {};
+	const plan = getFieldDefPlan(def.fields);
+	const len = plan.length;
+	for (let i = 0; i < len; i++) {
+		const entry = plan[i];
+		const fieldName = entry[0];
+		const sub = entry[1];
+		const cell = value[i] ?? null;
+		path.push(fieldName);
+		out[fieldName] = decodeFieldDef(cell, sub, schema, path, ctx);
+		path.pop();
+	}
+	return out;
+}
+function decodeListFromDef(value, def, schema, path, ctx) {
+	if (!Array.isArray(value)) throw new PackDecodeError("expected array for list field", path);
+	const out = [];
+	for (let idx = 0; idx < value.length; idx++) {
+		const elem = value[idx];
+		if (elem === null || elem === void 0) {
+			out.push(null);
+			continue;
+		}
+		path.push(`[${idx}]`);
+		out.push(decodeFieldDef(elem, def.of, schema, path, ctx));
+		path.pop();
+	}
+	return out;
+}
+/** What a row-writing mutation answers when the frame names no `fields`. */
+const MUTATION_ACK_FIELDS = {
+	id: true,
+	shortId: true
+};
+/** The `returns` a mutation's result is positioned by, given the frame's `fields` (`true` selects everything). */
+function mutationReturns(mutation, fields) {
+	if (fields === true) return mutation.returns;
+	const selection = fields ?? (mutation.writesRows === true ? MUTATION_ACK_FIELDS : void 0);
+	return selection === void 0 ? mutation.returns : narrow(mutation.returns, selection);
+}
+/**
+* `def` narrowed to the selection, in declared order: a list narrows its
+* element, and a nested selection narrows a nested struct, as the JSON
+* projection recurses. A selected field the struct does not declare is
+* dropped, as the JSON projection drops a field the row does not carry.
+*/
+function narrow(def, selection) {
+	if (def.kind === "list") return {
+		...def,
+		of: narrow(def.of, selection)
+	};
+	if (def.kind !== "struct") return def;
+	const fields = {};
+	for (const [name, field] of Object.entries(def.fields)) {
+		const sub = selection[name];
+		if (sub === void 0) continue;
+		fields[name] = typeof sub === "object" && sub !== null ? narrow(field, sub) : field;
+	}
+	return {
+		...def,
+		fields
+	};
+}
+/**
+* Decode an inbound frame envelope (the outer `{ id, kind, data?, ... }`
+* shape — positional `data` reconstruction is a separate concern handled by
+* `applyDecodePlanInPlace`).
+*
+* The `mode` discriminant determines how `raw` is interpreted: pack-mode
+* messages arrive as `ArrayBuffer | Uint8Array | Buffer` and are msgpack-
+* decoded; JSON-mode messages arrive as `string` (or, when node-ws hands the
+* payload across as binary, as bytes that we coerce back to text before
+* `JSON.parse`).
+*
+* The runtime narrowing is centralized here so callers don't reach for
+* `raw as string` casts at every call site.
+*/
+function decodeWsEnvelope(raw, mode) {
+	if (mode === "pack") return inbound.unpack(toBytes(raw));
+	if (typeof raw === "string") return JSON.parse(raw);
+	return JSON.parse(new TextDecoder().decode(toBytes(raw)));
+}
 /**
 * Inbound frames come from untrusted peers: structured-clone references (and
 * so cyclic values) are refused. `mapsAsObjects` keeps the default `unpack`'s
@@ -2516,11 +3055,560 @@ const inbound = new Unpackr({
 	structuredClone: false,
 	mapsAsObjects: true
 });
+function toBytes(raw) {
+	if (raw instanceof Uint8Array) return raw;
+	if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+	return new Uint8Array(raw);
+}
+/**
+* Build the decode plan from a frame spec map + federated schemas. Called
+* once per subscription, before the first frame arrives. Keys that are
+* unqualified, have no matching schema, or have no field selection are
+* skipped.
+*/
+function buildDecodePlan(frameSpec, schemas) {
+	const plan = [];
+	for (const qkey of Object.keys(frameSpec)) {
+		const parsed = parseQualifiedKey(qkey);
+		if (parsed === null) continue;
+		const { ns, name } = parsed;
+		const schema = schemas[ns];
+		if (schema === void 0) continue;
+		const spec = frameSpec[qkey];
+		if (spec === void 0) continue;
+		const fields = spec.fields;
+		if (fields === void 0) continue;
+		plan.push({
+			qkey,
+			name,
+			schema,
+			fields,
+			opts: {
+				schemas,
+				currentNs: ns
+			}
+		});
+	}
+	return plan;
+}
+/**
+* Apply a precomputed decode plan to an envelope's `data` map in place.
+* Mutates `envelope.data[qkey]` from positional tuple to named object/list
+* for each plan entry whose qkey is present.
+*
+* Accepts `unknown` so both `WsResponseFrame` and the data-bearing
+* `SubscribeEvent` variants flow through without a parameter-type cast at the
+* call site; remove/end/error frames lack a `data` property and short-circuit
+* here.
+*/
+function applyDecodePlanInPlace(envelope, plan) {
+	if (envelope === null || typeof envelope !== "object") return;
+	const data = envelope.data;
+	if (data === null || data === void 0 || typeof data !== "object") return;
+	const map = data;
+	for (const entry of plan) {
+		const value = map[entry.qkey];
+		if (value === void 0) continue;
+		map[entry.qkey] = decodePositional(value, entry.fields, entry.schema, entry.name, entry.opts);
+	}
+}
+/**
+* Length-prefixed stream frames: the body of an HTTP/2 subscription or stream.
+*
+* Each frame is a big-endian u32 payload length, then the payload: UTF-8 JSON
+* or msgpack, exactly what `encodeWsFrame` produces, so
+* the positional pack decode plan applies unchanged. A zero-length frame is a
+* heartbeat and carries nothing.
+*/
+const FRAMES_JSON_MIME = "application/vnd.substrate.frames+json";
+const FRAMES_PACK_MIME = "application/vnd.substrate.frames+pack";
+var FrameStreamError = class extends Error {
+	code;
+	constructor(code, message) {
+		super(message);
+		this.name = "FrameStreamError";
+		this.code = code;
+	}
+};
+/**
+* `body`, failing with `stream_idle` when a read waits `ms` for bytes,
+* heartbeats included. It times only reads the consumer is waiting on, so a
+* slow consumer never trips it; a connection that died without closing does.
+* The underlying reader is cancelled on timeout, which settles its pending read.
+*/
+function withIdleTimeout(body, ms) {
+	const reader = body.getReader();
+	return new ReadableStream({
+		async pull(controller) {
+			let timer;
+			const idle = new Promise((_, reject) => {
+				timer = setTimeout(() => reject(new FrameStreamError("stream_idle", `the stream sent nothing for ${ms} ms`)), ms);
+			});
+			try {
+				const r = await Promise.race([reader.read(), idle]);
+				if (r.done) controller.close();
+				else controller.enqueue(r.value);
+			} catch (err) {
+				reader.cancel().catch(() => {});
+				controller.error(err);
+			} finally {
+				clearTimeout(timer);
+			}
+		},
+		cancel(reason) {
+			return reader.cancel(reason);
+		}
+	}, { highWaterMark: 0 });
+}
 const utf8 = new TextEncoder();
+/**
+* The payloads of a frame stream, in order, heartbeats skipped. A length above
+* `maxFrameBytes` throws `frame_too_large` before any of that payload is read
+* or allocated; a body that ends inside a frame throws `truncated_frame`.
+*/
+async function* decodeStreamFrames(body, opts = {}) {
+	const max = opts.maxFrameBytes ?? 16777216;
+	if (!Number.isInteger(max) || max < 0) throw new RangeError(`maxFrameBytes must be a non-negative integer, got ${max}`);
+	let buf = /* @__PURE__ */ new Uint8Array(4096);
+	let start = 0;
+	let end = 0;
+	const append = (chunk) => {
+		if (end + chunk.length > buf.length) {
+			const live = end - start;
+			if (live + chunk.length > buf.length) {
+				const grown = new Uint8Array(Math.max(buf.length * 2, live + chunk.length));
+				grown.set(buf.subarray(start, end), 0);
+				buf = grown;
+			} else buf.copyWithin(0, start, end);
+			start = 0;
+			end = live;
+		}
+		buf.set(chunk, end);
+		end += chunk.length;
+	};
+	const source = typeof body[Symbol.asyncIterator] === "function" ? body : readableToIterable(body);
+	for await (const chunk of source) {
+		append(chunk);
+		while (end - start >= 4) {
+			const len = new DataView(buf.buffer, buf.byteOffset + start, 4).getUint32(0, false);
+			if (len > max) throw new FrameStreamError("frame_too_large", `frame of ${len} bytes exceeds the ${max}-byte limit`);
+			if (end - start < 4 + len) break;
+			if (len > 0) yield buf.slice(start + 4, start + 4 + len);
+			start += 4 + len;
+		}
+	}
+	if (end - start > 0) throw new FrameStreamError("truncated_frame", `stream ended inside a frame (${end - start} bytes left over)`);
+}
+/** A ReadableStream without async iteration (Safari), cancelled when the consumer stops early. */
+async function* readableToIterable(stream) {
+	const reader = stream.getReader();
+	let finished = false;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				finished = true;
+				return;
+			}
+			yield value;
+		}
+	} finally {
+		if (!finished) await reader.cancel().catch(() => {});
+		reader.releaseLock();
+	}
+}
 
 //#endregion
 //#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-D3ACIp1y.js
 createRequire(import.meta.url);
+
+//#endregion
+//#region ../../node_modules/.pnpm/@preact+signals-core@1.14.4/node_modules/@preact/signals-core/dist/signals-core.mjs
+const i$1 = Symbol.for("preact-signals");
+function t() {
+	if (e > 1) {
+		e--;
+		return;
+	}
+	let i, t = !1;
+	(function() {
+		let i = f;
+		f = void 0;
+		while (void 0 !== i) {
+			const t = i.S;
+			if (t.v === i.v) {
+				for (let n = t.t; void 0 !== n; n = n.x) if (n.i === i.i) n.i = t.i;
+			}
+			i = i.o;
+		}
+	})();
+	while (void 0 !== h) {
+		let n = h;
+		h = void 0;
+		c++;
+		while (void 0 !== n) {
+			const o = n.u;
+			n.u = void 0;
+			n.f &= -3;
+			if (!(8 & n.f) && w(n)) try {
+				n.c();
+			} catch (n) {
+				if (!t) {
+					i = n;
+					t = !0;
+				}
+			}
+			n = o;
+		}
+	}
+	c = 0;
+	e--;
+	if (t) throw i;
+}
+let o;
+let s;
+let h;
+function r(i) {
+	const t = o, n = s;
+	o = void 0;
+	s = void 0;
+	try {
+		return i();
+	} finally {
+		o = t;
+		s = n;
+	}
+}
+let f;
+let e = 0;
+let c = 0;
+let d = 0;
+let v$1 = 0;
+function l(i) {
+	if (void 0 === o) return;
+	let t = i.n;
+	if (void 0 === t || t.t !== o) {
+		t = {
+			i: 0,
+			S: i,
+			p: o.s,
+			n: void 0,
+			t: o,
+			e: void 0,
+			x: void 0,
+			r: t
+		};
+		if (void 0 !== o.s) o.s.n = t;
+		o.s = t;
+		i.n = t;
+		if (32 & o.f) i.S(t);
+		return t;
+	} else if (-1 === t.i) {
+		t.i = 0;
+		if (void 0 !== t.n) {
+			t.n.p = t.p;
+			if (void 0 !== t.p) t.p.n = t.n;
+			t.p = o.s;
+			t.n = void 0;
+			o.s.n = t;
+			o.s = t;
+		}
+		return t;
+	}
+}
+function a(i, t) {
+	this.v = i;
+	this.i = 0;
+	this.n = void 0;
+	this.t = void 0;
+	this.l = 0;
+	this.W = null == t ? void 0 : t.watched;
+	this.Z = null == t ? void 0 : t.unwatched;
+	this.name = null == t ? void 0 : t.name;
+}
+a.prototype.brand = i$1;
+a.prototype.h = function() {
+	return !0;
+};
+a.prototype.S = function(i) {
+	const t = this.t;
+	if (t !== i && void 0 === i.e) {
+		i.x = t;
+		this.t = i;
+		if (void 0 !== t) t.e = i;
+		else r(() => {
+			var i;
+			null == (i = this.W) || i.call(this);
+		});
+	}
+};
+a.prototype.U = function(i) {
+	if (void 0 !== this.t) {
+		const t = i.e, n = i.x;
+		if (void 0 !== t) {
+			t.x = n;
+			i.e = void 0;
+		}
+		if (void 0 !== n) {
+			n.e = t;
+			i.x = void 0;
+		}
+		if (i === this.t) {
+			this.t = n;
+			if (void 0 === n) r(() => {
+				var i;
+				null == (i = this.Z) || i.call(this);
+			});
+		}
+	}
+};
+a.prototype.subscribe = function(i) {
+	return j(() => {
+		const t = this.value;
+		r(() => i(t));
+	}, { name: "sub" });
+};
+a.prototype.valueOf = function() {
+	return this.value;
+};
+a.prototype.toString = function() {
+	return this.value + "";
+};
+a.prototype.toJSON = function() {
+	return this.value;
+};
+a.prototype.peek = function() {
+	return r(() => this.value);
+};
+Object.defineProperty(a.prototype, "value", {
+	get() {
+		const i = l(this);
+		if (void 0 !== i) i.i = this.i;
+		return this.v;
+	},
+	set(i) {
+		if (i !== this.v) {
+			if (c > 100) throw new Error("Cycle detected");
+			(function(i) {
+				if (0 !== e && 0 === c) {
+					if (i.l !== d) {
+						i.l = d;
+						f = {
+							S: i,
+							v: i.v,
+							i: i.i,
+							o: f
+						};
+					}
+				}
+			})(this);
+			this.v = i;
+			this.i++;
+			v$1++;
+			e++;
+			try {
+				for (let i = this.t; void 0 !== i; i = i.x) i.t.N();
+			} finally {
+				t();
+			}
+		}
+	}
+});
+function y(i, t) {
+	return new a(i, t);
+}
+function w(i) {
+	for (let t = i.s; void 0 !== t; t = t.n) if (t.S.i !== t.i || !t.S.h() || t.S.i !== t.i) return !0;
+	return !1;
+}
+function _(i) {
+	for (let t = i.s; void 0 !== t; t = t.n) {
+		const n = t.S.n;
+		if (void 0 !== n) t.r = n;
+		t.S.n = t;
+		t.i = -1;
+		if (void 0 === t.n) {
+			i.s = t;
+			break;
+		}
+	}
+}
+function b(i) {
+	let t, n = i.s;
+	while (void 0 !== n) {
+		const i = n.p;
+		if (-1 === n.i) {
+			n.S.U(n);
+			if (void 0 !== i) i.n = n.n;
+			if (void 0 !== n.n) n.n.p = i;
+		} else t = n;
+		n.S.n = n.r;
+		if (void 0 !== n.r) n.r = void 0;
+		n = i;
+	}
+	i.s = t;
+}
+function p(i, t) {
+	a.call(this, void 0, t);
+	this.x = i;
+	this.s = void 0;
+	this.g = v$1 - 1;
+	this.f = 4;
+}
+p.prototype = new a();
+p.prototype.h = function() {
+	this.f &= -3;
+	if (1 & this.f) return !1;
+	if (32 == (36 & this.f)) return !0;
+	this.f &= -5;
+	if (this.g === v$1) return !0;
+	this.g = v$1;
+	this.f |= 1;
+	if (this.i > 0 && !w(this)) {
+		this.f &= -2;
+		return !0;
+	}
+	const i = o;
+	try {
+		_(this);
+		o = this;
+		const i = this.x();
+		if (16 & this.f || this.v !== i || 0 === this.i) {
+			this.v = i;
+			this.f &= -17;
+			this.i++;
+		}
+	} catch (i) {
+		this.v = i;
+		this.f |= 16;
+		this.i++;
+	}
+	o = i;
+	b(this);
+	this.f &= -2;
+	return !0;
+};
+p.prototype.S = function(i) {
+	if (void 0 === this.t) {
+		this.f |= 36;
+		for (let i = this.s; void 0 !== i; i = i.n) i.S.S(i);
+	}
+	a.prototype.S.call(this, i);
+};
+p.prototype.U = function(i) {
+	if (void 0 !== this.t) {
+		a.prototype.U.call(this, i);
+		if (void 0 === this.t) {
+			this.f &= -33;
+			for (let i = this.s; void 0 !== i; i = i.n) i.S.U(i);
+		}
+	}
+};
+p.prototype.N = function() {
+	if (!(2 & this.f)) {
+		this.f |= 6;
+		for (let i = this.t; void 0 !== i; i = i.x) i.t.N();
+	}
+};
+Object.defineProperty(p.prototype, "value", { get() {
+	if (1 & this.f) throw new Error("Cycle detected");
+	const i = l(this);
+	this.h();
+	if (void 0 !== i) i.i = this.i;
+	if (16 & this.f) throw this.v;
+	return this.v;
+} });
+function S(i) {
+	const n = i.m;
+	i.m = void 0;
+	if ("function" == typeof n) {
+		e++;
+		const s = o;
+		o = void 0;
+		try {
+			n();
+		} catch (t) {
+			i.f &= -2;
+			i.f |= 8;
+			m(i);
+			throw t;
+		} finally {
+			o = s;
+			t();
+		}
+	}
+}
+function m(i) {
+	for (let t = i.s; void 0 !== t; t = t.n) t.S.U(t);
+	i.x = void 0;
+	i.s = void 0;
+	S(i);
+}
+function x(i) {
+	if (o !== this) throw new Error("Out-of-order effect");
+	b(this);
+	o = i;
+	this.f &= -2;
+	if (8 & this.f) m(this);
+	t();
+}
+function E(i, t) {
+	this.x = i;
+	this.m = void 0;
+	this.s = void 0;
+	this.u = void 0;
+	this.f = 32;
+	this.name = null == t ? void 0 : t.name;
+	if (s) s.push(this);
+}
+E.prototype.c = function() {
+	const i = this.S();
+	try {
+		if (8 & this.f) return;
+		if (void 0 === this.x) return;
+		const t = this.x();
+		if ("function" == typeof t) this.m = t;
+	} finally {
+		i();
+	}
+};
+E.prototype.S = function() {
+	if (1 & this.f) throw new Error("Cycle detected");
+	this.f |= 1;
+	this.f &= -9;
+	S(this);
+	_(this);
+	e++;
+	const i = o;
+	o = this;
+	return x.bind(this, i);
+};
+E.prototype.N = function() {
+	if (!(2 & this.f)) {
+		this.f |= 2;
+		this.u = h;
+		h = this;
+	}
+};
+E.prototype.d = function() {
+	this.f |= 8;
+	if (!(1 & this.f)) m(this);
+};
+E.prototype.dispose = function() {
+	this.d();
+};
+function j(i, t) {
+	const n = new E(i, t);
+	try {
+		n.c();
+	} catch (i) {
+		n.d();
+		throw i;
+	}
+	const o = n.d.bind(n);
+	o[Symbol.dispose] = o;
+	return o;
+}
 
 //#endregion
 //#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-B_oTGi3X.js
@@ -2815,6 +3903,1311 @@ function webBody(stream, pooled, signal) {
 			stream.close(http2.constants.NGHTTP2_CANCEL);
 		}
 	});
+}
+/** Mirrors BACKFILL_MAX_ROWS in substrate-compose; the server enforces it. */
+const BACKFILL_CHUNK = 5e3;
+/**
+* A chunk was refused. `chunksDone` chunks were already sent (and, on apply, WRITTEN); `partial` sums them.
+*
+* `cause` is the real failure and may be an `AuthError` (a rejected admin key) or a
+* `NetworkError` (including one wrapping an `AbortError`). Callers must unwrap `cause`
+* before applying an auth-lock rule or abort handling.
+*
+* `partial.applied` true means at least one chunk was accepted and written; `chunksDone` says how
+* many. `false` does NOT prove nothing was written: a first chunk refused with anything but a 4xx
+* may have partly written (below). A refusal with a 4xx status guarantees the failing chunk wrote nothing;
+* anything else (a 5xx such as `verify_failed`, a dropped connection, an abort) may have
+* partly written the failing chunk, since the route writes in non-transactional 200-row batches.
+*/
+var AdminBackfillError = class extends Error {
+	cause;
+	chunksDone;
+	chunks;
+	partial;
+	name = "AdminBackfillError";
+	constructor(cause, chunksDone, chunks, partial) {
+		super(`backfill stopped at chunk ${chunksDone + 1} of ${chunks}: ${cause instanceof Error ? cause.message : String(cause)}`);
+		this.cause = cause;
+		this.chunksDone = chunksDone;
+		this.chunks = chunks;
+		this.partial = partial;
+	}
+};
+const sig = (o) => o.signal !== void 0 ? { signal: o.signal } : {};
+function createSurgeryApi(t) {
+	const post = async (path, body, o) => await (await t.raw(path, {
+		method: "POST",
+		body,
+		...sig(o)
+	})).json();
+	return {
+		async backfill(input, o = {}) {
+			const entries = Object.entries(input.values);
+			const chunks = Math.ceil(entries.length / BACKFILL_CHUNK);
+			const apply = input.apply === true;
+			let write = 0;
+			let kept = 0;
+			let unchanged = 0;
+			const missing = [];
+			const counts = {};
+			const summary = (applied = apply) => ({
+				requested: entries.length,
+				write,
+				kept,
+				unchanged,
+				missing: [...missing],
+				counts: { ...counts },
+				applied,
+				chunks
+			});
+			for (let index = 0; index < chunks; index++) {
+				const slice = entries.slice(index * BACKFILL_CHUNK, (index + 1) * BACKFILL_CHUNK);
+				let body;
+				try {
+					body = await post("/substrate/v1/_system/backfill-field", {
+						namespace: input.namespace,
+						type: input.type,
+						field: input.field,
+						apply,
+						overwrite: input.overwrite === true,
+						values: Object.fromEntries(slice)
+					}, o);
+				} catch (err) {
+					throw new AdminBackfillError(err, index, chunks, summary(apply && index > 0));
+				}
+				write += Number(body.write ?? 0);
+				kept += Number(body.kept ?? 0);
+				unchanged += Number(body.unchanged ?? 0);
+				if (Array.isArray(body.missing)) missing.push(...body.missing);
+				for (const [k, n] of Object.entries(body.counts ?? {})) counts[k] = (counts[k] ?? 0) + n;
+				o.onChunk?.({
+					index,
+					chunks,
+					body
+				});
+			}
+			return summary();
+		},
+		reindexPage(input, o = {}) {
+			const body = {
+				namespace: input.namespace,
+				type: input.type
+			};
+			if (input.cursor !== void 0) body.cursor = input.cursor;
+			if (input.limit !== void 0) body.limit = input.limit;
+			return post("/substrate/v1/embed/reindex", body, o);
+		},
+		async embedStats(o = {}) {
+			return await (await t.raw("/substrate/v1/embed-stats", {
+				method: "GET",
+				...sig(o)
+			})).json();
+		},
+		dropNamespace(input, o = {}) {
+			const body = {
+				namespace: input.namespace,
+				confirm: input.confirm
+			};
+			if (input.cascade !== void 0) body.cascade = input.cascade;
+			if (input.dryRun !== void 0) body.dryRun = input.dryRun;
+			return post("/substrate/v1/_system/drop-namespace", body, o);
+		},
+		dropType(input, o = {}) {
+			const body = {
+				namespace: input.namespace,
+				type: input.type,
+				confirm: input.confirm
+			};
+			if (input.cascade !== void 0) body.cascade = input.cascade;
+			if (input.dryRun !== void 0) body.dryRun = input.dryRun;
+			return post("/substrate/v1/_system/drop-type", body, o);
+		},
+		normalise(input, o = {}) {
+			const body = {
+				namespace: input.namespace,
+				type: input.type,
+				field: input.field
+			};
+			if (input.reject !== void 0) body.reject = [...input.reject];
+			if (input.apply === true) body.apply = true;
+			return post("/substrate/v1/_system/normalise-vocab", body, o);
+		}
+	};
+}
+function createAdminApi(t) {
+	return {
+		...createSurgeryApi(t),
+		async keys(opts = {}) {
+			const out = [];
+			let cursor;
+			for (;;) {
+				const qs = cursor === void 0 ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+				const page = await (await t.raw(`/substrate/v1/_system/keys${qs}`, {
+					method: "GET",
+					...opts.signal !== void 0 ? { signal: opts.signal } : {}
+				})).json();
+				out.push(...page.keys);
+				if (page.hasMore !== true) return out;
+				if (typeof page.nextCursor !== "string") throw new Error("server reported hasMore with no nextCursor — refusing to report a partial key table as complete");
+				cursor = page.nextCursor;
+			}
+		},
+		async update(change, opts = {}) {
+			const body = {
+				kid: change.kid,
+				namespaces: [...change.namespaces],
+				capabilities: [...change.capabilities]
+			};
+			if (change.widen === true) body.widen = true;
+			if (change.allowAdmin === true) body.allowAdmin = true;
+			if (change.allowUnknownNs === true) body.allowUnknownNs = true;
+			return await (await t.raw("/substrate/v1/_system/keys", {
+				method: "PATCH",
+				body,
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			})).json();
+		},
+		async revoke(kid, opts = {}) {
+			return await (await t.raw("/substrate/v1/_system/keys", {
+				method: "PATCH",
+				body: {
+					kid,
+					revoke: true
+				},
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			})).json();
+		},
+		async register(input, opts = {}) {
+			const body = {
+				kid: input.kid,
+				publicKey: input.publicKey,
+				algorithm: input.algorithm,
+				namespaces: [...input.namespaces],
+				capabilities: [...input.capabilities]
+			};
+			if (input.name !== void 0) body.name = input.name;
+			if (input.directory !== void 0) body.directory = { create: input.directory };
+			if (input.allowAdmin === true) body.allowAdmin = true;
+			if (input.allowUnknownNs === true) body.allowUnknownNs = true;
+			return await (await t.raw("/substrate/v1/_system/keys", {
+				method: "POST",
+				body,
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			})).json();
+		},
+		async invite(input, opts = {}) {
+			const body = {
+				namespaces: [...input.namespaces],
+				capabilities: [...input.capabilities]
+			};
+			if (input.ttlMs !== void 0) body.ttlMs = input.ttlMs;
+			return await (await t.raw("/substrate/v1/_system/invites", {
+				method: "POST",
+				body,
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			})).json();
+		}
+	};
+}
+var NetworkError = class extends Error {
+	cause;
+	name = "NetworkError";
+	/** HTTP status of the response, when the failure was one. */
+	status;
+	/** The server's JSON error `code`, when its body carried one. */
+	code;
+	/** The server's JSON `error` text, when its body carried one. */
+	serverMessage;
+	/** The refusal's parsed JSON object, verbatim. */
+	body;
+	constructor(message, cause, info = {}) {
+		super(message);
+		this.cause = cause;
+		if (info.status !== void 0) this.status = info.status;
+		if (info.code !== void 0) this.code = info.code;
+		if (info.serverMessage !== void 0) this.serverMessage = info.serverMessage;
+		if (info.body !== void 0) this.body = info.body;
+	}
+};
+/**
+* Thrown on Substrate auth failures — 401 (unauthenticated) or 403 (authenticated but
+* not authorised). Proxy-level failures (407, 511) fall through to NetworkError.
+*/
+var AuthError = class extends Error {
+	status;
+	name = "AuthError";
+	/** The server's JSON error `code`, when its body carried one: the auth gate says `forbidden`. */
+	code;
+	/** The server's JSON `error` or `message` text, when its body carried one. */
+	serverMessage;
+	/** The refusal's parsed JSON object, verbatim. */
+	body;
+	constructor(message, status, info = {}) {
+		super(message);
+		this.status = status;
+		if (info.code !== void 0) this.code = info.code;
+		if (info.serverMessage !== void 0) this.serverMessage = info.serverMessage;
+		if (info.body !== void 0) this.body = info.body;
+	}
+};
+var SubscribeError = class extends Error {
+	code;
+	name = "SubscribeError";
+	constructor(message, code) {
+		super(message);
+		this.code = code;
+	}
+};
+/**
+* Pure subscribe-event → typed-row-set fold, shared by `SubstrateClient.watch` and
+* the cache store.
+*
+* The `data` envelope shape per event kind:
+*   - snapshot : data = { '<ns>/<Type>': Row[] }   — the full current set
+*   - add      : data = { '<ns>/<Type>': Row }      — one newly-matching row
+*   - update   : data = { '<ns>/<Type>': Row }      — one changed row (by id)
+*   - remove   : { removedId: string }              — no data envelope
+*   - end / error / chunk : no row change (terminal / streaming kinds)
+*
+* Rows are correlated by their `id` field (string-coerced), so any frame fed to
+* the fold must select `id` — `SubstrateClient.watch` injects it via
+* `augmentFramesWithId`. `add` appends (no de-dup) and ignores the query's
+* `orderBy`.
+*/
+function rowSlot(data, qualifiedKey) {
+	if (data === null || typeof data !== "object") return void 0;
+	return data[qualifiedKey];
+}
+function rowId(row) {
+	return String(row.id);
+}
+/**
+* Fold one subscribe event into `current`, returning the next row list. Pure:
+* the caller owns terminal-kind delivery and the "select id" contract.
+*
+* Returns the SAME array reference when the event does not change the set (an
+* `update` whose row carries no `id`, or a non-row kind), so callers can cheaply
+* skip redundant writes / yields by identity.
+*/
+function reduceSubscribeRows(current, qualifiedKey, event) {
+	switch (event.kind) {
+		case "snapshot": {
+			const slot = rowSlot(event.data, qualifiedKey);
+			if (Array.isArray(slot)) return [...slot];
+			return slot === void 0 || slot === null ? [] : [slot];
+		}
+		case "add": return [...current, rowSlot(event.data, qualifiedKey)];
+		case "update": {
+			const row = rowSlot(event.data, qualifiedKey);
+			if (row === void 0 || row.id === void 0) return current;
+			const targetId = String(row.id);
+			return current.map((r) => rowId(r) === targetId ? row : r);
+		}
+		case "remove": return current.filter((r) => rowId(r) !== String(event.removedId));
+		default: return current;
+	}
+}
+/** End reasons after which the transport resubscribes rather than finishing. */
+const SURVIVABLE_END_REASONS = /* @__PURE__ */ new Set([
+	"server_restart",
+	"credential_expired",
+	"credential_changed"
+]);
+/**
+* Fold a single-key subscription's event stream into a live row-set: yields the
+* current `T[]` after every snapshot / add / update / remove. Completes on `end`
+* (or when the source iterator completes); throws `SubscribeError` on an `error`
+* event — matching the raw `subscribe` contract, where the transport throws on
+* error frames.
+*
+* A delta that does not change the set (e.g. an `update` whose row has no id) is
+* not re-yielded. Cancellation: breaking the consuming `for await` (or calling
+* `.return()`) propagates to the source iterable's `return()` through the inner
+* `for await`, cancelling the underlying subscription.
+*/
+async function* watchRows(events, qualifiedKey) {
+	let rows = [];
+	for await (const event of events) {
+		if (event.kind === "end" && !SURVIVABLE_END_REASONS.has(event.reason ?? "")) return;
+		if (event.kind === "end") continue;
+		if (event.kind === "error") {
+			const first = event.errors[0];
+			throw new SubscribeError(first?.message ?? "subscribe error", first?.code ?? "unknown");
+		}
+		const next = reduceSubscribeRows(rows, qualifiedKey, event);
+		if (next === rows) continue;
+		rows = next;
+		yield rows;
+	}
+}
+/**
+* Signals-backed reactive cache. Keyed by canonicalised frame key (same shape
+* as `canonicaliseFrameKey`). Each entry holds signals for `data`, `loading`,
+* `error`, plus refCount + invalidatedAt for lifecycle and drift management.
+*
+* Lifecycle:
+* - subscribe(key) → increment refCount, return an unsubscribe that decrements.
+* - When refCount → 0, schedule GC after `idleGcMs`; cancel if a new subscribe
+*   arrives in that window.
+* - invalidate(keyPrefix): if any entry under that prefix has refCount > 0,
+*   stamp `invalidatedAt` (callers observe and re-fetch). Entries with
+*   refCount === 0 are dropped.
+*/
+var CacheStore = class {
+	#entries = /* @__PURE__ */ new Map();
+	#idleGcMs;
+	constructor(opts) {
+		this.#idleGcMs = opts.idleGcMs;
+	}
+	get(key) {
+		const existing = this.#entries.get(key);
+		if (existing !== void 0) return existing;
+		const entry = {
+			data: y(void 0),
+			loading: y(false),
+			error: y(null),
+			diagnostics: y([]),
+			invalidatedSignal: y(0),
+			refCount: 0,
+			invalidatedAt: null,
+			lastFetched: 0,
+			gcTimer: null
+		};
+		this.#entries.set(key, entry);
+		return entry;
+	}
+	peek(key) {
+		return this.#entries.get(key);
+	}
+	subscribe(key) {
+		const entry = this.get(key);
+		entry.refCount += 1;
+		if (entry.gcTimer !== null) {
+			clearTimeout(entry.gcTimer);
+			entry.gcTimer = null;
+		}
+		let unsubscribed = false;
+		return () => {
+			if (unsubscribed) return;
+			unsubscribed = true;
+			entry.refCount -= 1;
+			if (entry.refCount === 0) this.#scheduleGc(key, entry);
+		};
+	}
+	set(key, data, diagnostics = []) {
+		const entry = this.get(key);
+		entry.data.value = data;
+		entry.loading.value = false;
+		entry.error.value = null;
+		if (diagnostics.length > 0 || entry.diagnostics.value.length > 0) entry.diagnostics.value = diagnostics;
+		entry.invalidatedAt = null;
+		entry.invalidatedSignal.value = 0;
+		entry.lastFetched = Date.now();
+	}
+	setLoading(key, loading) {
+		const entry = this.get(key);
+		entry.loading.value = loading;
+	}
+	setError(key, err) {
+		const entry = this.get(key);
+		entry.error.value = err;
+		entry.loading.value = false;
+	}
+	invalidate(keyPrefix) {
+		const now = Date.now();
+		for (const [key, entry] of this.#entries) {
+			if (!key.startsWith(keyPrefix)) continue;
+			if (entry.refCount > 0) {
+				entry.invalidatedAt = now;
+				entry.invalidatedSignal.value = now;
+			} else {
+				if (entry.gcTimer !== null) clearTimeout(entry.gcTimer);
+				this.#entries.delete(key);
+			}
+		}
+	}
+	/**
+	* Apply a subscribe event to the entry at `cacheKey`, patching the row slot
+	* under `qualifiedKey` in the entry's `data` envelope.
+	*
+	*  - snapshot → replace the entire envelope via `set()`
+	*  - add      → append the single row to the list at data[qualifiedKey]
+	*  - update   → replace row by id in the list at data[qualifiedKey]
+	*  - remove   → drop row by removedId from the list at data[qualifiedKey]
+	*  - end / error / chunk → no cache change (the hook surfaces these)
+	*
+	* `update` / `remove` on an entry without data are no-ops — the server always
+	* emits `snapshot` first.
+	*/
+	applySubscribeEvent(cacheKey, qualifiedKey, event) {
+		if (event.kind === "snapshot") {
+			this.set(cacheKey, event.data);
+			return;
+		}
+		if (event.kind !== "add" && event.kind !== "update" && event.kind !== "remove") return;
+		const entry = this.get(cacheKey);
+		const current = entry.data.value;
+		if (event.kind !== "add" && (current === void 0 || !Array.isArray(current[qualifiedKey]))) return;
+		const list = Array.isArray(current?.[qualifiedKey]) ? current[qualifiedKey] : [];
+		const next = reduceSubscribeRows(list, qualifiedKey, event);
+		if (next === list) return;
+		entry.data.value = {
+			...current ?? {},
+			[qualifiedKey]: next
+		};
+	}
+	#scheduleGc(key, entry) {
+		if (entry.gcTimer !== null) clearTimeout(entry.gcTimer);
+		entry.gcTimer = setTimeout(() => {
+			entry.gcTimer = null;
+			if (entry.refCount === 0) this.#entries.delete(key);
+		}, this.#idleGcMs);
+	}
+};
+const HANDLED = /* @__PURE__ */ new Set([
+	"unknownProjectionFields",
+	"filterValidationSkipped",
+	"plan"
+]);
+/**
+* Reduce one envelope entry to a diagnostic, or `undefined` when it holds
+* nothing worth reporting — an entry present but empty, or one whose only
+* unknown-field list is empty. Without that, the default sink emits a warning
+* naming no observation at all.
+*/
+function describeEntry(opKey, entry) {
+	const unknownProjectionFields = [...entry.unknownProjectionFields ?? []];
+	const { filterValidationSkipped } = entry;
+	const unrecognizedKeys = Object.keys(entry).filter((k) => !HANDLED.has(k) && entry[k] !== void 0).sort();
+	if (unknownProjectionFields.length === 0 && filterValidationSkipped === void 0 && unrecognizedKeys.length === 0) return;
+	const diagnostic = {
+		opKey,
+		unknownProjectionFields
+	};
+	if (filterValidationSkipped !== void 0) diagnostic.filterValidationSkipped = filterValidationSkipped;
+	if (unrecognizedKeys.length > 0) diagnostic.unrecognizedKeys = unrecognizedKeys;
+	return diagnostic;
+}
+/**
+* Extract diagnostics from a decoded envelope and hand each one to `sink`.
+* Returns the flattened list so callers can also attach it to a mapped result.
+*
+* An envelope with no `_diagnostics` returns `[]` without the sink firing.
+*/
+function collectDiagnostics(envDiagnostics, sink) {
+	if (envDiagnostics === void 0) return [];
+	const out = [];
+	for (const [opKey, entry] of Object.entries(envDiagnostics)) {
+		if (entry === null || entry === void 0) continue;
+		const diagnostic = describeEntry(opKey, entry);
+		if (diagnostic === void 0) continue;
+		out.push(diagnostic);
+		sink?.(diagnostic);
+	}
+	return out;
+}
+/**
+* Default sink: one `console.warn` per distinct observation set, naming the
+* frame key and everything observed about it, plus the reason the reader should
+* care in each case.
+*
+* ONE warning per diagnostic rather than one per observation. An entry carrying
+* both an unknown projection and a skipped filter validation describes a single
+* read, and splitting it reads as two independent defects.
+*
+* Deduping state is per-sink, so per-client: `new SubstrateClient(...)` starts
+* fresh.
+*/
+function createDefaultDiagnosticsSink() {
+	const seen = /* @__PURE__ */ new Set();
+	return (diagnostic) => {
+		const { opKey, filterValidationSkipped } = diagnostic;
+		const fields = [...diagnostic.unknownProjectionFields].sort();
+		const unrecognized = [...diagnostic.unrecognizedKeys ?? []].sort();
+		const dedupeKey = [
+			opKey,
+			fields.join(","),
+			filterValidationSkipped ?? "",
+			unrecognized.join(",")
+		].join("\0");
+		if (seen.has(dedupeKey)) return;
+		seen.add(dedupeKey);
+		const parts = [];
+		if (fields.length > 0) parts.push(`projected field(s) the type does not declare: ${fields.join(", ")}. The read succeeded — these are null on EVERY row, which is indistinguishable from a declared field that is always null. Check for a typo, or a substrate that has not restarted with your schema yet.`);
+		if (filterValidationSkipped !== void 0) parts.push(`the where-clause was not schema-validated (${filterValidationSkipped}), so its operators and operands were never checked against the field kinds. Results are still correct — the substrate refuses a predicate it cannot honour — but a malformed filter fails later and less clearly.`);
+		if (unrecognized.length > 0) parts.push(`the substrate reported diagnostic(s) this client cannot read: ${unrecognized.join(", ")}. Upgrade @mnmal-ai/substrate-client to surface them.`);
+		console.warn(`[substrate-client] ${opKey}: ${parts.join(" Also, ")} (Pass \`onDiagnostics\` to SubstrateClient to route this elsewhere.)`);
+	};
+}
+var ReconnectScheduler = class {
+	#base;
+	#max;
+	#jitter;
+	#attempt = 0;
+	constructor(opts) {
+		this.#base = opts.baseDelayMs;
+		this.#max = opts.maxDelayMs;
+		this.#jitter = opts.jitter;
+	}
+	nextDelay() {
+		const raw = Math.min(this.#base * 2 ** this.#attempt, this.#max);
+		this.#attempt += 1;
+		if (this.#jitter === 0) return raw;
+		const spread = raw * this.#jitter;
+		return raw + (Math.random() * 2 - 1) * spread;
+	}
+	reset() {
+		this.#attempt = 0;
+	}
+	/**
+	* Resolve after `nextDelay()` ms. Callers must use this serially — the
+	* `#attempt` counter is shared across calls, so overlapping `schedule()`
+	* invocations will produce incorrect delays. The stream reconnect loop awaits
+	* each `schedule()` before firing the next attempt.
+	*/
+	async schedule() {
+		const d = this.nextDelay();
+		await new Promise((resolve) => setTimeout(resolve, d));
+	}
+};
+/** Server response frames as the subscribe and stream iterables yield them. */
+const DEFAULT_RECONNECT = {
+	baseDelayMs: 1e3,
+	maxDelayMs: 3e4,
+	jitter: .1
+};
+const DEFAULT_OVERLOAD_RESUBSCRIBE = {
+	enabled: true,
+	maxAttempts: 3,
+	baseDelayMs: 1e3,
+	maxDelayMs: 3e4,
+	jitter: .1,
+	healthyResetMs: 6e4
+};
+/** Convert a server frame to a SubscribeEvent, or null if unrecognised. */
+function msgToEvent(msg) {
+	switch (msg.kind) {
+		case "snapshot":
+		case "add":
+		case "update": return {
+			kind: msg.kind,
+			data: msg.data,
+			...msg.shapes !== void 0 ? { shapes: msg.shapes } : {}
+		};
+		case "chunk": return {
+			kind: "chunk",
+			data: msg.data,
+			...msg.shapes !== void 0 ? { shapes: msg.shapes } : {},
+			...msg.sequence !== void 0 ? { sequence: msg.sequence } : {}
+		};
+		case "remove": return {
+			kind: "remove",
+			removedId: msg.removedId ?? ""
+		};
+		case "end": return {
+			kind: "end",
+			...msg.final !== void 0 ? { final: msg.final } : {},
+			...msg.reason !== void 0 ? { reason: msg.reason } : {}
+		};
+		case "error": {
+			const first = (msg.errors ?? [{
+				message: "unknown error",
+				code: "unknown"
+			}])[0] ?? {
+				message: "unknown error",
+				code: "unknown"
+			};
+			throw new SubscribeError(first.message, first.code ?? "unknown");
+		}
+		default: return null;
+	}
+}
+/**
+* Subscribe and stream over length-prefixed frame streams: one POST per
+* subscription, its response body a sequence of frames (substrate-pack's
+* stream-frames codec). Each subscription owns its request, so cancelling one
+* aborts only that request.
+*
+* A subscription survives the following, re-subscribing for a fresh
+* snapshot: a dropped connection (after backoff), `end { server_restart }`
+* (at once), `subscription_overloaded` (after the overload delay, within its
+* budget) and a lapsed credential when `getToken` can mint a new one. A 401 or
+* 403 is terminal. A stream is never re-sent, since that would replay its chunks.
+*/
+/** `NetworkError.code` when the server does not answer with frame streams. */
+const FRAMES_UNSUPPORTED = "frames_unsupported";
+/** `NetworkError.code` when a stream was cut short by a server restart. */
+const STREAM_INTERRUPTED = "stream_interrupted";
+const OVERLOADED = "subscription_overloaded";
+const SERVER_RESTART = "server_restart";
+const LAPSES = /* @__PURE__ */ new Set(["credential_expired", "credential_changed"]);
+function openFrameStream(http, path, frame, opts) {
+	return { [Symbol.asyncIterator]: () => {
+		const ctrl = new AbortController();
+		const gen = run(http, path, frame, opts, opts.signal === void 0 ? ctrl.signal : anySignal([ctrl.signal, opts.signal]));
+		return {
+			next: () => gen.next(),
+			return: async () => {
+				ctrl.abort();
+				await gen.return(void 0);
+				return {
+					value: void 0,
+					done: true
+				};
+			}
+		};
+	} };
+}
+async function* run(http, path, frame, opts, signal) {
+	const subscribe = path === "/substrate/v1/subscribe";
+	const reconnect = {
+		...DEFAULT_RECONNECT,
+		...opts.reconnect
+	};
+	const backoff = new ReconnectScheduler(reconnect);
+	const overload = {
+		...DEFAULT_OVERLOAD_RESUBSCRIBE,
+		...opts.overload
+	};
+	let overloadAttempts = 0;
+	let lastOverloadAt = null;
+	let opened = false;
+	let busyRetries = 0;
+	const accept = opts.wire === "pack" ? FRAMES_PACK_MIME : FRAMES_JSON_MIME;
+	for (;;) {
+		let body;
+		try {
+			const res = await http.raw(path, {
+				method: "POST",
+				body: frame,
+				accept,
+				signal
+			});
+			const type = res.headers.get("content-type") ?? "";
+			if (!type.startsWith(accept)) {
+				await res.body?.cancel();
+				throw new NetworkError(`POST ${path} answered '${type}', not ${accept}: the server predates frame streams`, null, {
+					status: res.status,
+					code: FRAMES_UNSUPPORTED
+				});
+			}
+			if (res.body === null) throw new NetworkError(`POST ${path}: response has no body`, null);
+			body = res.body;
+		} catch (err) {
+			if (signal.aborted) return;
+			if (!opened && isBusy(err) && busyRetries < BUSY_RETRIES) {
+				busyRetries++;
+				if (!await sleep(backoff.nextDelay(), signal)) return;
+				continue;
+			}
+			if (err instanceof AuthError || !opened || !subscribe || refused(err)) throw err;
+			if (!await sleep(backoff.nextDelay(), signal)) return;
+			continue;
+		}
+		opened = true;
+		const openedAt = Date.now();
+		let next;
+		try {
+			const idleMs = opts.idleMs ?? 65e3;
+			for await (const payload of decodeStreamFrames(idleMs > 0 ? withIdleTimeout(body, idleMs) : body)) {
+				const msg = decodeFrame(payload, opts.wire);
+				if (Date.now() - openedAt >= reconnect.maxDelayMs) backoff.reset();
+				if (subscribe && msg.kind === "error" && msg.errors?.[0]?.code === OVERLOADED && overload.enabled) {
+					const now = Date.now();
+					if (lastOverloadAt !== null && now - lastOverloadAt > overload.healthyResetMs) overloadAttempts = 0;
+					lastOverloadAt = now;
+					if (overloadAttempts < overload.maxAttempts) {
+						overloadAttempts += 1;
+						next = { delayMs: jittered(overload, overloadAttempts) };
+						break;
+					}
+				}
+				if (!subscribe && msg.kind === "end" && msg.reason === SERVER_RESTART) throw new NetworkError(`POST ${path}: the server restarted mid-stream`, null, { code: STREAM_INTERRUPTED });
+				const event = msgToEvent(msg);
+				if (event === null) continue;
+				yield event;
+				if (msg.kind === "end") {
+					next = subscribe && (msg.reason === SERVER_RESTART || msg.reason !== void 0 && LAPSES.has(msg.reason) && opts.canRefreshToken) ? { delayMs: 0 } : "stop";
+					break;
+				}
+			}
+		} catch (err) {
+			if (signal.aborted) return;
+			if (err instanceof SubscribeError || err instanceof NetworkError && err.code === "stream_interrupted") throw err;
+			if (!subscribe) throw err instanceof NetworkError ? err : new NetworkError(`POST ${path}: the stream broke before its end frame`, err);
+		}
+		if (next === "stop") return;
+		if (next === void 0) {
+			if (signal.aborted) return;
+			if (!subscribe) throw new NetworkError(`POST ${path}: stream ended without an end frame`, null);
+			next = { delayMs: backoff.nextDelay() };
+		}
+		if (!await sleep(next.delayMs, signal)) return;
+	}
+}
+/** Retries of a 429 before the first response, after which it surfaces. */
+const BUSY_RETRIES = 3;
+function isBusy(err) {
+	return err instanceof NetworkError && err.status === 429;
+}
+/**
+* A refusal that retrying will not change: a server without frame streams, or a
+* 4xx other than 408 and 429 (the frame no longer validates, say).
+*/
+function refused(err) {
+	if (!(err instanceof NetworkError)) return false;
+	if (err.code === "frames_unsupported") return true;
+	const status = err.status;
+	return status !== void 0 && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+/**
+* Aborts when any of `signals` does. `AbortSignal.any` holds no listener on its
+* sources, so finished subscriptions leave nothing behind on a shared signal; the
+* fallback, for browsers before 2024, does.
+*/
+function anySignal(signals) {
+	if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+	const ctrl = new AbortController();
+	for (const s of signals) {
+		if (s.aborted) {
+			ctrl.abort(s.reason);
+			break;
+		}
+		s.addEventListener("abort", () => ctrl.abort(s.reason), { once: true });
+	}
+	return ctrl.signal;
+}
+function decodeFrame(payload, wire) {
+	const value = wire === "pack" ? decodeWsEnvelope(payload, "pack") : JSON.parse(new TextDecoder().decode(payload));
+	if (value === null || typeof value !== "object" || typeof value.kind !== "string") throw new NetworkError("malformed frame in subscription stream", null);
+	return value;
+}
+function jittered(cfg, attempt) {
+	const raw = Math.min(cfg.baseDelayMs * 2 ** (attempt - 1), cfg.maxDelayMs);
+	return cfg.jitter === 0 ? raw : raw + (Math.random() * 2 - 1) * raw * cfg.jitter;
+}
+/** Resolves true after `ms`, or false as soon as `signal` aborts. */
+function sleep(ms, signal) {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(true);
+		}, ms);
+		const onAbort = () => {
+			clearTimeout(timer);
+			resolve(false);
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+}
+function createNlApi(t) {
+	const packs = /* @__PURE__ */ new Map();
+	return {
+		async *ask(req, opts = {}) {
+			const res = await t.raw("/substrate/v1/nl", {
+				method: "POST",
+				body: req,
+				accept: FRAMES_JSON_MIME,
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			});
+			const type = res.headers.get("content-type") ?? "";
+			if (!type.startsWith("application/vnd.substrate.frames+json") || res.body === null) {
+				await res.body?.cancel();
+				throw new NetworkError(`POST /substrate/v1/nl answered '${type}', not ${FRAMES_JSON_MIME}: the server predates frame streams`, null, {
+					status: res.status,
+					code: FRAMES_UNSUPPORTED
+				});
+			}
+			const utf8 = new TextDecoder();
+			for await (const payload of decodeStreamFrames(res.body)) {
+				let ev;
+				try {
+					ev = JSON.parse(utf8.decode(payload));
+				} catch (err) {
+					throw new NetworkError("malformed frame in the NL stream", err);
+				}
+				if (ev.event === "error") {
+					const e = ev.data;
+					throw new NetworkError(`${e.code ?? "error"}: ${e.message ?? ""}`, ev.data);
+				}
+				yield ev;
+			}
+		},
+		async askJson(req, opts = {}) {
+			return await (await t.raw("/substrate/v1/nl", {
+				method: "POST",
+				body: req,
+				accept: "application/json",
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			})).json();
+		},
+		async pack(namespace, opts = {}) {
+			const prior = packs.get(namespace);
+			const url = `/substrate/v1/nl/pack/${encodeURIComponent(namespace)}`;
+			const res = await t.raw(url, {
+				method: "GET",
+				allow304: true,
+				...prior !== void 0 ? { headers: { "if-none-match": prior.etag } } : {},
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			});
+			if (res.status === 304) {
+				if (prior !== void 0) return structuredClone(prior.body);
+				throw new NetworkError(`GET ${url} returned 304 with no cached pack to reuse`, null);
+			}
+			const body = await res.json();
+			const etag = res.headers.get("etag");
+			if (etag !== null) packs.set(namespace, {
+				etag,
+				body: structuredClone(body)
+			});
+			return structuredClone(body);
+		}
+	};
+}
+/**
+* Produce a copy of `frame` where every qualified key's `fields` selection has
+* `id: true` injected. `update` and `remove` subscribe events are correlated by
+* row id, so without an `id` in the selection a live consumer would have nothing
+* to patch against.
+*
+* The input frame is never mutated. Callers still use the original frame for
+* cache-key canonicalisation so query + subscribe on the same frame resolve to
+* the same cache entry.
+*/
+function augmentFramesWithId(frame) {
+	const out = {};
+	for (const [key, entry] of Object.entries(frame)) if (Array.isArray(entry)) out[key] = entry.map((e) => ({
+		params: e.params ?? {},
+		fields: {
+			id: true,
+			...e.fields ?? {}
+		}
+	}));
+	else if (entry !== void 0) out[key] = {
+		params: entry.params ?? {},
+		fields: {
+			id: true,
+			...entry.fields ?? {}
+		}
+	};
+	return out;
+}
+/**
+* Validate that `frame` has exactly one qualified key and return it. Throws with
+* a descriptive error for zero- or multi-key frames.
+*/
+function assertSingleKey(frame) {
+	const keys = Object.keys(frame);
+	if (keys.length !== 1) {
+		if (keys.length === 0) throw new Error("Live subscribe surfaces require exactly one key in the frame.");
+		throw new Error(`Live subscribe surfaces require a single qualified key. Got: ${keys.join(", ")}`);
+	}
+	return keys[0];
+}
+var HttpTransport = class {
+	#endpoint;
+	#fetch;
+	#token;
+	#getToken;
+	constructor(opts) {
+		if (opts.token !== void 0 && opts.getToken !== void 0) throw new Error("HttpTransport: provide `token` OR `getToken`, not both");
+		this.#endpoint = trimTrailingSlashes(opts.endpoint);
+		this.#fetch = (opts.fetch ?? substrateFetch).bind(globalThis);
+		this.#token = opts.token;
+		this.#getToken = opts.getToken;
+	}
+	async query(frame, opts) {
+		return this.#postEnvelope(`${this.#endpoint}/substrate/v1/query`, frame, opts);
+	}
+	async mutate(frame, opts) {
+		return this.#postEnvelope(`${this.#endpoint}/substrate/v1/mutate`, frame, opts);
+	}
+	async federatedSchema(opts = {}) {
+		const url = `${this.#endpoint}/substrate/v1/federated-schema`;
+		const headers = await this.#headers("json", opts.headers);
+		let res;
+		try {
+			res = await this.#fetch(url, {
+				method: "GET",
+				headers,
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			});
+		} catch (err) {
+			throw new NetworkError(`GET ${url} failed`, err);
+		}
+		await this.#assertOk(res, url);
+		return await res.json();
+	}
+	/** A request to an arbitrary /substrate path with the client's auth; asserts ok (a 304 passes only with allow304). */
+	async raw(path, init) {
+		const url = `${this.#endpoint}${path}`;
+		const extra = init.accept !== void 0 ? { accept: init.accept } : {};
+		for (const [k, v] of Object.entries(init.headers ?? {})) extra[k.toLowerCase()] = v;
+		const headers = await this.#headers("json", extra);
+		if (init.body === void 0) delete headers["content-type"];
+		let res;
+		try {
+			res = await this.#fetch(url, {
+				method: init.method,
+				headers,
+				...init.body !== void 0 ? { body: JSON.stringify(init.body) } : {},
+				...init.signal !== void 0 ? { signal: init.signal } : {}
+			});
+		} catch (err) {
+			throw new NetworkError(`${init.method} ${url} failed`, err);
+		}
+		if (!(init.allow304 === true && res.status === 304)) await this.#assertOk(res, url);
+		return res;
+	}
+	async #postEnvelope(url, body, opts) {
+		const wire = opts.wire ?? "json";
+		const headers = await this.#headers(wire, opts.headers);
+		let res;
+		try {
+			res = await this.#fetch(url, {
+				method: "POST",
+				headers,
+				body: JSON.stringify(body),
+				...opts.signal !== void 0 ? { signal: opts.signal } : {}
+			});
+		} catch (err) {
+			throw new NetworkError(`POST ${url} failed`, err);
+		}
+		await this.#assertOk(res, url);
+		if (wire === "pack") {
+			const buf = await res.arrayBuffer();
+			return { __packBytes: new Uint8Array(buf) };
+		}
+		return await res.json();
+	}
+	async #headers(wire, extra) {
+		const headers = {
+			"content-type": "application/json",
+			accept: wire === "pack" ? "application/vnd.substrate.pack" : "application/json"
+		};
+		const tok = this.#token ?? (this.#getToken ? await this.#getToken() : void 0);
+		if (tok !== void 0) headers.authorization = `Bearer ${tok}`;
+		return {
+			...headers,
+			...extra
+		};
+	}
+	async #assertOk(res, url) {
+		if (res.ok) return;
+		if (res.status === 401 || res.status === 403) {
+			const { code, serverMessage, body } = await errorInfo(res);
+			const info = {
+				...code !== void 0 ? { code } : {},
+				...serverMessage !== void 0 ? { serverMessage } : {},
+				...body !== void 0 ? { body } : {}
+			};
+			throw new AuthError(`${res.status === 401 ? "Unauthorised" : "Forbidden"}: ${url}`, res.status, info);
+		}
+		throw new NetworkError(`${res.status} from ${url}`, null, await errorInfo(res));
+	}
+};
+/** The status plus whatever a JSON body says: the whole object as `body`, the first string of `error.message` (the recall plugin's nested shape), `error`, `message` as the message, and the first string of `error.code`, `code` as the code. Non-JSON bodies leave the status alone. */
+async function errorInfo(res) {
+	const info = { status: res.status };
+	try {
+		const body = JSON.parse(await res.text());
+		if (body !== null && typeof body === "object" && !Array.isArray(body)) {
+			const b = body;
+			info.body = b;
+			const nested = b.error !== null && typeof b.error === "object" ? b.error : void 0;
+			const message = [
+				nested?.message,
+				b.error,
+				b.message
+			].find((v) => typeof v === "string");
+			const code = [nested?.code, b.code].find((v) => typeof v === "string");
+			if (typeof message === "string") info.serverMessage = message;
+			if (typeof code === "string") info.code = code;
+		}
+	} catch {}
+	return info;
+}
+function isPackMarker(v) {
+	return typeof v === "object" && v !== null && "__packBytes" in v;
+}
+function decodeJsonEnvelope(env) {
+	if (typeof env.schemaVersion !== "string") throw new Error("Malformed envelope: missing schemaVersion");
+	return env;
+}
+/**
+* SubstrateClient — the public facade over the HTTP and frame-stream transports, wire
+* decoding and schema-drift handling.
+*
+* Routing is protocol-mandated: query and mutate are plain HTTP requests;
+* subscribe and stream are frame streams (one POST each, response held open).
+*
+* Drift detection is lazy-seeded: the client cannot replicate the server's
+* federated schema-version hash, so the first envelope's `schemaVersion` seeds
+* the cache and any later mismatch refetches the schema and accepts the new
+* version as authoritative.
+*/
+var SubstrateClient = class {
+	#http;
+	#nl;
+	#admin;
+	#streamWire;
+	#canRefreshToken;
+	/** Aborted by close(), ending every open subscription and stream. */
+	#closing = new AbortController();
+	#reconnectOpts;
+	#streamIdleMs;
+	#overloadResubscribeOpts;
+	#schemaCache = null;
+	#schemaFetch = null;
+	#driftCachedVersion = null;
+	#closed = false;
+	#cache;
+	#onDiagnostics;
+	constructor(opts) {
+		if (opts.token !== void 0 && opts.getToken !== void 0) throw new Error("SubstrateClient: provide `token` OR `getToken`, not both");
+		this.#http = new HttpTransport({
+			endpoint: opts.endpoint,
+			...opts.token !== void 0 ? { token: opts.token } : {},
+			...opts.getToken !== void 0 ? { getToken: opts.getToken } : {},
+			...opts.fetch !== void 0 ? { fetch: opts.fetch } : {}
+		});
+		this.#streamWire = opts.streamWire ?? "json";
+		this.#canRefreshToken = opts.token === void 0 && opts.getToken !== void 0;
+		this.#reconnectOpts = opts.reconnect;
+		this.#streamIdleMs = opts.streamIdleMs;
+		this.#overloadResubscribeOpts = opts.overloadResubscribe;
+		this.#onDiagnostics = opts.onDiagnostics ?? createDefaultDiagnosticsSink();
+		this.#cache = new CacheStore({ idleGcMs: 5e3 });
+	}
+	/** Natural-language ask (frame stream or JSON) and the served namespace pack. Requires the substrate-nl plugin. */
+	get nl() {
+		this.#nl ??= createNlApi(this.#http);
+		return this.#nl;
+	}
+	/** The admin-gated routes. Needs an identity whose grant confers `admin`. */
+	get admin() {
+		this.#admin ??= createAdminApi(this.#http);
+		return this.#admin;
+	}
+	#ensureOpen() {
+		if (this.#closed) throw new Error("SubstrateClient: already closed");
+	}
+	async federatedSchema() {
+		this.#ensureOpen();
+		if (this.#schemaCache !== null) return this.#schemaCache;
+		if (this.#schemaFetch === null) this.#schemaFetch = this.#http.federatedSchema().then((schema) => {
+			this.#schemaCache = schema;
+			this.#schemaFetch = null;
+			return schema;
+		}, (err) => {
+			this.#schemaFetch = null;
+			throw err;
+		});
+		return this.#schemaFetch;
+	}
+	async query(frame, opts = {}) {
+		this.#ensureOpen();
+		await this.federatedSchema();
+		const wire = opts.wire ?? "json";
+		const raw = await this.#http.query(frame, {
+			wire,
+			...opts.signal !== void 0 ? { signal: opts.signal } : {},
+			...opts.headers !== void 0 ? { headers: opts.headers } : {}
+		});
+		return this.#decode(raw, frame, wire);
+	}
+	async mutate(frame, opts = {}) {
+		this.#ensureOpen();
+		await this.federatedSchema();
+		const wire = opts.wire ?? "json";
+		const raw = await this.#http.mutate(frame, {
+			wire,
+			...opts.signal !== void 0 ? { signal: opts.signal } : {},
+			...opts.headers !== void 0 ? { headers: opts.headers } : {}
+		});
+		return this.#decode(raw, frame, wire);
+	}
+	/** A live query: a snapshot, then deltas. `opts.wire` and `opts.signal` apply. */
+	subscribe(frame, opts = {}) {
+		return this.#frameStream("/substrate/v1/subscribe", frame, opts);
+	}
+	/** A one-shot streamed resolver: chunks, then `end`. `opts.wire` and `opts.signal` apply. */
+	stream(frame, opts = {}) {
+		return this.#frameStream("/substrate/v1/stream", frame, opts);
+	}
+	#frameStream(path, frame, opts) {
+		this.#ensureOpen();
+		const body = flatFrame(frame);
+		const wire = opts.wire ?? this.#streamWire;
+		const signal = opts.signal === void 0 ? this.#closing.signal : anySignal([this.#closing.signal, opts.signal]);
+		const inner = openFrameStream(this.#http, path, body, {
+			wire,
+			canRefreshToken: this.#canRefreshToken,
+			signal,
+			...this.#reconnectOpts !== void 0 ? { reconnect: this.#reconnectOpts } : {},
+			...this.#streamIdleMs !== void 0 ? { idleMs: this.#streamIdleMs } : {},
+			...this.#overloadResubscribeOpts !== void 0 ? { overload: this.#overloadResubscribeOpts } : {}
+		});
+		return wire === "pack" ? this.#wrapPackDecode(inner, body) : inner;
+	}
+	/**
+	* Live typed-row view over a single-key subscription. Subscribes under the
+	* hood, folds snapshot/add/update/remove into the current row-set, and yields
+	* the maintained `T[]` after each delta — hiding the raw `SubscribeEvent`
+	* protocol. `id` is force-selected (via `augmentFramesWithId`) so
+	* update/remove can correlate rows by id.
+	*
+	* Completes when the subscription ends; throws on an error frame — the same
+	* contract as `subscribe`. Breaking the consuming `for await` cancels the
+	* underlying subscription. Reconnect / overload-resubscribe are handled by
+	* `subscribe`; each fresh snapshot atomically replaces the row-set.
+	*
+	* Single-qualified-key only: multi-key frames throw; use `subscribe` for
+	* those or for raw events.
+	*/
+	watch(frame) {
+		this.#ensureOpen();
+		const qualifiedKey = assertSingleKey(frame);
+		return watchRows(this.subscribe(augmentFramesWithId(frame)), qualifiedKey);
+	}
+	/**
+	* @internal — not part of the stable public surface.
+	*/
+	get cache() {
+		return this.#cache;
+	}
+	invalidate(keyPrefix) {
+		this.#ensureOpen();
+		this.#cache.invalidate(keyPrefix);
+	}
+	/** Runtime metrics: op totals, per-key latency, process health, slowest requests. Needs `read`. */
+	async metrics(opts = {}) {
+		this.#ensureOpen();
+		return await (await this.#http.raw("/substrate/v1/metrics", {
+			method: "GET",
+			...opts.signal !== void 0 ? { signal: opts.signal } : {}
+		})).json();
+	}
+	/** The recent error log. Needs `admin`. */
+	async errors(opts = {}) {
+		this.#ensureOpen();
+		return await (await this.#http.raw("/substrate/v1/errors", {
+			method: "GET",
+			...opts.signal !== void 0 ? { signal: opts.signal } : {}
+		})).json();
+	}
+	async close() {
+		if (this.#closed) return;
+		this.#closed = true;
+		this.#closing.abort();
+	}
+	async #refetchSchema() {
+		const schema = await this.#http.federatedSchema();
+		this.#schemaCache = schema;
+	}
+	async #decode(raw, frame, wire) {
+		let env;
+		if (wire === "pack" && isPackMarker(raw)) {
+			const bytes = raw.__packBytes;
+			const decode = (expectedSchemaVersion) => decodeEnvelope(bytes, {
+				...this.#buildDecodeCtx(frame, this.#schemaCache ?? {}),
+				...expectedSchemaVersion !== void 0 ? { expectedSchemaVersion } : {}
+			});
+			try {
+				env = decode(this.#driftCachedVersion ?? void 0);
+			} catch (err) {
+				if (!(err instanceof SchemaDriftError)) throw err;
+				await this.#refetchSchema();
+				this.#driftCachedVersion = err.envelopeSchemaVersion;
+				env = decode();
+			}
+		} else env = decodeJsonEnvelope(raw);
+		if (this.#driftCachedVersion === null) this.#driftCachedVersion = env.schemaVersion;
+		else if (this.#driftCachedVersion !== env.schemaVersion) {
+			await this.#refetchSchema();
+			this.#driftCachedVersion = env.schemaVersion;
+		}
+		collectDiagnostics(env._diagnostics, this.#onDiagnostics);
+		return env;
+	}
+	/**
+	* Wrap a frame event stream so each `data`-bearing frame (snapshot/add/update/
+	* chunk) gets its positional tuple values reconstructed into named-object
+	* rows using the cached federated schema. Errors from the inner stream
+	* (transport drop, server error frame) propagate untouched.
+	*
+	* The decode plan is built once, after the schema resolves, and reused for
+	* every frame of the subscription.
+	*
+	* Hand-rolled iterator, NOT a native async generator: the generator form
+	* queues return() behind an in-flight next(), which on a quiet connection
+	* never resolves, so close() would hang. return() here forwards immediately.
+	*/
+	#wrapPackDecode(inner, frameSpec) {
+		const buildPlan = async () => {
+			const schemas = await this.federatedSchema();
+			return buildDecodePlan(frameSpec, schemas);
+		};
+		return { [Symbol.asyncIterator]: () => {
+			const innerIt = inner[Symbol.asyncIterator]();
+			let planPromise = null;
+			return {
+				async next() {
+					planPromise ??= buildPlan();
+					const plan = await planPromise;
+					const result = await innerIt.next();
+					if (!result.done) applyDecodePlanInPlace(result.value, plan);
+					return result;
+				},
+				async return() {
+					await innerIt.return?.();
+					return {
+						value: void 0,
+						done: true
+					};
+				}
+			};
+		} };
+	}
+	#buildDecodeCtx(frame, schemas) {
+		const fieldsByKey = {};
+		const returnsByKey = {};
+		const typeByKey = {};
+		const currentNsByKey = {};
+		for (const key of Object.keys(frame)) {
+			const frameEntry = frame[key];
+			const entry = Array.isArray(frameEntry) ? frameEntry[0] : frameEntry;
+			const parsed = parseQualifiedKey(key);
+			if (parsed === null) continue;
+			const { ns, name } = parsed;
+			currentNsByKey[key] = ns;
+			typeByKey[key] = name;
+			const mutation = schemas[ns]?.mutations[name];
+			if (mutation !== void 0) {
+				const shapeOf = (fields) => mutationReturns(mutation, fields);
+				returnsByKey[key] = Array.isArray(frameEntry) ? frameEntry.map((f) => shapeOf(f.fields)) : shapeOf(entry?.fields);
+			} else fieldsByKey[key] = entry?.fields ?? {};
+		}
+		return {
+			fieldsByKey,
+			returnsByKey,
+			typeByKey,
+			schemas,
+			currentNsByKey
+		};
+	}
+};
+function flatFrame(frame) {
+	const flat = {};
+	for (const [key, entry] of Object.entries(frame)) {
+		const single = Array.isArray(entry) ? entry[0] : entry;
+		flat[key] = {
+			params: single?.params ?? {},
+			fields: single?.fields ?? {}
+		};
+	}
+	return flat;
 }
 /**
 * The Node and Bun client: the browser surface, plus env-driven signing,
@@ -3170,48 +5563,8 @@ function readInboxKnobs(env) {
 
 //#endregion
 //#region ../synoptic/src/inbox-watch.js
-const SSE_BUFFER_MAX = 1048576;
-/** Incremental text/event-stream parser. */
-function parseSse() {
-	let buf = "";
-	return (chunk) => {
-		buf = (buf + chunk).replace(/\r\n/g, "\n");
-		const heldCr = buf.endsWith("\r");
-		if (heldCr) buf = buf.slice(0, -1);
-		buf = buf.replace(/\r/g, "\n");
-		const blocks = buf.split("\n\n");
-		buf = (blocks.pop() ?? "") + (heldCr ? "\r" : "");
-		if (buf.length > SSE_BUFFER_MAX) buf = "";
-		const out = [];
-		for (const block of blocks) {
-			let event = "message";
-			const data = [];
-			for (const line of block.split("\n")) {
-				if (line.startsWith(":") || line === "") continue;
-				const i = line.indexOf(":");
-				const field = i === -1 ? line : line.slice(0, i);
-				const value = i === -1 ? "" : line.slice(i + 1).replace(/^ /, "");
-				if (field === "event") event = value;
-				else if (field === "data") data.push(value);
-			}
-			if (data.length === 0) continue;
-			const raw = data.join("\n");
-			let parsed;
-			try {
-				parsed = JSON.parse(raw);
-			} catch {
-				parsed = raw;
-			}
-			out.push({
-				event,
-				data: parsed
-			});
-		}
-		return out;
-	};
-}
 const OVERLOAD = "subscription_overloaded";
-async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, namespace }) {
+async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, namespace, signal, clientOptions = {} }) {
 	const ns = namespace ?? env.SUBSTRATE_NAMESPACE ?? "cortext";
 	const knobs = readInboxKnobs(env);
 	const disabled = (reason) => emit({
@@ -3224,28 +5577,32 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 	const backoff = (n) => sleep(Math.min(6e4, 1e3 * 2 ** n));
 	let attempt = 0;
 	let meId;
-	for (;;) try {
-		meId = await resolveIdentityId({
-			substrateUrl: env.SUBSTRATE_URL,
-			namespace: ns,
-			agentKid: env.SUBSTRATE_AGENT_KEY_ID,
-			fetchImpl
-		});
-		break;
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		if (/^substrate\/query 40[13]$/.test(message) || /^refusing to send an agent token/.test(message)) return disabled(`identity lookup failed: ${message}`);
-		emit({
-			type: "status",
-			state: "reconnecting",
-			reason: `identity lookup: ${message}`
-		});
-		await backoff(attempt);
-		attempt += 1;
+	for (;;) {
+		if (signal?.aborted) return;
+		try {
+			meId = await resolveIdentityId({
+				substrateUrl: env.SUBSTRATE_URL,
+				namespace: ns,
+				agentKid: env.SUBSTRATE_AGENT_KEY_ID,
+				fetchImpl
+			});
+			break;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (/^substrate\/query 40[13]$/.test(message) || /^refusing to send an agent token/.test(message)) return disabled(`identity lookup failed: ${message}`);
+			emit({
+				type: "status",
+				state: "reconnecting",
+				reason: `identity lookup: ${message}`
+			});
+			await backoff(attempt);
+			attempt += 1;
+		}
 	}
 	if (meId === null) return disabled(`no AgentIdentity row for ${env.SUBSTRATE_AGENT_KEY_ID}`);
 	attempt = 0;
-	const frame = { [`${ns}/AgentMessage`]: {
+	const key = `${ns}/AgentMessage`;
+	const frame = { [key]: {
 		params: { where: {
 			recipient: { eq: meId },
 			status: { eq: "unread" },
@@ -3268,19 +5625,27 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 	});
 	let snapshotSeen = false;
 	let restarts = 0;
+	let snapshotSinceRestart = false;
 	const sinceMs = Date.parse(since);
 	const isNewer = (row) => {
 		const t = Date.parse(row?._metadata?.createdAt);
 		return Number.isNaN(t) || Number.isNaN(sinceMs) || t >= sinceMs;
 	};
 	const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+	const client = new SubstrateClient({
+		endpoint: env.SUBSTRATE_URL,
+		fetch: fetchImpl,
+		streamIdleMs: idleMs,
+		onDiagnostics: () => {},
+		...clientOptions
+	});
 	for (;;) {
+		if (signal?.aborted) return;
 		snapshotSeen = false;
 		const outcome = await oneConnection();
+		if (signal?.aborted) return;
 		if (snapshotSeen && outcome.reason !== OVERLOAD) attempt = 0;
-		if (snapshotSeen) restarts = 0;
 		if (outcome.kind === "terminal") return disabled(outcome.reason);
-		if (outcome.kind === "now" && (snapshotSeen || ++restarts <= 3)) continue;
 		emit({
 			type: "status",
 			state: "reconnecting",
@@ -3289,97 +5654,76 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 		await backoff(attempt);
 		attempt += 1;
 	}
-	/** One subscription. Resolves { kind: 'terminal'|'now'|'backoff', reason }. */
+	/** One subscription. Resolves { kind: 'terminal'|'backoff', reason }. */
 	async function oneConnection() {
-		const ac = new AbortController();
-		let res;
+		let live = false;
 		try {
-			res = await fetchImpl(`${env.SUBSTRATE_URL}/substrate/v1/subscribe`, {
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					accept: "text/event-stream"
-				},
-				body: JSON.stringify(frame),
-				signal: ac.signal
-			});
-		} catch (err) {
+			for await (const event of client.subscribe(frame, signal ? { signal } : {})) if (event.kind === "snapshot") {
+				snapshotSeen = true;
+				snapshotSinceRestart = true;
+				if (!live) {
+					live = true;
+					emit({
+						type: "status",
+						state: "live",
+						config: { wake: knobs.wake }
+					});
+				}
+				const rows = isObj(event.data) ? event.data[key] : void 0;
+				if (Array.isArray(rows)) {
+					for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+				}
+			} else if (event.kind === "add") {
+				const row = isObj(event.data) ? event.data[key] : void 0;
+				if (isObj(row)) emit(toMsg(row));
+			} else if (event.kind === "remove") {
+				if (typeof event.removedId === "string" && event.removedId !== "") emit({
+					type: "handled",
+					id: event.removedId
+				});
+			} else if (event.kind === "end") {
+				if (event.reason !== "server_restart") return {
+					kind: "backoff",
+					reason: event.reason ?? "end"
+				};
+				if (snapshotSinceRestart) restarts = 0;
+				else if (++restarts > 3) return {
+					kind: "backoff",
+					reason: "server_restart"
+				};
+				snapshotSinceRestart = false;
+			}
 			return {
 				kind: "backoff",
-				reason: `connect: ${err instanceof Error ? err.message : String(err)}`
+				reason: "subscription ended"
 			};
-		}
-		if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) return {
-			kind: "terminal",
-			reason: `HTTP ${res.status}`
-		};
-		if (!res.ok || res.body == null) return {
-			kind: "backoff",
-			reason: `HTTP ${res.status}`
-		};
-		const parse = parseSse();
-		const decoder = new TextDecoder();
-		const reader = res.body.getReader();
-		let idle;
-		let live = false;
-		const idleTimeout = () => new Promise((resolve) => {
-			idle = setTimeout(() => resolve({ idle: true }), idleMs);
-		});
-		try {
-			for (;;) {
-				const r = await Promise.race([reader.read(), idleTimeout()]);
-				clearTimeout(idle);
-				if ("idle" in r) return {
-					kind: "backoff",
-					reason: `idle ${idleMs} ms`
-				};
-				if (r.done) return {
-					kind: "backoff",
-					reason: "stream ended without an end frame"
-				};
-				for (const { event, data } of parse(decoder.decode(r.value, { stream: true }))) if (event === "snapshot") {
-					if (!isObj(data)) continue;
-					snapshotSeen = true;
-					if (!live) {
-						live = true;
-						emit({
-							type: "status",
-							state: "live",
-							config: { wake: knobs.wake }
-						});
-					}
-					const rows = Array.isArray(data.rows) ? data.rows : [];
-					for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
-				} else if (event === "add") {
-					if (isObj(data) && isObj(data.row)) emit(toMsg(data.row));
-				} else if (event === "remove") {
-					if (isObj(data) && typeof data.removedId === "string") emit({
-						type: "handled",
-						id: data.removedId
-					});
-				} else if (event === "error") {
-					if (isObj(data) && data.code === OVERLOAD) return {
-						kind: "backoff",
-						reason: OVERLOAD
-					};
-					return {
-						kind: "terminal",
-						reason: isObj(data) && data.code || "error"
-					};
-				} else if (event === "end") return isObj(data) && data.reason === "server_restart" ? {
-					kind: "now",
-					reason: "server_restart"
-				} : {
-					kind: "backoff",
-					reason: isObj(data) && data.reason || "end"
-				};
-			}
-		} finally {
-			clearTimeout(idle);
-			ac.abort();
-			reader.cancel().catch(() => {});
+		} catch (err) {
+			return classify(err);
 		}
 	}
+}
+/** A subscribe failure: terminal when retrying cannot change it, else back off. */
+function classify(err) {
+	if (err instanceof SubscribeError) return err.code === OVERLOAD ? {
+		kind: "backoff",
+		reason: OVERLOAD
+	} : {
+		kind: "terminal",
+		reason: err.code || "error"
+	};
+	const status = typeof err?.status === "number" ? err.status : void 0;
+	if (err?.code === "frames_unsupported") return {
+		kind: "terminal",
+		reason: "frames_unsupported"
+	};
+	if (status !== void 0) return {
+		kind: status >= 400 && status < 500 && status !== 408 && status !== 429 ? "terminal" : "backoff",
+		reason: `HTTP ${status}`
+	};
+	return {
+		kind: "backoff",
+		reason: `connect: ${(err?.cause instanceof Error ? err.cause.message : void 0) ?? (err instanceof Error ? err.message : String(err))}`
+	};
 }
 
 //#endregion
