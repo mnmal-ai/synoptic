@@ -1,11 +1,28 @@
 ---
 name: substrate-run
-description: "Run a short TypeScript script against Substrate with `substrate run`, so many reads and writes cost one tool call and return one small result. Use it when the work takes three or more dependent MCP calls (ids passed from one call to the next): a census or count that must page, a join across types, recall-then-hydrate, or a batch of writes driven by a read. Do NOT use for a single lookup or a single write; the substrate MCP tools are simpler there. Requires substrate >= 1.0.0-alpha.6."
+description: "Run a short TypeScript script against Substrate in one call, through the substrate MCP server's `run` tool or the `substrate run` CLI, so many reads and writes cost one tool call and return one small result. Use it when the work takes three or more dependent MCP calls (ids passed from one call to the next): a census or count that must page, a join across types, recall-then-hydrate, or a batch of writes driven by a read. Do NOT use for a single lookup or a single write; the other substrate MCP tools are simpler there. The `run` tool needs a local substrate >= 1.0.0-alpha.18; the CLI needs >= 1.0.0-alpha.6."
 ---
 
-`substrate run` imports one `.mts` script, calls its default export with a signed
-`ScriptContext`, and prints one JSON report. Many queries and mutations run in a
-single tool call, and only the result the script returns reaches your context.
+A script is one module whose default export receives a signed `ScriptContext`.
+Many queries and mutations run in a single tool call, and only the result the
+script returns reaches your context. There are two ways to run one, with the
+same context, modes and report:
+
+- **The `run` tool on the substrate MCP server** (local substrate >=
+  1.0.0-alpha.18). Prefer it. It takes `{ script, args?, mode?, maxWrites? }`,
+  where `script` is the module text itself, so no file is needed. It signs as
+  the MCP server does, so it needs no identity setup and no permission rule.
+  The script runs sandboxed, with no files, network, processes or environment,
+  so it cannot import anything at runtime (`import type` lines are stripped),
+  and it times out after 60 seconds by default.
+- **The `substrate run` CLI** (>= 1.0.0-alpha.6). Use it when the `run` tool is
+  not in your tool list, which means the local install is older than alpha.18.
+  Step 0 and step 6 apply to the CLI only.
+
+The steps below give the CLI's flags. On the tool they are parameters:
+`--args '{…}'` is `args`, `--dry-run` and `--write` are `mode: "dry-run"` and
+`mode: "write"`, and `--max-writes N` is `maxWrites`. The tool has no `--out`;
+its report is the tool result.
 
 ## 0. Find the binary and the identity
 
@@ -44,7 +61,7 @@ blocks network access; ask to run the command outside it.
 
 ## 1. When to use it, and when not to
 
-| Use `substrate run` | Use the MCP tools |
+| Use a script | Use the other MCP tools |
 |---|---|
 | A count or census over many rows (`queryAll` pages to the end) | One lookup by id, shortId or name |
 | A join: rows of one type, then the rows they reference | One write |
@@ -57,8 +74,9 @@ batch of writes chosen by a read. Any of those, write a script.
 
 ## 2. Write the script outside the repo
 
-Scripts are throwaway. Put them in the session scratchpad directory, or a temp
-directory if the harness gives you none, never in the repo.
+With the `run` tool, pass the module text as `script` and skip the file. For
+the CLI, scripts are throwaway: put them in the session scratchpad directory,
+or a temp directory if the harness gives you none, never in the repo.
 
 ```ts
 import type { ScriptContext } from '@mnmal-ai/substrate/client';
@@ -88,6 +106,7 @@ The context:
 | `s.query(frame)` | One query frame. **Throws if any key you asked for is missing from `data`**: a rejected frame fails the run with the server's `errors` instead of reading as empty. Adds a warning when a result is truncated (`hasMore`) |
 | `s.queryAll(key, { params, fields })` | Every row of one key, paging until `hasMore` is false |
 | `s.recall({ query, namespace, type, k?, threshold?, where?, row? })` | Hits, best first. `type` is required (e.g. `"Memory"`, `"Decision"`); the server refuses recall without it. `row` holds `id` plus the handle fields; pass `row: { body: true }` (or `true`) only on the call whose hits you will read |
+| `s.schema(namespace?, type?)` | The whole schema, one namespace's or one type's, as the `schema` tool returns it. Throws on an unknown namespace or type. Substrate >= 1.0.0-alpha.18 |
 | `s.mutate(payload)` | One mutate payload. Throws by default, records without sending under `--dry-run`, sends under `--write`. Throws when the server refuses any frame |
 | `s.log(...)` | stderr only. The report owns stdout |
 | `s.kid`, `s.mode` | The signing kid and `read` / `dry-run` / `write` |
