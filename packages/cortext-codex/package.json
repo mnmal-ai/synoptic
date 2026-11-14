@@ -19,6 +19,7 @@
     "version": "node scripts/sync-version.mjs"
   },
   "devDependencies": {
+    "@mnmal-ai/substrate": "catalog:",
     "@mnmal-ai/synoptic": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
