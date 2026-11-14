@@ -30,8 +30,7 @@ async function setup(): Promise<MemorySubstrateServer> {
       architecture: new MemoryDataset({ namespace: 'architecture' })
     },
     coordinators: [buildClaudeForTest({ namespace: NS })],
-    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-    streamTicketSecret: 'test-stream-ticket-secret'
+    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
   });
   await server.start();
   stop = () => composed.stop();

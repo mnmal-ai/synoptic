@@ -31,6 +31,7 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@mnmal-ai/substrate": "catalog:",
     "@mnmal-ai/synoptic": "workspace:*",
     "@opencode-ai/plugin": "catalog:",
     "@opencode/plugin": "catalog:",

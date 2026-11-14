@@ -39,6 +39,7 @@
     "node": ">=26.13.1"
   },
   "dependencies": {
-    "@mnmal-ai/context-render": "workspace:*"
+    "@mnmal-ai/context-render": "workspace:*",
+    "@mnmal-ai/substrate": "catalog:"
   }
 }

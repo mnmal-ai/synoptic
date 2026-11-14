@@ -43,8 +43,7 @@ it('a mark-read that loses to an ack leaves the message acked', async () => {
     dataset: new MemoryDataset({ namespace: 'default' }),
     datasets: { [NS]: ds, architecture: new MemoryDataset({ namespace: 'architecture' }) },
     coordinators: [buildClaudeForTest({ namespace: NS })],
-    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-    streamTicketSecret: 'test-stream-ticket-secret'
+    auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
   });
   await server.start();
   try {

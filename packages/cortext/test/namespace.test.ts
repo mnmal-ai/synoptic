@@ -1083,10 +1083,7 @@ describe('identity-gated deletes', () => {
         architecture: new MemoryDataset({ namespace: 'architecture' })
       },
       coordinators: [buildClaudeForTest({ namespace: NS, compactRetention: 3 })],
-      auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-      // substrate fails compose() closed when auth is on and this is absent
-      // or <16 chars — it is the sole auth on the ungated SSE GET routes.
-      streamTicketSecret: 'test-stream-ticket-secret'
+      auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
     });
     await server.start();
     stopFn = async (): Promise<void> => {
@@ -1282,10 +1279,7 @@ describe('auth posture knob (open initially, retrofit-capable)', () => {
         architecture: new MemoryDataset({ namespace: 'architecture' })
       },
       coordinators: [buildClaudeForTest({ namespace: NS, compactRetention: 3, auth })],
-      auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' },
-      // substrate fails compose() closed when auth is on and this is absent
-      // or <16 chars — it is the sole auth on the ungated SSE GET routes.
-      streamTicketSecret: 'test-stream-ticket-secret'
+      auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
     });
     await server.start();
     stopFn = async (): Promise<void> => {
