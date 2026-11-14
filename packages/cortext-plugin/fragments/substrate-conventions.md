@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.14+2f5157d7 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.14+1f939e84 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -95,13 +95,13 @@ So `data[key] ?? []` reads a rejected query as "nothing recorded". Read `errors`
 
 ## The surfaces are not interchangeable
 
-Four ways in — HTTP routes, the MCP tools, WS and SSE — and the same operation is spelled differently on each. substrate's `docs/surface-parity.md` carries the full measured matrix; what follows is only the traps, deliberately. A capability matrix is an enumeration and would go stale like an operator list; a shape MISMATCH between two surfaces is stable, because fixing it would break one of them.
+Three ways in — HTTP routes, the MCP tools, and frame streams on `POST /substrate/v1/subscribe` and `/stream` — and the same operation is spelled differently on each. substrate's `docs/surface-parity.md` carries the full measured matrix; what follows is only the traps, deliberately. A capability matrix is an enumeration and would go stale like an operator list; a shape MISMATCH between two surfaces is stable, because fixing it would break one of them.
 
 - **Schema scoping is ARGUMENTS in MCP and PATH SEGMENTS over HTTP.** `schema { namespace, type }` is `GET /substrate/v1/schema/<ns>/<Type>`. Carrying the MCP shape across gives `GET /substrate/v1/schema?namespace=cortext`, which answers `400` naming the path form.
 - **Recall's search text is `query` on the route and the MCP tool, and `to` on the frame.** Each rejects the other's spelling. On the frame it also sits in `params`, NOT in `where`, against the rule above — `recall/Hit` is a virtual type whose params are a search input rather than a filter.
 - **Subscribe params are a strict subset of query params.** No `limit`: the allowlist is engine-wide rather than a namespace quirk. Reusing a query's params for a subscription gets `unknown_param` — and the server names the allowed set, so read the rejection rather than guessing.
-- **Live updates are WS/SSE only.** There is no MCP subscription tool, so an MCP-only agent polls or does without.
-- **On SSE a refusal arrives IN-BAND.** The HTTP status is `200` and the failure is an `event: error` frame carrying `{ code, message }` — the same trap as the query envelope above, one layer out. Read the stream, not the status.
+- **Live updates arrive only as frame streams.** `POST` the frame object to `/substrate/v1/subscribe` or `/stream` with `Accept: application/vnd.substrate.frames+json` (or `+pack`). Any other `Accept` gets `406`, and there is no GET form. There is no MCP subscription tool, so an MCP-only agent polls or does without.
+- **On a frame stream a refusal arrives IN-BAND.** A failure before the stream opens is an ordinary HTTP status. Once it opens, the status is a spent `200`: a refused key comes back as an `error` frame with a `code` while the other keys of the same subscribe stay live — the query envelope's partial-success trap, one layer out. Read the frames, not the status, and branch on `code`, never on message text. substrate's `docs/stream-contract.md` says which codes are retryable.
 
 Measured against a live stack, not transcribed from a router file.
 
