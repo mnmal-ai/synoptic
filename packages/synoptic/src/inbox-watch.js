@@ -1,52 +1,10 @@
-// The inbox push watcher's core. Node-free so it is
-// testable with an injected fetch; the Node pieces live in inbox-watch-entry.js.
+// The inbox push watcher's core: one live subscription on this session's
+// unread inbox through SubstrateClient (HTTP/2 frame streams). The Node pieces
+// live in inbox-watch-entry.js; tests inject fetchImpl.
 
+import { SubscribeError, SubstrateClient } from '@mnmal-ai/substrate/client';
 import { resolveIdentityId } from './inbox.js';
 import { readInboxKnobs, toWatchMessage } from './inbox-push.js';
-
-// A stream that never sends a blank line would otherwise grow the buffer
-// without bound; past this the partial event is dropped.
-const SSE_BUFFER_MAX = 1024 * 1024;
-
-/** Incremental text/event-stream parser. */
-export function parseSse() {
-  let buf = '';
-  return (chunk) => {
-    // Line endings are normalised on the accumulated buffer, so a CRLF split
-    // across two chunks is still one line ending. A trailing CR waits for the
-    // next chunk, which may begin with its LF.
-    buf = (buf + chunk).replace(/\r\n/g, '\n');
-    const heldCr = buf.endsWith('\r');
-    if (heldCr) buf = buf.slice(0, -1);
-    buf = buf.replace(/\r/g, '\n');
-    const blocks = buf.split('\n\n');
-    buf = (blocks.pop() ?? '') + (heldCr ? '\r' : '');
-    if (buf.length > SSE_BUFFER_MAX) buf = '';
-    const out = [];
-    for (const block of blocks) {
-      let event = 'message';
-      const data = [];
-      for (const line of block.split('\n')) {
-        if (line.startsWith(':') || line === '') continue;
-        const i = line.indexOf(':');
-        const field = i === -1 ? line : line.slice(0, i);
-        const value = i === -1 ? '' : line.slice(i + 1).replace(/^ /, '');
-        if (field === 'event') event = value;
-        else if (field === 'data') data.push(value);
-      }
-      if (data.length === 0) continue;
-      const raw = data.join('\n');
-      let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = raw;
-      }
-      out.push({ event, data: parsed });
-    }
-    return out;
-  };
-}
 
 const OVERLOAD = 'subscription_overloaded';
 
@@ -57,7 +15,9 @@ export async function runWatcher({
   emit,
   sleep,
   idleMs = 60_000,
-  namespace
+  namespace,
+  signal,
+  clientOptions = {}
 }) {
   const ns = namespace ?? env.SUBSTRATE_NAMESPACE ?? 'cortext';
   const knobs = readInboxKnobs(env);
@@ -74,6 +34,7 @@ export async function runWatcher({
   // `substrate/query <status>`) or a missing directory row is terminal.
   let meId;
   for (;;) {
+    if (signal?.aborted) return;
     try {
       meId = await resolveIdentityId({
         substrateUrl: env.SUBSTRATE_URL,
@@ -120,7 +81,8 @@ export async function runWatcher({
   const toMsg = (r) =>
     toWatchMessage(r, { kid: env.SUBSTRATE_AGENT_KEY_ID, urgentFrom: knobs.urgentFrom });
   let snapshotSeen = false;
-  let restarts = 0; // consecutive server_restart ends with no snapshot
+  let restarts = 0; // consecutive server_restart ends with no snapshot between them
+  let snapshotSinceRestart = false;
   const sinceMs = Date.parse(since);
   const isNewer = (row) => {
     const t = Date.parse(row?._metadata?.createdAt);
@@ -128,90 +90,86 @@ export async function runWatcher({
   };
   const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+  // The client re-subscribes on its own after a dropped connection, `end
+  // { server_restart }`, an overload within its budget, or idleMs of silence.
+  // This loop handles what it hands back: a failed connect, a spent overload
+  // budget, a refusal, or an `end` it will not follow.
+  const client = new SubstrateClient({
+    endpoint: env.SUBSTRATE_URL,
+    fetch: fetchImpl,
+    streamIdleMs: idleMs,
+    onDiagnostics: () => {},
+    ...clientOptions
+  });
+
   for (;;) {
+    if (signal?.aborted) return;
     snapshotSeen = false;
     const outcome = await oneConnection();
+    if (signal?.aborted) return;
     // A snapshot proves the connection worked, so it resets the backoff, except
     // for overload: the server accepted then shed us, and that must escalate.
     if (snapshotSeen && outcome.reason !== OVERLOAD) attempt = 0;
-    if (snapshotSeen) restarts = 0;
     if (outcome.kind === 'terminal') return disabled(outcome.reason);
-    // A restart that never reaches a snapshot is a server stuck restarting: after three,
-    // stop resubscribing at once and back off until a snapshot proves it healthy again.
-    if (outcome.kind === 'now' && (snapshotSeen || ++restarts <= 3)) continue;
     emit({ type: 'status', state: 'reconnecting', reason: outcome.reason });
     await backoff(attempt);
     attempt += 1;
   }
 
-  /** One subscription. Resolves { kind: 'terminal'|'now'|'backoff', reason }. */
+  /** One subscription. Resolves { kind: 'terminal'|'backoff', reason }. */
   async function oneConnection() {
-    const ac = new AbortController();
-    let res;
-    try {
-      res = await fetchImpl(`${env.SUBSTRATE_URL}/substrate/v1/subscribe`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-        body: JSON.stringify(frame),
-        signal: ac.signal
-      });
-    } catch (err) {
-      return {
-        kind: 'backoff',
-        reason: `connect: ${err instanceof Error ? err.message : String(err)}`
-      };
-    }
-    // A 4xx is the request's own fault and retrying repeats it, except 408 and 429.
-    if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429)
-      return { kind: 'terminal', reason: `HTTP ${res.status}` };
-    if (!res.ok || res.body == null) return { kind: 'backoff', reason: `HTTP ${res.status}` };
-
-    const parse = parseSse();
-    const decoder = new TextDecoder();
-    const reader = res.body.getReader();
-    let idle;
     let live = false;
-    const idleTimeout = () =>
-      new Promise((resolve) => {
-        idle = setTimeout(() => resolve({ idle: true }), idleMs);
-      });
     try {
-      for (;;) {
-        const r = await Promise.race([reader.read(), idleTimeout()]);
-        clearTimeout(idle);
-        if ('idle' in r) {
-          return { kind: 'backoff', reason: `idle ${idleMs} ms` };
-        }
-        if (r.done) return { kind: 'backoff', reason: 'stream ended without an end frame' };
-        for (const { event, data } of parse(decoder.decode(r.value, { stream: true }))) {
-          if (event === 'snapshot') {
-            if (!isObj(data)) continue;
-            snapshotSeen = true;
-            if (!live) {
-              live = true;
-              emit({ type: 'status', state: 'live', config: { wake: knobs.wake } });
-            }
-            const rows = Array.isArray(data.rows) ? data.rows : [];
-            for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
-          } else if (event === 'add') {
-            if (isObj(data) && isObj(data.row)) emit(toMsg(data.row));
-          } else if (event === 'remove') {
-            if (isObj(data) && typeof data.removedId === 'string')
-              emit({ type: 'handled', id: data.removedId });
-          } else if (event === 'error') {
-            if (isObj(data) && data.code === OVERLOAD) return { kind: 'backoff', reason: OVERLOAD };
-            return { kind: 'terminal', reason: (isObj(data) && data.code) || 'error' };
-          } else if (event === 'end') {
-            return isObj(data) && data.reason === 'server_restart'
-              ? { kind: 'now', reason: 'server_restart' }
-              : { kind: 'backoff', reason: (isObj(data) && data.reason) || 'end' };
+      for await (const event of client.subscribe(frame, signal ? { signal } : {})) {
+        if (event.kind === 'snapshot') {
+          snapshotSeen = true;
+          snapshotSinceRestart = true;
+          if (!live) {
+            live = true;
+            emit({ type: 'status', state: 'live', config: { wake: knobs.wake } });
           }
+          const rows = isObj(event.data) ? event.data[key] : undefined;
+          if (Array.isArray(rows))
+            for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+        } else if (event.kind === 'add') {
+          const row = isObj(event.data) ? event.data[key] : undefined;
+          if (isObj(row)) emit(toMsg(row));
+        } else if (event.kind === 'remove') {
+          if (typeof event.removedId === 'string' && event.removedId !== '')
+            emit({ type: 'handled', id: event.removedId });
+        } else if (event.kind === 'end') {
+          if (event.reason !== 'server_restart')
+            return { kind: 'backoff', reason: event.reason ?? 'end' };
+          // The client re-subscribes at once. A server stuck restarting never
+          // reaches a snapshot: after three in a row, leave and back off.
+          if (snapshotSinceRestart) restarts = 0;
+          else if (++restarts > 3) return { kind: 'backoff', reason: 'server_restart' };
+          snapshotSinceRestart = false;
         }
       }
-    } finally {
-      clearTimeout(idle);
-      ac.abort();
-      reader.cancel().catch(() => {}); // settles a pending read; a stalled body must not pin the process
+      return { kind: 'backoff', reason: 'subscription ended' };
+    } catch (err) {
+      return classify(err);
     }
   }
+}
+
+/** A subscribe failure: terminal when retrying cannot change it, else back off. */
+function classify(err) {
+  if (err instanceof SubscribeError)
+    return err.code === OVERLOAD
+      ? { kind: 'backoff', reason: OVERLOAD }
+      : { kind: 'terminal', reason: err.code || 'error' };
+  const status = typeof err?.status === 'number' ? err.status : undefined;
+  if (err?.code === 'frames_unsupported') return { kind: 'terminal', reason: 'frames_unsupported' };
+  if (status !== undefined) {
+    // A 4xx is the request's own fault and retrying repeats it, except 408 and 429.
+    const terminal = status >= 400 && status < 500 && status !== 408 && status !== 429;
+    return { kind: terminal ? 'terminal' : 'backoff', reason: `HTTP ${status}` };
+  }
+  const cause = err?.cause instanceof Error ? err.cause.message : undefined;
+  return {
+    kind: 'backoff',
+    reason: `connect: ${cause ?? (err instanceof Error ? err.message : String(err))}`
+  };
 }

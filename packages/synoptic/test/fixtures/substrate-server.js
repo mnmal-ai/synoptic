@@ -1,6 +1,8 @@
 // A real substrate server for transport tests: the `substrate serve` binary
 // from the devDependency, on the memory store, speaking cleartext HTTP/2 (h2c)
-// on loopback, with this workspace's built cortext plugin loaded.
+// on loopback, with this workspace's built cortext plugin loaded. Pass `keys`
+// ([{ kid, publicKey }], Ed25519 SPKI PEM) to turn auth on in `attribute` mode:
+// signed requests carry their kid, unsigned ones still read.
 
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -30,7 +32,7 @@ function freePort() {
 }
 
 /** @returns {Promise<{ url: string, stop: () => Promise<void>, log: () => string }>} */
-export async function startSubstrate({ readyMs = 20000 } = {}) {
+export async function startSubstrate({ readyMs = 20000, keys = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'synoptic-h2-'));
   mkdirSync(join(dir, 'node_modules', '@mnmal-ai'), { recursive: true });
   symlinkSync(CORTEXT, join(dir, 'node_modules', '@mnmal-ai', 'cortext'), 'dir');
@@ -38,6 +40,19 @@ export async function startSubstrate({ readyMs = 20000 } = {}) {
     join(dir, 'package.json'),
     JSON.stringify({ private: true, dependencies: { '@mnmal-ai/cortext': '*' } })
   );
+
+  const auth = {};
+  if (keys.length > 0) {
+    const registry = join(dir, 'keys.json');
+    writeFileSync(
+      registry,
+      JSON.stringify(
+        keys.map((k) => ({ alg: 'EdDSA', kind: 'agent', kid: k.kid, publicKey: k.publicKey }))
+      )
+    );
+    auth.SUBSTRATE_AUTH_KEY_REGISTRY = registry;
+    auth.SUBSTRATE_AUTH_MODE = 'attribute';
+  }
 
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
@@ -48,7 +63,8 @@ export async function startSubstrate({ readyMs = 20000 } = {}) {
       HOST: '127.0.0.1',
       PORT: String(port),
       SUBSTRATE_SYSTEM_ACTOR: 'transport-test',
-      SUBSTRATE_PLUGIN_DIR: dir
+      SUBSTRATE_PLUGIN_DIR: dir,
+      ...auth
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });

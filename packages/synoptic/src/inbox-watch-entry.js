@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Inbox push watcher: one SSE subscription on this session's
+// Inbox push watcher: one HTTP/2 subscription on this session's
 // unread inbox, NDJSON events on stdout for the cortext hooks module. Signs as
 // the session's own kid; never acks, marks read or sends. Warnings go to
 // STDERR — stdout is the event stream the bridge parses.
