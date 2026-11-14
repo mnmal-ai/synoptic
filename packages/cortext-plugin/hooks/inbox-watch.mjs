@@ -11,8 +11,7 @@ var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).expor
 var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/env-utils-CGNazUNt.js
-createRequire(import.meta.url);
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/env-utils-s25Z1YSA.js
 /**
 * `url` with its trailing slashes removed, for joining a configured base URL
 * to a path. A loop rather than `/\/+$/`, which backtracks quadratically on a
@@ -1006,7 +1005,7 @@ function clearSource() {
 const mult10 = new Array(147);
 for (let i = 0; i < 256; i++) mult10[i] = +("1e" + Math.floor(45.15 - i * .30103));
 var defaultUnpackr = new Unpackr({ useRecords: false });
-const unpack = defaultUnpackr.unpack;
+const unpack$1 = defaultUnpackr.unpack;
 const unpackMultiple = defaultUnpackr.unpackMultiple;
 const decode = defaultUnpackr.unpack;
 const FLOAT32_OPTIONS = {
@@ -2461,8 +2460,12 @@ if (!(process.env.MSGPACKR_NATIVE_ACCELERATION_DISABLED !== void 0 && process.en
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-B6nsPVmD.js
-createRequire(import.meta.url);
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/msgpackr-Dq18g6Ds.js
+const unpack = (...args) => unpack$1(...args);
+const createUnpackr = (options) => new Unpackr(options);
+
+//#endregion
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/src-B_kHkbsr.js
 /**
 * Exhaustiveness guard for the `default:` arm of a `switch` over a
 * discriminated union. An unhandled variant makes the call fail to
@@ -2471,10 +2474,6 @@ createRequire(import.meta.url);
 function assertNever(x) {
 	throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
 }
-const DEFAULT_FILTER_WRITE_LIMITS = Object.freeze({
-	maxMatch: 1e4,
-	idsCap: 1e3
-});
 const sig$1 = (name, args, returns, description) => ({
 	name,
 	args,
@@ -2530,8 +2529,6 @@ function parseQualifiedKey(key) {
 		name: key.slice(slash + 1)
 	};
 }
-/** Natural order of a type that declares none: newest first. */
-const DEFAULT_ORDERED_BY = Object.freeze({ createdAt: "desc" });
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 /** The slot for one selection entry, or undefined for a plain field. */
 function walkSlot(name, sel, fieldMap) {
@@ -3041,7 +3038,13 @@ function narrow(def, selection) {
 * `raw as string` casts at every call site.
 */
 function decodeWsEnvelope(raw, mode) {
-	if (mode === "pack") return inbound.unpack(toBytes(raw));
+	if (mode === "pack") {
+		inbound ??= createUnpackr({
+			structuredClone: false,
+			mapsAsObjects: true
+		});
+		return inbound.unpack(toBytes(raw));
+	}
 	if (typeof raw === "string") return JSON.parse(raw);
 	return JSON.parse(new TextDecoder().decode(toBytes(raw)));
 }
@@ -3051,10 +3054,7 @@ function decodeWsEnvelope(raw, mode) {
 * plain-object maps. msgpackr's other built-in extensions are process-global
 * and still decode, so a server checks a request with `isPlainRequestData`.
 */
-const inbound = new Unpackr({
-	structuredClone: false,
-	mapsAsObjects: true
-});
+let inbound;
 function toBytes(raw) {
 	if (raw instanceof Uint8Array) return raw;
 	if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
@@ -3217,10 +3217,6 @@ async function* readableToIterable(stream) {
 		reader.releaseLock();
 	}
 }
-
-//#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-D3ACIp1y.js
-createRequire(import.meta.url);
 
 //#endregion
 //#region ../../node_modules/.pnpm/@preact+signals-core@1.14.4/node_modules/@preact/signals-core/dist/signals-core.mjs
@@ -3611,14 +3607,7 @@ function j(i, t) {
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/src-B_oTGi3X.js
-createRequire(import.meta.url);
-let current = (input, init) => globalThis.fetch(input, init);
-const substrateFetch = (input, init) => current(input, init);
-/** Replace what `substrateFetch` calls. The Node entry and test setups use it. */
-function setSubstrateFetch(fetch) {
-	current = fetch;
-}
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/src-BNdhH_Hx.js
 /**
 * A fetch-shaped function over `node:http2`: the transport seam's HTTP/2
 * adapter for Node and Bun (Todo #1850, Decision #625).
@@ -3904,6 +3893,18 @@ function webBody(stream, pooled, signal) {
 		}
 	});
 }
+/**
+* The default behind `substrateFetch` in Node and Bun: one process-wide HTTP/2
+* session pool, opened on first use. Browser builds swap in
+* `platform-fetch.browser.ts`.
+*/
+let pool;
+const platformFetch = (input, init) => {
+	pool ??= createH2Fetch();
+	return pool(input, init);
+};
+let current = platformFetch;
+const substrateFetch = (input, init) => current(input, init);
 /** Mirrors BACKFILL_MAX_ROWS in substrate-compose; the server enforces it. */
 const BACKFILL_CHUNK = 5e3;
 /**
@@ -5209,19 +5210,6 @@ function flatFrame(frame) {
 	}
 	return flat;
 }
-/**
-* The Node and Bun client: the browser surface, plus env-driven signing,
-* `diagnose`, and the `node:http2` fetch that `substrateFetch` uses from here on.
-*/
-setSubstrateFetch(createH2Fetch());
-
-//#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/script-DgXaJY1Y.js
-createRequire(import.meta.url);
-
-//#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.19/node_modules/@mnmal-ai/substrate/dist/client.js
-createRequire(import.meta.url);
 
 //#endregion
 //#region ../synoptic/src/agent-auth.js
