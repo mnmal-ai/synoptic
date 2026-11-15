@@ -99,7 +99,7 @@ describe('both cold-start entries pass the repo-local kid through', () => {
   };
 
   async function kidLookups(entry) {
-    const { createServer } = await import('node:http');
+    const { createServer } = await import('node:http2');
     const { spawn } = await import('node:child_process');
     const kids = [];
     const srv = createServer((req, res) => {

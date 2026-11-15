@@ -10,7 +10,7 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer } from 'node:http2';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -71,8 +71,20 @@ async function fixture(t) {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ data }));
   });
+  // HTTP/2 close waits for open sessions, and the client pools its session.
+  const sessions = new Set();
+  server.on('session', (s) => {
+    sessions.add(s);
+    s.once('close', () => sessions.delete(s));
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        for (const s of sessions) s.destroy();
+        server.close(resolve);
+      })
+  );
   return { requests, url: `http://127.0.0.1:${server.address().port}` };
 }
 

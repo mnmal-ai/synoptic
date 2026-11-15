@@ -15,6 +15,7 @@
 // (SYNOPTIC_INBOX_STOP_CHECK / SYNOPTIC_INBOX_PROMPT_CHECK = 'off'), and on ANY
 // transport failure — a down Substrate must never wedge a session at its seams.
 
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { loadInbox, unreadCount } from './inbox.js';
 import { sanitizeText } from './inbox-push.js';
 
@@ -84,7 +85,7 @@ async function unreadOrNull({ env, fetchImpl }) {
  * nudge once per message. Null when off, unconfigured, empty or unreachable.
  * Never throws.
  */
-export async function inboxStopNudge({ env, fetchImpl = fetch }) {
+export async function inboxStopNudge({ env, fetchImpl = substrateFetch }) {
   if (env.SYNOPTIC_INBOX_STOP_CHECK === 'off') return null;
   const found = await unreadOrNull({ env, fetchImpl });
   if (found === null) return null;
@@ -101,7 +102,7 @@ export async function inboxStopNudge({ env, fetchImpl = fetch }) {
  * Stop-hook decision. Returns the JSON string to print (block + reason), or
  * null to allow the stop silently. Never throws.
  */
-export async function stopHookDecision({ input, env, fetchImpl = fetch }) {
+export async function stopHookDecision({ input, env, fetchImpl = substrateFetch }) {
   if (input?.stop_hook_active === true) return null;
   const nudge = await inboxStopNudge({ env, fetchImpl });
   return nudge === null ? null : JSON.stringify({ decision: 'block', reason: nudge.reason });
@@ -111,7 +112,7 @@ export async function stopHookDecision({ input, env, fetchImpl = fetch }) {
  * UserPromptSubmit context. Returns the context string to print (empty for
  * nothing). Never throws, never blocks.
  */
-export async function promptHookContext({ env, fetchImpl = fetch }) {
+export async function promptHookContext({ env, fetchImpl = substrateFetch }) {
   if (env.SYNOPTIC_INBOX_PROMPT_CHECK === 'off') return '';
   const found = await unreadOrNull({ env, fetchImpl });
   if (found === null) return '';

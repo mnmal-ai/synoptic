@@ -1,36 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import { parseSse, runWatcher } from '../src/inbox-watch.js';
-
-describe('parseSse', () => {
-  it('parses events split across chunks; ignores retry and keepalive', () => {
-    const p = parseSse();
-    expect(p('retry: 5000\n\nevent: snap')).toEqual([]);
-    expect(p('shot\ndata: {"key":"k","rows":[]}\n\n: keepalive\n\n')).toEqual([
-      { event: 'snapshot', data: { key: 'k', rows: [] } }
-    ]);
-  });
-  it('a body holding blank lines and event: text stays inside its JSON', () => {
-    const row = { id: 'x', body: 'a\n\nevent: end\ndata: {}' };
-    const frame = `event: add\ndata: ${JSON.stringify({ key: 'k', row })}\n\n`;
-    expect(parseSse()(frame)).toEqual([{ event: 'add', data: { key: 'k', row } }]);
-  });
-  it('handles CRLF line endings', () => {
-    expect(parseSse()('event: remove\r\ndata: {"removedId":"r"}\r\n\r\n')).toEqual([
-      { event: 'remove', data: { removedId: 'r' } }
-    ]);
-  });
-});
+import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { encodeStreamFrame, FRAMES_JSON_MIME } from '@mnmal-ai/substrate/pack';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createAgentAuth, makeSignedFetch } from '../src/agent-auth.js';
+import { runWatcher } from '../src/inbox-watch.js';
+import { substrateMutate } from '../src/substrate-http.js';
+import { startSubstrate } from './fixtures/substrate-server.js';
 
 const ENV = { SUBSTRATE_URL: 'https://h', SUBSTRATE_AGENT_KEY_ID: 'me@Host' };
-const enc = new TextEncoder();
-const sse = (...frames) =>
-  new ReadableStream({
-    start(c) {
-      for (const f of frames) c.enqueue(enc.encode(f));
-      c.close();
-    }
-  });
-const ev = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+const KEY = 'cortext/AgentMessage';
 const row = (shortId, createdAt, extra = {}) => ({
   id: `u${shortId}`,
   shortId,
@@ -42,6 +22,22 @@ const row = (shortId, createdAt, extra = {}) => ({
   ...extra
 });
 
+// Server frames as substrate writes them on /substrate/v1/subscribe.
+const snapshot = (rows) => ({ kind: 'snapshot', data: { [KEY]: rows } });
+const add = (r) => ({ kind: 'add', data: { [KEY]: r } });
+const remove = (removedId) => ({ kind: 'remove', removedId });
+const end = (reason) => ({ kind: 'end', reason });
+const error = (code) => ({ kind: 'error', errors: [{ code, message: code }] });
+
+/** A frame-stream body; `open: true` leaves it unclosed (a stalled connection). */
+const frames = (list, { open = false } = {}) =>
+  new ReadableStream({
+    start(c) {
+      for (const f of list) c.enqueue(encodeStreamFrame(f, 'json'));
+      if (!open) c.close();
+    }
+  });
+
 /** fetch fake: /substrate/v1/query answers the identity lookup; /substrate/v1/subscribe serves `streams` in order. */
 function fakeSubstrate({ identity = [{ id: 'me-row' }], streams = [], lookups = [] } = {}) {
   const subs = [];
@@ -50,21 +46,23 @@ function fakeSubstrate({ identity = [{ id: 'me-row' }], streams = [], lookups = 
       // `lookups` scripts the identity lookup's failures in order: an Error throws, a number is a status.
       const fail = lookups.shift();
       if (fail instanceof Error) throw fail;
-      if (typeof fail === 'number') return { ok: false, status: fail, json: async () => ({}) };
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ data: { 'cortext/AgentIdentity': identity } })
-      };
+      if (typeof fail === 'number') return new Response('{}', { status: fail });
+      return Response.json({ data: { 'cortext/AgentIdentity': identity } });
     }
     subs.push(JSON.parse(init.body));
     const next = streams.shift();
-    if (next === undefined) return { ok: false, status: 401, body: null }; // ends the test loop
-    if (typeof next === 'number') return { ok: false, status: next, body: null };
-    return { ok: true, status: 200, body: next };
+    if (next === undefined) return new Response('{}', { status: 401 }); // ends the test loop
+    if (typeof next === 'number') return new Response('{}', { status: next });
+    return new Response(next, { headers: { 'content-type': FRAMES_JSON_MIME } });
   };
   return { fetchImpl, subs };
 }
+
+// The client's own re-subscribe delays, shrunk so the suite runs on real timers.
+const FAST = {
+  reconnect: { baseDelayMs: 1, maxDelayMs: 1, jitter: 0 },
+  overloadResubscribe: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1, jitter: 0 }
+};
 
 async function run(opts) {
   const events = [];
@@ -74,27 +72,11 @@ async function run(opts) {
     since: '2026-10-06T00:00:00Z',
     emit: (e) => events.push(e),
     sleep: async (ms) => sleeps.push(ms),
+    clientOptions: FAST,
     ...opts
   });
   return { events, sleeps };
 }
-
-describe('parseSse line endings', () => {
-  it('a CRLF split across two chunks still ends the line', () => {
-    const p = parseSse();
-    expect(p('event: remove\r\ndata: {"removedId":"a"}\r\n\r')).toEqual([]);
-    expect(p('\nevent: remove\r\ndata: {"removedId":"b"}\r\n\r\n')).toEqual([
-      { event: 'remove', data: { removedId: 'a' } },
-      { event: 'remove', data: { removedId: 'b' } }
-    ]);
-  });
-  it('a bare CR is a line ending too', () => {
-    // A trailing CR may be half a CRLF, so it waits; the next byte settles it.
-    expect(parseSse()('event: remove\rdata: {"removedId":"c"}\r\r:')).toEqual([
-      { event: 'remove', data: { removedId: 'c' } }
-    ]);
-  });
-});
 
 describe('runWatcher', () => {
   it('is disabled without identity env, with PUSH off, or with no AgentIdentity row', async () => {
@@ -126,19 +108,17 @@ describe('runWatcher', () => {
   it('subscribes on the recipient filter with no limit, goes live with the wake setting, filters the snapshot by since', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(
-          ev('snapshot', {
-            key: 'cortext/AgentMessage',
-            rows: [row(1, '2026-10-05T00:00:00Z'), row(2, '2026-10-06T01:00:00Z')]
-          })
-        )
+        frames([
+          snapshot([row(1, '2026-10-05T00:00:00Z'), row(2, '2026-10-06T01:00:00Z')]),
+          end('x')
+        ])
       ]
     });
     const { events } = await run({
       fetchImpl: h.fetchImpl,
       env: { ...ENV, SYNOPTIC_INBOX_WAKE: 'on' }
     });
-    expect(h.subs[0]['cortext/AgentMessage'].params).toEqual({
+    expect(h.subs[0][KEY].params).toEqual({
       where: { recipient: { eq: 'me-row' }, status: { eq: 'unread' }, archived: { eq: false } }
     });
     expect(events[0]).toEqual({ type: 'status', state: 'live', config: { wake: true } });
@@ -148,12 +128,13 @@ describe('runWatcher', () => {
   it('emits add as message (whatever its createdAt) and remove as handled; ignores update', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(
-          ev('snapshot', { key: 'k', rows: [] }),
-          ev('add', { key: 'k', row: row(3, '2020-01-01T00:00:00Z') }),
-          ev('update', { key: 'k', row: row(3, '2020-01-01T00:00:00Z') }),
-          ev('remove', { removedId: 'u3' })
-        )
+        frames([
+          snapshot([]),
+          add(row(3, '2020-01-01T00:00:00Z')),
+          { kind: 'update', data: { [KEY]: row(3, '2020-01-01T00:00:00Z') } },
+          remove('u3'),
+          end('x')
+        ])
       ]
     });
     const { events } = await run({ fetchImpl: h.fetchImpl });
@@ -165,12 +146,7 @@ describe('runWatcher', () => {
 
   it('marks urgent only for an allowlisted signer', async () => {
     const h = fakeSubstrate({
-      streams: [
-        sse(
-          ev('snapshot', { key: 'k', rows: [] }),
-          ev('add', { key: 'k', row: row(4, 'x', { tags: ['priority:urgent'] }) })
-        )
-      ]
+      streams: [frames([snapshot([]), add(row(4, 'x', { tags: ['priority:urgent'] })), end('x')])]
     });
     const { events } = await run({
       fetchImpl: h.fetchImpl,
@@ -179,54 +155,44 @@ describe('runWatcher', () => {
     expect(events.find((e) => e.type === 'message').urgent).toBe(true);
   });
 
-  it('server_restart resubscribes at once; a dropped body backs off; snapshot resets the backoff', async () => {
+  it('the client follows server_restart, a dropped body and a 5xx; a 401 is terminal', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(ev('snapshot', { key: 'k', rows: [] }), ev('end', { reason: 'server_restart' })),
-        sse(ev('snapshot', { key: 'k', rows: [] })), // body ends with no `end` → dropped
+        frames([snapshot([]), end('server_restart')]),
+        frames([snapshot([])]), // body ends with no `end` -> dropped
         503
       ]
     });
     const { events, sleeps } = await run({ fetchImpl: h.fetchImpl });
-    expect(h.subs).toHaveLength(4); // restart, dropped, 503, then 401 (terminal)
-    expect(sleeps).toEqual([1000, 2000]); // dropped → 1 s (attempt reset by its snapshot), 503 → 2 s
+    expect(h.subs).toHaveLength(4); // restart, dropped, 503, then 401
+    expect(sleeps).toEqual([]); // each was re-subscribed by the client, not this loop
+    expect(events.filter((e) => e.state === 'live')).toHaveLength(1);
     expect(events.at(-1)).toEqual({ type: 'status', state: 'disabled', reason: 'HTTP 401' });
   });
 
-  it('overload backs off; any other error code is terminal (never auto-retried)', async () => {
+  it('an overload past the client budget backs off; any other error code is terminal', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(
-          ev('error', { code: 'subscription_overloaded', message: 'q' }),
-          ev('end', { reason: 'subscription_overloaded' })
-        ),
-        sse(ev('error', { code: 'policy_denied', message: 'no' }))
+        frames([error('subscription_overloaded')]), // within the budget: the client re-subscribes
+        frames([error('subscription_overloaded')]), // budget spent: this loop backs off
+        frames([error('policy_denied')])
       ]
     });
     const { events, sleeps } = await run({ fetchImpl: h.fetchImpl });
     expect(sleeps).toEqual([1000]);
     expect(events.at(-1)).toEqual({ type: 'status', state: 'disabled', reason: 'policy_denied' });
-    expect(h.subs).toHaveLength(2);
+    expect(h.subs).toHaveLength(3);
   });
 
-  it('treats idleMs of silence as a dead stream', async () => {
-    const stalled = new ReadableStream({
-      start(c) {
-        c.enqueue(enc.encode(ev('snapshot', { key: 'k', rows: [] })));
-      }
-    }); // never closes
-    const h = fakeSubstrate({ streams: [stalled] });
-    const { events } = await run({ fetchImpl: h.fetchImpl, idleMs: 20 });
-    expect(events.some((e) => e.state === 'reconnecting' && /idle/.test(e.reason))).toBe(true);
+  it('re-subscribes a stream silent for idleMs', async () => {
+    const h = fakeSubstrate({ streams: [frames([snapshot([])], { open: true })] });
+    await run({ fetchImpl: h.fetchImpl, idleMs: 20 });
+    expect(h.subs).toHaveLength(2); // the stalled stream, then the closing 401
   });
 
   it('overload escalates the backoff even after a snapshot', async () => {
-    const ov = () =>
-      sse(
-        ev('snapshot', { key: 'k', rows: [] }),
-        ev('error', { code: 'subscription_overloaded', message: 'q' })
-      );
-    const h = fakeSubstrate({ streams: [ov(), ov()] });
+    const ov = () => frames([snapshot([]), error('subscription_overloaded')]);
+    const h = fakeSubstrate({ streams: [ov(), ov(), ov(), ov()] });
     const { sleeps } = await run({ fetchImpl: h.fetchImpl });
     expect(sleeps).toEqual([1000, 2000]);
   });
@@ -234,17 +200,18 @@ describe('runWatcher', () => {
   it('malformed event data degrades instead of throwing', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(
-          ev('snapshot', 'junk'),
-          ev('snapshot', { key: 'k', rows: 'nope' }),
-          ev('snapshot', null),
-          ev('add', null),
-          ev('add', { key: 'k' }),
-          ev('add', { key: 'k', row: 'x' }),
-          ev('remove', null),
-          ev('remove', { removedId: 5 }),
-          ev('add', { key: 'k', row: row(9, '2020-01-01T00:00:00Z') })
-        )
+        frames([
+          { kind: 'snapshot', data: 'junk' },
+          { kind: 'snapshot', data: { [KEY]: 'nope' } },
+          { kind: 'snapshot', data: null },
+          { kind: 'add', data: null },
+          { kind: 'add', data: {} },
+          { kind: 'add', data: { [KEY]: 'x' } },
+          { kind: 'remove' },
+          { kind: 'remove', removedId: 5 },
+          add(row(9, '2020-01-01T00:00:00Z')),
+          end('x')
+        ])
       ]
     });
     const { events } = await run({ fetchImpl: h.fetchImpl });
@@ -256,17 +223,15 @@ describe('runWatcher', () => {
   it('compares since as a timestamp, emitting when unparseable', async () => {
     const h = fakeSubstrate({
       streams: [
-        sse(
-          ev('snapshot', {
-            key: 'k',
-            rows: [
-              row(1, '2026-10-06T00:00:00.123Z'),
-              row(2, '2026-10-05T23:59:59Z'),
-              row(3, 'garbage'),
-              row(4, '2026-10-06T00:00:00Z') // exactly since: re-emitted, the bridge dedupes by id
-            ]
-          })
-        )
+        frames([
+          snapshot([
+            row(1, '2026-10-06T00:00:00.123Z'),
+            row(2, '2026-10-05T23:59:59Z'),
+            row(3, 'garbage'),
+            row(4, '2026-10-06T00:00:00Z') // exactly since: re-emitted, the bridge dedupes by id
+          ]),
+          end('x')
+        ])
       ]
     });
     const { events } = await run({ fetchImpl: h.fetchImpl });
@@ -276,7 +241,7 @@ describe('runWatcher', () => {
   it('a transient identity-lookup failure backs off and recovers', async () => {
     const h = fakeSubstrate({
       lookups: [new Error('fetch failed'), 503],
-      streams: [sse(ev('snapshot', { key: 'k', rows: [] }))]
+      streams: [frames([snapshot([])])]
     });
     const { events, sleeps } = await run({ fetchImpl: h.fetchImpl });
     expect(events.slice(0, 2)).toMatchObject([
@@ -284,9 +249,7 @@ describe('runWatcher', () => {
       { type: 'status', state: 'reconnecting', reason: 'identity lookup: substrate/query 503' }
     ]);
     expect(events[2]).toEqual({ type: 'status', state: 'live', config: { wake: false } });
-    // 1 s and 2 s for the lookup; the lookup's success resets the attempt, so the dropped
-    // stream backs off from 1 s again before the closing 401.
-    expect(sleeps).toEqual([1000, 2000, 1000]);
+    expect(sleeps).toEqual([1000, 2000]); // the dropped stream is the client's to re-subscribe
   });
 
   it('an auth failure on the identity lookup is terminal', async () => {
@@ -311,17 +274,18 @@ describe('runWatcher', () => {
     expect(r1.events).toEqual([{ type: 'status', state: 'disabled', reason: 'HTTP 400' }]);
     expect(r1.sleeps).toEqual([]);
 
-    const busy = fakeSubstrate({ streams: [429, 408] });
+    // The client retries a 429 three times itself before it surfaces.
+    const busy = fakeSubstrate({ streams: [429, 429, 429, 429, 408] });
     const r2 = await run({ fetchImpl: busy.fetchImpl });
     expect(r2.sleeps).toEqual([1000, 2000]);
-    expect(busy.subs).toHaveLength(3); // 429, 408, then the closing 401
+    expect(busy.subs).toHaveLength(6); // four 429s, the 408, then the closing 401
   });
 
-  it('server_restart with no snapshot resubscribes at once three times, then backs off', async () => {
-    const restart = () => sse(ev('end', { reason: 'server_restart' }));
+  it('a server that keeps restarting with no snapshot: three re-subscribes, then a backoff', async () => {
+    const restart = () => frames([end('server_restart')]);
     const h = fakeSubstrate({ streams: [restart(), restart(), restart(), restart()] });
     const { events, sleeps } = await run({ fetchImpl: h.fetchImpl });
-    expect(sleeps).toEqual([1000]); // only the fourth
+    expect(sleeps).toEqual([1000]);
     expect(events.filter((e) => e.state === 'reconnecting')).toEqual([
       { type: 'status', state: 'reconnecting', reason: 'server_restart' }
     ]);
@@ -329,13 +293,13 @@ describe('runWatcher', () => {
   });
 
   it('a snapshot resets the server_restart count', async () => {
-    const restart = () => sse(ev('end', { reason: 'server_restart' }));
+    const restart = () => frames([end('server_restart')]);
     const h = fakeSubstrate({
       streams: [
         restart(),
         restart(),
         restart(),
-        sse(ev('snapshot', { key: 'k', rows: [] }), ev('end', { reason: 'server_restart' })),
+        frames([snapshot([]), end('server_restart')]),
         restart(),
         restart(),
         restart()
@@ -345,4 +309,87 @@ describe('runWatcher', () => {
     expect(sleeps).toEqual([]);
     expect(h.subs).toHaveLength(8);
   });
+});
+
+describe('runWatcher against a real HTTP/2 substrate', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'synoptic-watch-'));
+  const agent = (kid) => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const keyPath = join(dir, `${kid}.pem`);
+    writeFileSync(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+    return { kid, keyPath, publicKey: publicKey.export({ type: 'spki', format: 'pem' }) };
+  };
+  const me = agent('watch-test@example');
+  const peer = agent('peer@example');
+  let server;
+  const envFor = (a) => ({
+    SUBSTRATE_URL: server.url,
+    SUBSTRATE_AGENT_KEY_ID: a.kid,
+    SUBSTRATE_AGENT_KEY_PATH: a.keyPath
+  });
+  const signedAs = (a) => makeSignedFetch(createAgentAuth(envFor(a)).getAuthHeader);
+  /** A write as `a` that throws with the server's reason when any frame is refused. */
+  const write = async (a, payload) => {
+    const refused = [];
+    const data = await substrateMutate(server.url, payload, {
+      fetchImpl: signedAs(a),
+      onFrameFailure: (key, why) => refused.push(`${key}: ${why}`)
+    });
+    if (refused.length > 0) throw new Error(refused.join('; '));
+    return data;
+  };
+
+  beforeAll(async () => {
+    server = await startSubstrate({ keys: [me, peer] });
+  }, 30000);
+  afterAll(async () => {
+    await server?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('delivers the snapshot and new mail signed, and reports mail that leaves the inbox', async () => {
+    for (const a of [me, peer])
+      await write(a, {
+        'cortext/createAgentIdentity': {
+          params: { kid: a.kid, host: 'example', active: true },
+          fields: { id: true }
+        }
+      });
+    const send = async (subject) =>
+      (
+        await write(peer, {
+          'cortext/sendAgentMessage': {
+            params: { to: me.kid, subject, body: 'b' },
+            fields: { id: true }
+          }
+        })
+      )['cortext/sendAgentMessage'][0].id;
+    const first = await send('before the watcher');
+
+    const events = [];
+    const seen = (pred) =>
+      vi.waitFor(() => expect(events.some(pred)).toBe(true), { timeout: 10000, interval: 20 });
+    const ac = new AbortController();
+    const done = runWatcher({
+      env: envFor(me),
+      fetchImpl: signedAs(me),
+      since: new Date(0).toISOString(),
+      emit: (e) => events.push(e),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      signal: ac.signal
+    });
+
+    await seen((e) => e.type === 'message' && e.id === first);
+    expect(events[0]).toEqual({ type: 'status', state: 'live', config: { wake: false } });
+    const second = await send('while it watches');
+    await seen((e) => e.type === 'message' && e.id === second);
+    expect(events.find((e) => e.id === second)).toMatchObject({ subject: 'while it watches' });
+
+    await write(me, { 'cortext/ackAgentMessage': { params: { id: first }, fields: { id: true } } });
+    await seen((e) => e.type === 'handled' && e.id === first);
+
+    ac.abort();
+    await done; // the signal ends the watcher without a disabled status
+    expect(events.some((e) => e.state === 'disabled')).toBe(false);
+  }, 30000);
 });

@@ -4,6 +4,7 @@
 // Strictly project-scoped (no `project = null` branch): a Task is work in one
 // repo, and a cross-cutting one would surface in every repo's cold-start.
 
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { sanitizeText } from './inbox-push.js';
 import { substrateQuery } from './substrate-http.js';
 
@@ -26,7 +27,7 @@ export async function loadActiveTasks({
   substrateUrl,
   namespace = 'cortext',
   projectSlug,
-  fetchImpl = fetch
+  fetchImpl = substrateFetch
 }) {
   if (!projectSlug) return null;
   const taskKey = `${namespace}/Task`;

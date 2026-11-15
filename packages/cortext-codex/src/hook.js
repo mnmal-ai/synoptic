@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { truncateToBudget } from '../../context-render/src/budget.js';
 import { createAgentAuth, makeSignedFetch } from '../../synoptic/src/agent-auth.js';
 import { createCortext } from '../../synoptic/src/capabilities/cortext.js';
@@ -15,7 +16,7 @@ export async function handleHook(
   input,
   config,
   {
-    fetchImpl = fetch,
+    fetchImpl = substrateFetch,
     coldStart = runColdStart,
     version = null,
     budgetMs = input.hook_event_name === 'SessionStart' ? 9000 : 3500
