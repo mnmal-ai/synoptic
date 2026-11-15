@@ -170,7 +170,7 @@ describe('Flipped FK crossRef edges', () => {
           blindSpots: '',
           verdict: '',
           verdictAlignment: 'unanimous',
-          date: '2026-04-29',
+          date: '2026-04-29T12:00:00Z',
           project: 'substrate'
         },
         fields: { id: true }
