@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.15+1f939e84 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.15+d8ab6859 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -24,7 +24,7 @@ Top-level `params` are not filters — they go in `where`. Example:
 { "cortext/Todo": { "params": { "where": { "status": { "eq": "open" } }, "limit": 10 }, "fields": { "id": true, "title": true } } }
 ```
 
-Every field filters. Retrieval-tuned handle fields (`name`, `title`, `topic`, `synopsis`, `description`) are the ones worth filtering on; a filter on a long-form field (`body`, `summary`, `notes`, `rationale`) is accepted but scans the type. For content search, prefer `recall` (semantic) over scanning prose. `_allowTableScan` is accepted and ignored, so never send it. **`eq: null` works** — it is the is-null filter, on every field kind. pg emits `IS NULL` for a null operand and the memory evaluator treats null and undefined as equal, so do not project the field and filter client-side.
+Every field filters. Retrieval-tuned handle fields (`name`, `title`, `topic`, `synopsis`, `description`) are the ones worth filtering on; a filter on a long-form field (`body`, `summary`, `notes`, `rationale`) is accepted but scans the type. For content search, prefer `recall` (semantic) over scanning prose. Never send `_allowTableScan`: the server refuses it with `unknown_param`. **`eq: null` works** — it is the is-null filter, on every field kind. pg emits `IS NULL` for a null operand and the memory evaluator treats null and undefined as equal, so do not project the field and filter client-side.
 
 **A `field.json()` field is filtered through a PATH predicate, never directly**: `{ values: { path: ['year'], gt: 1990 } }`. Matching is type-strict — `1995` does not match `"1995"`. The equality-style predicates are index-served only when the field is declared `field.json({ indexed: true })`; otherwise they scan the type. A bare `{ values: { eq: ... } }` is refused, and the rejection names the path form — read it rather than guessing, per the next section.
 
@@ -99,7 +99,7 @@ Three ways in — HTTP routes, the MCP tools, and frame streams on `POST /substr
 
 - **Schema scoping is ARGUMENTS in MCP and PATH SEGMENTS over HTTP.** `schema { namespace, type }` is `GET /substrate/v1/schema/<ns>/<Type>`. Carrying the MCP shape across gives `GET /substrate/v1/schema?namespace=cortext`, which answers `400` naming the path form.
 - **Recall's search text is `query` on the route and the MCP tool, and `to` on the frame.** Each rejects the other's spelling. On the frame it also sits in `params`, NOT in `where`, against the rule above — `recall/Hit` is a virtual type whose params are a search input rather than a filter.
-- **Subscribe params are a strict subset of query params.** No `limit`: the allowlist is engine-wide rather than a namespace quirk. Reusing a query's params for a subscription gets `unknown_param` — and the server names the allowed set, so read the rejection rather than guessing.
+- **Subscribe and stream params are a strict subset of query params.** No `limit`: the allowlist is engine-wide rather than a namespace quirk. Reusing a query's params for a subscription or stream gets `unknown_param` — and the server names the allowed set, so read the rejection rather than guessing.
 - **Live updates arrive only as frame streams.** `POST` the frame object to `/substrate/v1/subscribe` or `/stream` with `Accept: application/vnd.substrate.frames+json` (or `+pack`). Any other `Accept` gets `406`, and there is no GET form. There is no MCP subscription tool, so an MCP-only agent polls or does without.
 - **On a frame stream a refusal arrives IN-BAND.** A failure before the stream opens is an ordinary HTTP status. Once it opens, the status is a spent `200`: a refused key comes back as an `error` frame with a `code` while the other keys of the same subscribe stay live — the query envelope's partial-success trap, one layer out. Read the frames, not the status, and branch on `code`, never on message text. substrate's `docs/stream-contract.md` says which codes are retryable.
 

@@ -538,7 +538,7 @@ describe('buildClaudeNamespace', () => {
     expect(Object.keys(env.data)).toContain(`${NS}/SessionLog`);
   });
 
-  it('retrieval-handle fields (synopsis/description tier) filter without _allowTableScan', async () => {
+  it('retrieval-handle fields (synopsis/description tier) filter without a table-scan opt-in', async () => {
     // The systematic split: retrieval-tuned handle
     // fields are indexed/filterable; long-form prose (body/summary/notes)
     // stays guarded. These four cover the flipped tier across types.
@@ -843,7 +843,7 @@ describe('buildClaudeNamespace', () => {
               verdict: '',
               verdictAlignment: 'strong',
               sessionLogId: sessionLogId,
-              date: '2026-04-24'
+              date: '2026-04-24T12:00:00Z'
             },
             fields: { id: true, sessionLogId: true }
           }

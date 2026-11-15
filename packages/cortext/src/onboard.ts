@@ -225,7 +225,7 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           verdict: 'final synthesis (not indexed)',
           verdictAlignment: 'how aligned the verdict is with advisor consensus',
           sessionLogId: 'UUID crossRef to SessionLog, set_null on delete (nullable)',
-          date: 'ISO 8601 date of the deliberation'
+          date: 'ISO 8601 instant of the deliberation, with a time and an offset'
         },
         writeWhen: [
           'At the end of a council/pressure-test run, with one CouncilAdvisor row per advisor'

@@ -418,8 +418,8 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         body: field.string({ nullable: true, indexed: false }),
         // Free-form categorization tags. Indexed — server-side
         // `where: { tags: { has: 'x' } }` is backed by the GIN in migration
-        // 0022. The sibling types' tags stay unindexed (filter via
-        // _allowTableScan or a future per-type GIN).
+        // 0022. The sibling types' tags stay unindexed, so a filter on them
+        // scans the type.
         tags: field.list(field.string(), { nullable: true, indexed: true }),
         archived: field.boolean({ default: false }),
         targetDate: field.date({ nullable: true }),
@@ -530,7 +530,7 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         }),
         // Typed as date for the same reason as SessionLog.startedAt:
         // range ops validate and pg orderBy casts ::timestamptz instead of
-        // text-sorting. Bare YYYY-MM-DD casts fine.
+        // text-sorting. Writes need a full instant (time and offset).
         date: field.date(),
         project: field.string({ nullable: true })
       }
