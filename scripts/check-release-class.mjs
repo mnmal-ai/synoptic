@@ -168,7 +168,11 @@ if (!classSatisfies(proposed, change.class)) {
 // keeps the record honest about who did the sizing: without it, a green line
 // sits beside a hand-sized release and reads as the tool agreeing.
 const reason = flags.reason ?? null;
-if (CLASS_RANK[proposed] > CLASS_RANK[change.class]) {
+if (proposed === 'prerelease') {
+  console.log(`\n  OK: a prerelease bump. It promises no compatibility, so it covers the`);
+  console.log(`  ${change.class} the surface requires. A consumer pinned to this prerelease`);
+  console.log('  line can be broken by it; read the surface report above for what moved.');
+} else if (CLASS_RANK[proposed] > CLASS_RANK[change.class]) {
   if (reason === null || reason.trim() === '') {
     fail(
       3,
