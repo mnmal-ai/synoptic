@@ -339,6 +339,26 @@ describe('bumpClass and classSatisfies', () => {
     expect(bumpClass('1.10.0', '1.9.0')).toBeNull();
   });
 
+  it('reads a bump within one prerelease line, or its promotion, as a prerelease', () => {
+    expect(bumpClass('v1.0.0-alpha.14', '1.0.0-alpha.15')).toBe('prerelease');
+    expect(bumpClass('1.0.0-alpha.9', '1.0.0-alpha.10')).toBe('prerelease');
+    expect(bumpClass('1.0.0-alpha.20', '1.0.0-beta.1')).toBe('prerelease');
+    expect(bumpClass('1.0.0-beta.3', '1.0.0')).toBe('prerelease');
+    expect(bumpClass('1.0.0-alpha.15', '1.0.0-alpha.15')).toBeNull();
+    expect(bumpClass('1.0.0-beta.1', '1.0.0-alpha.20')).toBeNull();
+    expect(bumpClass('1.0.0', '1.0.0-beta.1')).toBeNull();
+  });
+
+  it('compares the release core first, whatever the prerelease tags say', () => {
+    expect(bumpClass('1.0.0-beta.2', '1.1.0-alpha.1')).toBe('minor');
+    expect(bumpClass('1.0.0-beta.2', '2.0.0')).toBe('major');
+    expect(bumpClass('1.0.0', '1.0.1-alpha.0')).toBe('patch');
+  });
+
+  it('a prerelease satisfies any requirement, since it promises no compatibility', () => {
+    expect(classSatisfies('prerelease', 'major')).toBe(true);
+  });
+
   it('a larger bump satisfies a smaller requirement, never the reverse', () => {
     expect(classSatisfies('major', 'minor')).toBe(true);
     expect(classSatisfies('minor', 'minor')).toBe(true);

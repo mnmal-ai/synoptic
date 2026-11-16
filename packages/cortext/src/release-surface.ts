@@ -320,7 +320,12 @@ export function buildApiSurface(
 
 // ---------------------------------------------------------------------------
 
-export type ReleaseClass = 'major' | 'minor' | 'patch';
+/**
+ * `prerelease` is a bump within one prerelease line (1.0.0-alpha.14 -> alpha.15)
+ * or its promotion (1.0.0-beta.3 -> 1.0.0). A prerelease promises no
+ * compatibility, so it satisfies any requirement.
+ */
+export type ReleaseClass = 'major' | 'minor' | 'patch' | 'prerelease';
 
 export interface SurfaceChange {
   class: ReleaseClass;
@@ -330,7 +335,7 @@ export interface SurfaceChange {
   review: string[];
 }
 
-const CLASS_RANK: Record<ReleaseClass, number> = { patch: 0, minor: 1, major: 2 };
+const CLASS_RANK: Record<ReleaseClass, number> = { patch: 0, minor: 1, major: 2, prerelease: 3 };
 
 /**
  * Classify the difference between two surfaces.
@@ -474,19 +479,40 @@ export function classSatisfies(proposed: ReleaseClass, required: ReleaseClass): 
 
 /** The class implied by a version bump. Returns null when it is not a bump. */
 export function bumpClass(from: string, to: string): ReleaseClass | null {
-  const p = (v: string): [number, number, number] => {
-    const [a = Number.NaN, b = Number.NaN, c = Number.NaN] = v
-      .trim()
-      .replace(/^v/, '')
-      .split('.')
-      .map(Number);
-    return [a, b, c];
+  const parse = (v: string) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(v.trim());
+    return m
+      ? { core: [Number(m[1]), Number(m[2]), Number(m[3])] as const, pre: m[4] ?? null }
+      : null;
   };
-  const [fa, fb, fc] = p(from);
-  const [ta, tb, tc] = p(to);
-  if ([fa, fb, fc, ta, tb, tc].some((n) => !Number.isFinite(n))) return null;
+  const f = parse(from);
+  const t = parse(to);
+  if (f === null || t === null) return null;
+  const [fa, fb, fc] = f.core;
+  const [ta, tb, tc] = t.core;
   if (ta > fa) return 'major';
-  if (ta === fa && tb > fb) return 'minor';
-  if (ta === fa && tb === fb && tc > fc) return 'patch';
-  return null;
+  if (ta < fa) return null;
+  if (tb > fb) return 'minor';
+  if (tb < fb) return null;
+  if (tc > fc) return 'patch';
+  if (tc < fc || f.pre === null) return null;
+  // Same core, `from` a prerelease: a promotion or a later prerelease is a bump.
+  return t.pre === null || comparePrerelease(t.pre, f.pre) > 0 ? 'prerelease' : null;
+}
+
+/** SemVer 2.0.0 precedence of two prerelease tags (11.4.1-11.4.4). */
+function comparePrerelease(a: string, b: string): number {
+  const as = a.split('.');
+  const bs = b.split('.');
+  for (let i = 0; i < Math.min(as.length, bs.length); i += 1) {
+    const x = as[i] as string;
+    const y = bs[i] as string;
+    if (x === y) continue;
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+    if (xn && yn) return Number(x) - Number(y);
+    if (xn !== yn) return xn ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return as.length - bs.length;
 }
