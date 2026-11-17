@@ -5,9 +5,15 @@ The OMP (oh-my-pi) skin for Cortext. An OMP extension that:
 - appends the synoptic cold-start (the rule index, the pointers, the session line and the inbox) to the system prompt at `before_agent_start`, and on later prompts adds a one-line unread-mail summary
 - continues a turn once at `session_stop` when unread agent mail is waiting
 
-`dist/extension.js` is a committed, byte-deterministic bundle with the synoptic host inlined and no runtime dependencies. Not published yet: load it from a checkout.
+`dist/extension.js` is a committed, byte-deterministic bundle with the synoptic host inlined and no runtime dependencies.
 
 ## Use
+
+```bash
+omp plugin install @mnmal-ai/cortext-omp@next
+```
+
+Identity and endpoint come from the env OMP is launched with. From a checkout, load the package directory instead:
 
 ```bash
 SUBSTRATE_URL=https://substrate.example:3100 \
@@ -16,7 +22,7 @@ SUBSTRATE_AGENT_KEY_PATH=<path to its key> \
 omp -e /path/to/synoptic/packages/cortext-omp
 ```
 
-Or list the package directory under `extensions:` in OMP's config. Run it from inside the repo whose rows you want; the project scope is the repo root's basename.
+Run it from inside the repo whose rows you want; the project scope is the repo root's basename.
 
 | Env | Effect |
 |---|---|
