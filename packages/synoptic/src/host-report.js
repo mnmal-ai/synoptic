@@ -125,7 +125,14 @@ export async function reportHostInstall({
     const raced = await findId();
     if (raced === undefined || raced === null) return refused(createFrom);
     return (await update(raced)) ? 'updated' : refused(racedFrom);
-  } catch {
+  } catch (err) {
+    // A 4xx answer (a read-only grant's 403, say) is the server refusing, not
+    // the server being away.
+    const message = err instanceof Error ? err.message : '';
+    if (/^substrate\/(query|mutate) 4\d\d$/.test(message)) {
+      onFailure(type, message);
+      return 'refused';
+    }
     return 'offline';
   }
 }
