@@ -12,6 +12,13 @@
 //   with the unread-mail reason. `stop_hook_active` bounds it to one
 //   continuation per user prompt, and each message id nudges only once.
 //
+// - `session_stop` also asks once, when the context passes
+//   SYNOPTIC_OMP_CHECKPOINT_PERCENT of the window (and every 10 points
+//   after), for a ```checkpoint block,
+//   and `session_before_compact` saves the newest such block as an
+//   ExecutionCheckpoint and compacts the history to a pointer at it. With no
+//   block, or no acknowledged write, OMP compacts as it would without us.
+//
 // Not here yet: the push watcher (mid-turn mail), the conventions text (about
 // 6k tokens, more than a small local model's whole first call), commands and
 // tools. Identity and endpoint come from the launching env: SUBSTRATE_URL,
@@ -27,13 +34,33 @@ import { readOrNull } from '../../synoptic/src/fs-safe.js';
 import { inboxStopNudge, promptHookContext } from '../../synoptic/src/inbox-hooks.js';
 import { projectSlug, sessionRoot } from '../../synoptic/src/scope.js';
 import { parseMaxBytes, SESSION_START_BUDGET_MS } from '../../synoptic/src/session-start.js';
+import {
+  CHECKPOINT_REQUEST,
+  type Entry,
+  findCheckpoint,
+  keepFrom,
+  renderPointer,
+  saveCheckpoint,
+  type TaskRef
+} from './checkpoint.js';
 
 /** The slice of OMP's ExtensionAPI this skin uses, typed locally so the
  *  build needs no OMP package (it ships TS source that imports Bun). */
-export type OmpContext = { cwd: string; sessionManager: { getSessionId(): string } };
+export type OmpContext = {
+  cwd: string;
+  sessionManager: { getSessionId(): string };
+  getContextUsage?(): { percent: number } | undefined;
+};
 type BeforeAgentStart = { reason: 'prompt' | 'revive'; systemPrompt: string[] };
 type SessionStop = { stop_hook_active: boolean };
 type StopResult = { continue: true; additionalContext: string };
+type BeforeCompact = {
+  preparation: { firstKeptEntryId: string; tokensBefore: number };
+  branchEntries: Entry[];
+};
+type CompactResult = {
+  compaction: { summary: string; firstKeptEntryId: string; tokensBefore: number };
+};
 export type OmpApi = {
   on(
     event: 'before_agent_start',
@@ -46,10 +73,20 @@ export type OmpApi = {
     event: 'session_stop',
     handler: (event: SessionStop, ctx: OmpContext) => Promise<StopResult | undefined>
   ): void;
+  on(
+    event: 'session_before_compact',
+    handler: (event: BeforeCompact, ctx: OmpContext) => Promise<CompactResult | undefined>
+  ): void;
 };
 
 /** An inbox read at a prompt or a stop loses its line, never the turn. */
 const INBOX_TIMEOUT_MS = 3000;
+
+/** Under OMP's 30 s handler timeout, with room for the fallback to start. */
+const SAVE_TIMEOUT_MS = 20_000;
+
+/** Points of context use between checkpoint requests. */
+const ASK_STEP = 10;
 
 const NUDGE_HEADER =
   '[Automated end-of-turn check by the cortext extension. This is NOT a message from the user.]';
@@ -127,6 +164,11 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   // A promise per session, so overlapping preparations share one render.
   const renders = new Map<string, Promise<string>>();
   const nudged = new Map<string, Set<string>>();
+  // shortcut: the session's Task lives in memory, so a restarted OMP opens a new Task; persist it in the session if that proves noisy.
+  const tasks = new Map<string, TaskRef>();
+  const asked = new Map<string, number>();
+  const compactOn = env.SYNOPTIC_OMP_COMPACT !== 'off';
+  const askAt = Number(env.SYNOPTIC_OMP_CHECKPOINT_PERCENT) || 50;
 
   pi.on('before_agent_start', async (event, ctx) => {
     try {
@@ -156,14 +198,72 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   pi.on('session_stop', async (event, ctx) => {
     try {
       if (event.stop_hook_active) return undefined;
-      const nudge = await bounded(() => inboxStopNudge(access(env)), INBOX_TIMEOUT_MS, null);
-      if (nudge === null) return undefined;
       const id = ctx.sessionManager.getSessionId();
-      const done = nudged.get(id) ?? new Set<string>();
-      if (nudge.ids.every((m: string) => done.has(m))) return undefined;
-      for (const m of nudge.ids) done.add(m);
-      nudged.set(id, done);
-      return { continue: true, additionalContext: `${NUDGE_HEADER}\n${nudge.reason}` };
+      const parts: string[] = [];
+      const nudge = await bounded(() => inboxStopNudge(access(env)), INBOX_TIMEOUT_MS, null);
+      if (nudge !== null) {
+        const done = nudged.get(id) ?? new Set<string>();
+        if (!nudge.ids.every((m: string) => done.has(m))) {
+          for (const m of nudge.ids) done.add(m);
+          nudged.set(id, done);
+          parts.push(`${NUDGE_HEADER}\n${nudge.reason}`);
+        }
+      }
+      const percent = ctx.getContextUsage?.()?.percent ?? 0;
+      // Asked again each ASK_STEP points, so the block stays near the cut.
+      if (compactOn && percent >= askAt && percent >= (asked.get(id) ?? -ASK_STEP) + ASK_STEP) {
+        asked.set(id, percent);
+        parts.push(CHECKPOINT_REQUEST);
+      }
+      return parts.length > 0
+        ? { continue: true, additionalContext: parts.join('\n\n') }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+
+  pi.on('session_before_compact', async (event, ctx) => {
+    try {
+      if (!compactOn || !env.SUBSTRATE_URL) return undefined;
+      const id = ctx.sessionManager.getSessionId();
+      // The next fill asks again, whichever compaction runs now.
+      asked.delete(id);
+      const found = findCheckpoint(event.branchEntries);
+      if (found === null) return undefined;
+      const { cp } = found;
+      const firstKeptEntryId = keepFrom(
+        event.branchEntries,
+        found.at,
+        event.preparation.firstKeptEntryId
+      );
+      if (firstKeptEntryId === null) return undefined;
+      const namespace = env.SUBSTRATE_NAMESPACE ?? 'cortext';
+      const saved = await bounded(
+        () =>
+          saveCheckpoint(
+            {
+              substrateUrl: env.SUBSTRATE_URL as string,
+              namespace,
+              project: projectSlug(sessionRoot(ctx.cwd), env) ?? null,
+              fetchImpl: access(env).fetchImpl
+            },
+            tasks.get(id) ?? null,
+            cp,
+            `OMP session ${id.slice(0, 8)}`
+          ),
+        SAVE_TIMEOUT_MS,
+        null
+      );
+      if (saved === null) return undefined;
+      tasks.set(id, saved.task);
+      return {
+        compaction: {
+          summary: renderPointer(namespace, saved.task, saved.revision, cp),
+          firstKeptEntryId,
+          tokensBefore: event.preparation.tokensBefore
+        }
+      };
     } catch {
       return undefined;
     }
