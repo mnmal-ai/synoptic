@@ -5,6 +5,7 @@ dist/
 # — the npm tarball and any file-path
 # consumer run exactly what is reviewed here.
 !packages/cortext-opencode/dist/
+!packages/cortext-omp/dist/
 
 # Machine-local Claude Code settings. Identity rides in settings.local.json
 # `env`; `.mcp.json` holds machine-local absolute paths.

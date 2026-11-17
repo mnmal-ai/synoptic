@@ -27,10 +27,14 @@ const markerVersion = (rel) => {
 
 describe('one tag across the release set', () => {
   const versions = Object.fromEntries(
-    ['synoptic', 'cortext', 'cortext-plugin', 'cortext-opencode', 'cortext-codex'].map((p) => [
-      p,
-      pkg(p)
-    ])
+    [
+      'synoptic',
+      'cortext',
+      'cortext-plugin',
+      'cortext-opencode',
+      'cortext-codex',
+      'cortext-omp'
+    ].map((p) => [p, pkg(p)])
   );
 
   it('every workspace package shares one version', () => {
