@@ -17,6 +17,7 @@ that onboards agents (Claude, Kimi, Codex, Gemini, …) to it.
 | `@mnmal-ai/context-render` | Type-generic index-and-pull rendering, body folding, budget trim, RRF ranking and rule tiering. |
 | `cortext` (CC plugin) | The Claude Code delivery — cold-start hooks + skills (the "skin"). |
 | [`@mnmal-ai/cortext-opencode`](packages/cortext-opencode/README.md) | The OpenCode skin — cold-start injection via `experimental.chat.system.transform`, zero-dep committed `dist/plugin.js`. |
+| [`@mnmal-ai/cortext-omp`](packages/cortext-omp/README.md) | The OMP (oh-my-pi) skin — cold-start and inbox seams as an OMP extension, zero-dep committed `dist/extension.js`. |
 | [`cortext-codex`](packages/cortext-codex/README.md) | Local Codex delivery — cold-start and compaction refresh, prompt/stop inbox checks, shared council/todo skills and architecture review. |
 
 ## Install
