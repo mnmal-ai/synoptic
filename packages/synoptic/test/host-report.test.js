@@ -209,6 +209,18 @@ describe('reportHostInstall', () => {
     expect(failures).toEqual([]);
   });
 
+  it('a 4xx on a write is refused and named, not offline', async () => {
+    const failures = [];
+    const fetchImpl = async (_url, init) => {
+      const key = Object.keys(JSON.parse(init.body))[0];
+      if (key === 'cortext/createHostInstall')
+        return { ok: false, status: 403, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ data: { [key]: [] } }) };
+    };
+    expect(await reportHostInstall(opts(fetchImpl, failures))).toBe('refused');
+    expect(failures).toEqual([['cortext/HostInstall', 'substrate/mutate 403']]);
+  });
+
   it('a create refused for another reason, with no row on re-query, reports once', async () => {
     const failures = [];
     const { fetchImpl } = scripted({

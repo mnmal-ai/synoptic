@@ -103,7 +103,9 @@ async function renderColdStart(
     agentKid: env.SUBSTRATE_AGENT_KEY_ID ?? null,
     cwd: root,
     pluginRoot: null,
-    readFile: readOrNull,
+    // readFile feeds only Claude Code checks (the .claude/ fragment and
+    // CLAUDE.md imports), which are noise to an OMP session.
+    readFile: null,
     listDir: null,
     cacheDir: null,
     sessionId,

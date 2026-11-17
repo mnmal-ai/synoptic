@@ -2377,7 +2377,12 @@ async function reportHostInstall({ substrateUrl, namespace, fetchImpl, record, o
 		const raced = await findId();
 		if (raced === void 0 || raced === null) return refused(createFrom);
 		return await update(raced) ? "updated" : refused(racedFrom);
-	} catch {
+	} catch (err) {
+		const message = err instanceof Error ? err.message : "";
+		if (/^substrate\/(query|mutate) 4\d\d$/.test(message)) {
+			onFailure(type, message);
+			return "refused";
+		}
 		return "offline";
 	}
 }
@@ -3211,7 +3216,7 @@ async function renderColdStart(env, cwd, sessionId) {
 		agentKid: env.SUBSTRATE_AGENT_KEY_ID ?? null,
 		cwd: root,
 		pluginRoot: null,
-		readFile: readOrNull,
+		readFile: null,
 		listDir: null,
 		cacheDir: null,
 		sessionId,
