@@ -39,14 +39,17 @@ export const NEXT_ACTION =
 
 /** Argument keys whose values are never saved. */
 const SECRET_KEY = /token|secret|passw|api[-_]?key|auth|cookie|credential|private/i;
-/** Known-safe names the substring match would mask. Fail-closed: anything
- *  not listed here that matches SECRET_KEY is masked. */
-const SAFE_KEY =
-  /^(?:author|authored(?:By|At)?|(?:max|min)?tokens(?:Before|After|Used)?|tokenCount)$/i;
+/** Known-safe names the substring match would mask, each only for the value
+ *  kind it names. Fail-closed: any other match is masked. */
+const SAFE_COUNT = /^(?:(?:max|min)Tokens|tokens(?:Before|After|Used)|tokenCount)$/i;
+const SAFE_NAME = /^(?:author|authored(?:By|At))$/i;
 
-function secretKey(k: string): boolean {
-  return SECRET_KEY.test(k) && !SAFE_KEY.test(k);
+function secretKey(k: string, v: unknown): boolean {
+  if (!SECRET_KEY.test(k)) return false;
+  if (typeof v === 'number' && SAFE_COUNT.test(k)) return false;
+  return !(typeof v === 'string' && SAFE_NAME.test(k));
 }
+
 /** Secret-shaped substrings and what replaces them: auth schemes, vendor
  *  token prefixes, PEM private keys, URL userinfo, curl's `-u user:pass`, and
  *  `name=value` pairs with a secret-like name. */
@@ -78,7 +81,7 @@ export function redact(text: string): string {
  *  escaped quote cannot hide a value) and secret-named keys masked whole. */
 function argsOf(args: unknown): string {
   return JSON.stringify(args ?? {}, (k, v) => {
-    if (k && secretKey(k)) return '[redacted]';
+    if (k && secretKey(k, v)) return '[redacted]';
     return typeof v === 'string' ? redact(v) : v;
   });
 }

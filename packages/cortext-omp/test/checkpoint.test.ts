@@ -90,13 +90,14 @@ describe('redact', () => {
             OAUTHTOKEN: 'x2',
             authoredBy: 'me',
             tokensBefore: 5,
+            tokens: ['raw'],
             key: 'k'
           })
         ]
       }
     ]);
     expect(keys?.completed).toBe(
-      '- w({"accessToken":"[redacted]","OAUTHTOKEN":"[redacted]","authoredBy":"me","tokensBefore":5,"key":"k"})'
+      '- w({"accessToken":"[redacted]","OAUTHTOKEN":"[redacted]","authoredBy":"me","tokensBefore":5,"tokens":"[redacted]","key":"k"})'
     );
     const out = buildCheckpoint([
       { role: 'assistant', content: [call('a', 'login', { user: 'u', password: 'hunter2' })] }
