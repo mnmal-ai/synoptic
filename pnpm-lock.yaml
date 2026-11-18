@@ -198,6 +198,7 @@ catalogs:
 overrides:
   zod@<4.6.6: ^4.6.7
   toml@<=5.0.0: ^5.0.1
+  effect@>=4.0.0-beta.0 <4.0.0-beta.103: 4.0.0-beta.103
 
 importers:
 
@@ -1764,8 +1765,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.0.0-beta.83:
-    resolution: {integrity: sha512-0wsak8RtgGAr9UWSbVDgJHZcUqMSvicHcvaZv1MbMM7MCGgW4Rn/137J1MHQbwYPcwYGxT/IqehFd+UbYuj78w==}
+  effect@4.0.0-beta.103:
+    resolution: {integrity: sha512-pE8TxF4m2tQzVI+77dIlm3s+81TACV1AiX1JEkvY+zVuxgQQ8aGSkqXNJF6b/ST+coCSk5cUdbULpQ7sm4oHyw==}
 
   effect@4.1.0:
     resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
@@ -3557,7 +3558,7 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@opencode-ai/sdk': 1.19.5
-      effect: 4.0.0-beta.83
+      effect: 4.0.0-beta.103
       zod: 4.6.7
 
   '@opencode-ai/sdk@1.19.5':
@@ -4327,7 +4328,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.0.0-beta.83:
+  effect@4.0.0-beta.103:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.9.0
