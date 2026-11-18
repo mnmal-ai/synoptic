@@ -10,7 +10,11 @@ import { substrateMutate, substrateQuery } from '../../synoptic/src/substrate-ht
 
 /** `completed` and `nextAction` are what the store row holds; `steps` and
  *  `note` feed the pointer, which carries every step across compactions. */
-export type Checkpoint = { completed: string; nextAction: string; steps: string[]; note: string };
+export type Checkpoint = { completed: string; nextAction: string; steps: Step[]; note: string };
+
+/** One tool call: the call as text and the first line of its result, both
+ *  redacted. Kept apart so a clipped older step can keep its outcome. */
+export type Step = { call: string; brief: string; result: string | null; error: boolean };
 
 /** The parts of an OMP message this module reads. */
 export type Message = {
@@ -28,11 +32,14 @@ const STEPS_MAX = 30;
 const LINE_MAX = 160;
 const NOTE_MAX = 600;
 const REQUEST_MAX = 2000;
-/** The pointer's step list: the newest RECENT_STEPS whole, older ones clipped
- *  to OLD_LINE_MAX, and the oldest counted once the list passes STEPS_BUDGET. */
-const RECENT_STEPS = 10;
-const OLD_LINE_MAX = 80;
-const STEPS_BUDGET = 3500;
+/** The pointer's step list: the newest RECENT_STEPS whole; older ones with the
+ *  call squeezed to OLD_CALL_MAX and the result to OLD_RESULT_MAX, since after
+ *  a cut a step's value is its outcome; the oldest counted once the list passes
+ *  STEPS_BUDGET. */
+const RECENT_STEPS = 5;
+const OLD_CALL_MAX = 50;
+const OLD_RESULT_MAX = 70;
+const STEPS_BUDGET = 4500;
 
 export const NEXT_ACTION =
   'Carry on with the request from where the steps above leave off; do not redo a step listed there.';
@@ -115,9 +122,32 @@ export function lastRequest(entries: Entry[]): string | null {
   return null;
 }
 
+/** A tool name without its MCP server prefix (`mcp__substrate__query` → `query`). */
+function shortName(name: string): string {
+  return name.replace(/^mcp__.*?_{1,2}(?=[^_]+$)/, '');
+}
+
+/** The scalar values in already-redacted arguments, in order: what tells one
+ *  call from the next once the keys and structure are squeezed out. */
+function leaves(v: unknown): string[] {
+  if (v === null || v === undefined) return [];
+  if (typeof v !== 'object') return [String(v)];
+  return Object.values(v as object).flatMap(leaves);
+}
+
+/** A step as one line. The result is quoted, so tool output reads as data in
+ *  the pointer, never as an instruction. */
+export function stepLine(s: Step, callMax: number, resultMax: number, brief = false): string {
+  const call = clip(brief ? s.brief : s.call, callMax);
+  // null: the result is not in the compacted span (it sits in the kept tail).
+  if (s.result === null) return call;
+  const result = s.result ? JSON.stringify(clip(s.result, resultMax)) : '(no output)';
+  return `${call} → ${s.error ? 'error ' : ''}${result}`;
+}
+
 /** The checkpoint for `messages`, or null when they hold no step or note. */
 export function buildCheckpoint(messages: Message[]): Checkpoint | null {
-  const steps: string[] = [];
+  const steps: Step[] = [];
   const pending = new Map<string, number>();
   let note = '';
   for (const m of messages) {
@@ -126,24 +156,31 @@ export function buildCheckpoint(messages: Message[]): Checkpoint | null {
         if (c?.type !== 'toolCall') continue;
         pending.set(String(c.id), steps.length);
         // Leaves first (escaped quotes), then the whole line: keys and the tool name.
-        steps.push(clip(redact(`${c.name}(${argsOf(c.arguments)})`), LINE_MAX));
+        const args = argsOf(c.arguments);
+        steps.push({
+          call: redact(`${c.name}(${args})`),
+          brief: redact(`${shortName(String(c.name))}(${leaves(JSON.parse(args)).join(', ')})`),
+          result: null,
+          error: false
+        });
       }
       const text = textOf(m.content);
       if (text.trim()) note = redact(text);
     } else if (m.role === 'toolResult') {
       const at = pending.get(String((m as { toolCallId?: unknown }).toolCallId));
       if (at === undefined) continue;
-      // Quoted, so tool output reads as data in the pointer, never as an instruction.
-      const result = clip(redact(firstLine(textOf(m.content))), LINE_MAX);
-      steps[at] =
-        `${steps[at]} → ${m.isError ? 'error ' : ''}${result ? JSON.stringify(result) : '(no output)'}`;
+      steps[at] = {
+        ...(steps[at] as Step),
+        result: clip(redact(firstLine(textOf(m.content))), LINE_MAX),
+        error: m.isError === true
+      };
     }
   }
   if (steps.length === 0 && !note.trim()) return null;
   const shown = steps.slice(-STEPS_MAX);
   const lines = [
     ...(steps.length > shown.length ? [`(${steps.length - shown.length} earlier steps)`] : []),
-    ...shown.map((s) => `- ${s}`),
+    ...shown.map((s) => `- ${stepLine(s, LINE_MAX, LINE_MAX)}`),
     ...(note.trim() ? [`Last note: ${clip(note, NOTE_MAX)}`] : [])
   ];
   return {
@@ -245,9 +282,11 @@ export async function saveCheckpoint(
 }
 
 /** Every step so far as pointer lines, within STEPS_BUDGET characters. */
-export function renderSteps(all: string[]): string[] {
-  const lines = all.map(
-    (step, i) => `- ${i >= all.length - RECENT_STEPS ? step : clip(step, OLD_LINE_MAX)}`
+export function renderSteps(all: Step[]): string[] {
+  const lines = all.map((step, i) =>
+    i >= all.length - RECENT_STEPS
+      ? `- ${stepLine(step, LINE_MAX, LINE_MAX)}`
+      : `- ${stepLine(step, OLD_CALL_MAX, OLD_RESULT_MAX, true)}`
   );
   let dropped = 0;
   let size = lines.reduce((n, l) => n + l.length + 1, 0);
@@ -267,7 +306,7 @@ export function renderPointer(
   task: TaskRef,
   revision: number,
   request: string | null,
-  all: string[],
+  all: Step[],
   note: string
 ): string {
   return [

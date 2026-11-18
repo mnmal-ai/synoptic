@@ -3174,11 +3174,14 @@ function parseMaxBytes(raw) {
 const LINE_MAX = 160;
 const NOTE_MAX = 600;
 const REQUEST_MAX = 2e3;
-/** The pointer's step list: the newest RECENT_STEPS whole, older ones clipped
-*  to OLD_LINE_MAX, and the oldest counted once the list passes STEPS_BUDGET. */
-const RECENT_STEPS = 10;
-const OLD_LINE_MAX = 80;
-const STEPS_BUDGET = 3500;
+/** The pointer's step list: the newest RECENT_STEPS whole; older ones with the
+*  call squeezed to OLD_CALL_MAX and the result to OLD_RESULT_MAX, since after
+*  a cut a step's value is its outcome; the oldest counted once the list passes
+*  STEPS_BUDGET. */
+const RECENT_STEPS = 5;
+const OLD_CALL_MAX = 50;
+const OLD_RESULT_MAX = 70;
+const STEPS_BUDGET = 4500;
 const NEXT_ACTION = "Carry on with the request from where the steps above leave off; do not redo a step listed there.";
 /** Argument keys whose values are never saved. */
 const SECRET_KEY = /token|secret|passw|api[-_]?key|auth|cookie|credential|private/i;
@@ -3237,6 +3240,25 @@ function lastRequest(entries) {
 	}
 	return null;
 }
+/** A tool name without its MCP server prefix (`mcp__substrate__query` → `query`). */
+function shortName(name) {
+	return name.replace(/^mcp__.*?_{1,2}(?=[^_]+$)/, "");
+}
+/** The scalar values in already-redacted arguments, in order: what tells one
+*  call from the next once the keys and structure are squeezed out. */
+function leaves(v) {
+	if (v === null || v === void 0) return [];
+	if (typeof v !== "object") return [String(v)];
+	return Object.values(v).flatMap(leaves);
+}
+/** A step as one line. The result is quoted, so tool output reads as data in
+*  the pointer, never as an instruction. */
+function stepLine(s, callMax, resultMax, brief = false) {
+	const call = clip(brief ? s.brief : s.call, callMax);
+	if (s.result === null) return call;
+	const result = s.result ? JSON.stringify(clip(s.result, resultMax)) : "(no output)";
+	return `${call} → ${s.error ? "error " : ""}${result}`;
+}
 /** The checkpoint for `messages`, or null when they hold no step or note. */
 function buildCheckpoint(messages) {
 	const steps = [];
@@ -3246,22 +3268,31 @@ function buildCheckpoint(messages) {
 		for (const c of m.content) {
 			if (c?.type !== "toolCall") continue;
 			pending.set(String(c.id), steps.length);
-			steps.push(clip(redact(`${c.name}(${argsOf(c.arguments)})`), LINE_MAX));
+			const args = argsOf(c.arguments);
+			steps.push({
+				call: redact(`${c.name}(${args})`),
+				brief: redact(`${shortName(String(c.name))}(${leaves(JSON.parse(args)).join(", ")})`),
+				result: null,
+				error: false
+			});
 		}
 		const text = textOf(m.content);
 		if (text.trim()) note = redact(text);
 	} else if (m.role === "toolResult") {
 		const at = pending.get(String(m.toolCallId));
 		if (at === void 0) continue;
-		const result = clip(redact(firstLine(textOf(m.content))), LINE_MAX);
-		steps[at] = `${steps[at]} → ${m.isError ? "error " : ""}${result ? JSON.stringify(result) : "(no output)"}`;
+		steps[at] = {
+			...steps[at],
+			result: clip(redact(firstLine(textOf(m.content))), LINE_MAX),
+			error: m.isError === true
+		};
 	}
 	if (steps.length === 0 && !note.trim()) return null;
 	const shown = steps.slice(-30);
 	return {
 		completed: [
 			...steps.length > shown.length ? [`(${steps.length - shown.length} earlier steps)`] : [],
-			...shown.map((s) => `- ${s}`),
+			...shown.map((s) => `- ${stepLine(s, LINE_MAX, LINE_MAX)}`),
 			...note.trim() ? [`Last note: ${clip(note, NOTE_MAX)}`] : []
 		].join("\n"),
 		nextAction: NEXT_ACTION,
@@ -3338,7 +3369,7 @@ async function saveCheckpoint(a, task, cp, title) {
 }
 /** Every step so far as pointer lines, within STEPS_BUDGET characters. */
 function renderSteps(all) {
-	const lines = all.map((step, i) => `- ${i >= all.length - RECENT_STEPS ? step : clip(step, OLD_LINE_MAX)}`);
+	const lines = all.map((step, i) => i >= all.length - RECENT_STEPS ? `- ${stepLine(step, LINE_MAX, LINE_MAX)}` : `- ${stepLine(step, OLD_CALL_MAX, OLD_RESULT_MAX, true)}`);
 	let dropped = 0;
 	let size = lines.reduce((n, l) => n + l.length + 1, 0);
 	while (size > STEPS_BUDGET && dropped < lines.length - RECENT_STEPS) {

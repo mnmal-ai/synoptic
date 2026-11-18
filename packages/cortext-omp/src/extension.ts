@@ -38,6 +38,7 @@ import {
   lastRequest,
   type Message,
   renderPointer,
+  type Step,
   saveCheckpoint,
   type TaskRef
 } from './checkpoint.js';
@@ -163,7 +164,7 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   // shortcut: the session's Task lives in memory, so a restarted OMP opens a new Task; persist it in the session if that proves noisy.
   const tasks = new Map<string, TaskRef>();
   // Every step compacted so far, per session, so each pointer carries them all.
-  const history = new Map<string, string[]>();
+  const history = new Map<string, Step[]>();
   const compactOn = env.SYNOPTIC_OMP_COMPACT !== 'off';
 
   pi.on('before_agent_start', async (event, ctx) => {

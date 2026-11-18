@@ -13,7 +13,7 @@ import {
 const cp: Checkpoint = {
   completed: '- read(x) → ok',
   nextAction: NEXT_ACTION,
-  steps: ['read(x) → ok'],
+  steps: [{ call: 'read(x)', brief: 'read(x)', result: 'ok', error: false }],
   note: ''
 };
 const call = (id: string, name: string, args: object) => ({
@@ -106,6 +106,24 @@ describe('redact', () => {
   });
 });
 
+describe('step brief', () => {
+  it('names the tool without its server prefix and lists the argument values', () => {
+    const out = buildCheckpoint([
+      {
+        role: 'assistant',
+        content: [
+          call('a', 'mcp__substrate__query', {
+            i: 'log 1202',
+            where: { shortId: { eq: 1202 } },
+            password: 'p'
+          })
+        ]
+      }
+    ]);
+    expect(out?.steps[0]?.brief).toBe('query(log 1202, 1202, [redacted])');
+  });
+});
+
 describe('lastRequest', () => {
   it('takes the newest user message on the branch', () => {
     const user = (text: string) => ({ type: 'message', message: { role: 'user', content: text } });
@@ -172,27 +190,40 @@ describe('renderPointer', () => {
       { id: 'u1', shortId: 7, title: 'T' },
       3,
       'sum them',
-      ['a() → "1"', 'b() → "2"'],
+      [
+        { call: 'a()', brief: 'a()', result: '1', error: false },
+        { call: 'b()', brief: 'b()', result: null, error: false }
+      ],
       'half way'
     );
     expect(out).toContain('(saved as Task #7, revision 3)');
     expect(out).toContain('Request: sum them');
     expect(out).toContain('Steps done so far: 2');
-    expect(out).toContain('- a() → "1"\n- b() → "2"\nLast note: half way');
+    expect(out).toContain('- a() → "1"\n- b()\nLast note: half way');
     expect(out).toContain(`Next: ${NEXT_ACTION}`);
   });
 });
 
 describe('renderSteps', () => {
-  it('keeps the newest whole, clips older ones and counts what the budget drops', () => {
-    const all = Array.from({ length: 200 }, (_, i) => `s${i}(${'x'.repeat(150)})`);
+  const step = (i: number) => ({
+    call: `query(${JSON.stringify({ i: `Reading session log ${i}`, pad: 'x'.repeat(120) })})`,
+    brief: `query(Reading session log ${i}, ${'x'.repeat(120)})`,
+    result: `{"decisionsCount":${i % 3},"pad":"${'y'.repeat(150)}"}`,
+    error: false
+  });
+  it('keeps the newest whole, keeps older outcomes, and counts what the budget drops', () => {
+    const all = Array.from({ length: 200 }, (_, i) => step(i));
     const out = renderSteps(all);
     expect(out[0]).toMatch(/^\(\d+ earliest steps not listed\)$/);
-    expect(out.at(-1)).toBe(`- ${all[199]}`);
-    expect(out.at(-11)?.length).toBeLessThanOrEqual(82);
-    expect(out.join('\n').length).toBeLessThan(3600);
+    expect(out.at(-1)).toContain('Reading session log 199');
+    expect(out.at(-6)).toMatch(
+      /^- query\(Reading session log 194, x+… → "\{\\"decisionsCount\\":\d/
+    );
+    expect(out.join('\n').length).toBeLessThan(4600);
   });
   it('lists everything when it fits', () => {
-    expect(renderSteps(['a', 'b'])).toEqual(['- a', '- b']);
+    expect(renderSteps([{ call: 'a', brief: 'a', result: 'b', error: true }])).toEqual([
+      '- a → error "b"'
+    ]);
   });
 });
