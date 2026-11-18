@@ -248,7 +248,9 @@ async function createTask(a: Access, title: string): Promise<TaskRef | null> {
     a.substrateUrl,
     {
       [key]: {
-        params: { title, project: a.project },
+        // Paused, never active: the cold-start lists active Tasks for any session to
+        // resume, and a skin Task only means something inside its own session.
+        params: { title, project: a.project, status: 'paused' },
         fields: { id: true, shortId: true, title: true }
       }
     },

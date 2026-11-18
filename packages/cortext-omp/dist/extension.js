@@ -3340,7 +3340,8 @@ async function createTask(a, title) {
 	const row = (await substrateMutate(a.substrateUrl, { [key]: {
 		params: {
 			title,
-			project: a.project
+			project: a.project,
+			status: "paused"
 		},
 		fields: {
 			id: true,

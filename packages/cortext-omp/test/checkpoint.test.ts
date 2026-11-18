@@ -155,6 +155,7 @@ function server(answer: (key: string, params: Record<string, unknown>) => object
 describe('saveCheckpoint', () => {
   it('creates the Task, then writes revision one above the latest', async () => {
     const s = server((key, params) => {
+      if (key === 'cortext/createTask') expect(params.status).toBe('paused');
       if (key === 'cortext/createTask')
         return { data: { [key]: { id: 'u1', shortId: 7, title: params.title } } };
       if (key === 'cortext/ExecutionCheckpoint') return { data: { [key]: [{ revision: 2 }] } };
