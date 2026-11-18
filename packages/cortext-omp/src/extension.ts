@@ -228,7 +228,8 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
             },
             tasks.get(id) ?? null,
             cp,
-            (request ?? `OMP session ${id.slice(0, 8)}`).slice(0, 120)
+            // Not the request: a Task title is readable by every agent in the namespace.
+            `OMP session ${id.slice(0, 8)}`
           ),
         SAVE_TIMEOUT_MS,
         null

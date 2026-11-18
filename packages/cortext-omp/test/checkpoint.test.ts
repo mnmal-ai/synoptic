@@ -4,6 +4,7 @@ import {
   type Checkpoint,
   lastRequest,
   NEXT_ACTION,
+  redact,
   renderPointer,
   saveCheckpoint
 } from '../src/checkpoint.js';
@@ -41,7 +42,7 @@ describe('buildCheckpoint', () => {
       } as never
     ]);
     expect(out?.completed).toBe(
-      '- query({"id":1}) → 42 rows\n- read({"p":"f"}) → error: ENOENT\nLast note: total so far 42'
+      '- query({"id":1}) → "42 rows"\n- read({"p":"f"}) → error "ENOENT"\nLast note: total so far 42'
     );
     expect(out?.nextAction).toBe(NEXT_ACTION);
   });
@@ -59,6 +60,20 @@ describe('buildCheckpoint', () => {
 
   it('is null with no step and no note', () => {
     expect(buildCheckpoint([{ role: 'user', content: 'hi' }])).toBeNull();
+  });
+});
+
+describe('redact', () => {
+  it('masks secret-shaped text and secret-named arguments', () => {
+    expect(redact('curl -H "Authorization: Bearer abc.def" x')).toBe(
+      'curl -H "Authorization: [redacted]" x'
+    );
+    expect(redact('use ghp_abcdefghijklmnop now')).toBe('use [redacted] now');
+    expect(redact('API_TOKEN=s3cr3t ok')).toBe('API_TOKEN=[redacted] ok');
+    const out = buildCheckpoint([
+      { role: 'assistant', content: [call('a', 'login', { user: 'u', password: 'hunter2' })] }
+    ]);
+    expect(out?.completed).toBe('- login({"user":"u","password":"[redacted]"})');
   });
 });
 
