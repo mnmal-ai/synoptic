@@ -37,6 +37,7 @@ import {
   type Entry,
   lastRequest,
   type Message,
+  mergeSteps,
   renderPointer,
   type Step,
   saveCheckpoint,
@@ -220,7 +221,7 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       const id = ctx.sessionManager.getSessionId();
       const request = lastRequest(event.branchEntries);
       // Appended whether or not this save lands: the steps happened either way.
-      const all = [...(history.get(id) ?? []), ...cp.steps];
+      const all = mergeSteps(history.get(id) ?? [], cp.steps);
       history.set(id, all);
       const namespace = env.SUBSTRATE_NAMESPACE ?? 'cortext';
       const saved = await bounded(
