@@ -7,6 +7,7 @@ import {
   redact,
   renderPointer,
   renderSteps,
+  resultText,
   saveCheckpoint
 } from '../src/checkpoint.js';
 
@@ -204,11 +205,41 @@ describe('renderPointer', () => {
   });
 });
 
+/** A substrate MCP query result as it really arrives: the envelope on one line. */
+const envelope = (id: number) =>
+  JSON.stringify({
+    schemaVersion: '19bb7e12f068',
+    data: {
+      'cortext/SessionLog': [
+        {
+          shortId: id,
+          startedAt: '2026-10-25T00:00:00Z',
+          decisionsCount: id % 3,
+          summary: `Opened PR #85 for the thing ${'and more '.repeat(20)}`
+        }
+      ]
+    },
+    shapes: { 'cortext/SessionLog': 'list' }
+  });
+
+describe('resultText', () => {
+  it('flattens a JSON envelope to its leaves, short values first', () => {
+    expect(resultText(envelope(1202))).toBe(
+      'shortId=1202 decisionsCount=2 startedAt=2026-10-25T00:00:00Z summary=Opened PR #85 for the thing and more an…'
+    );
+  });
+  it('masks secret-named keys and keeps plain text to its first line', () => {
+    expect(resultText('{"user":"u","apiToken":"t"}')).toBe('user=u apiToken=[redacted]');
+    expect(resultText('\nfirst\nsecond')).toBe('first');
+    expect(resultText('42')).toBe('42');
+  });
+});
+
 describe('renderSteps', () => {
   const step = (i: number) => ({
     call: `query(${JSON.stringify({ i: `Reading session log ${i}`, pad: 'x'.repeat(120) })})`,
     brief: `query(Reading session log ${i}, ${'x'.repeat(120)})`,
-    result: `{"decisionsCount":${i % 3},"pad":"${'y'.repeat(150)}"}`,
+    result: resultText(envelope(i)),
     error: false
   });
   it('keeps the newest whole, keeps older outcomes, and counts what the budget drops', () => {
@@ -217,7 +248,7 @@ describe('renderSteps', () => {
     expect(out[0]).toMatch(/^\(\d+ earliest steps not listed\)$/);
     expect(out.at(-1)).toContain('Reading session log 199');
     expect(out.at(-6)).toMatch(
-      /^- query\(Reading session log 194, x+… → "\{\\"decisionsCount\\":\d/
+      /^- query\(Reading session log 194, x+… → "shortId=194 decisionsCount=2 /
     );
     expect(out.join('\n').length).toBeLessThan(4600);
   });

@@ -135,6 +135,48 @@ function leaves(v: unknown): string[] {
   return Object.values(v as object).flatMap(leaves);
 }
 
+/** Envelope keys that say nothing about the outcome. */
+const ENVELOPE_KEYS = new Set(['schemaVersion', 'shapes', '_pagination', '_diagnostics']);
+/** Leaf values up to SHORT_VALUE characters are listed first; any leaf is
+ *  clipped to LEAF_MAX. */
+const SHORT_VALUE = 16;
+const LEAF_MAX = 40;
+
+/** `key=value` for each leaf, keyed by its own name, envelope keys dropped. */
+function pairs(v: unknown, key: string): Array<[string, string]> {
+  if (v === null || v === undefined) return [];
+  if (Array.isArray(v)) return v.flatMap((x) => pairs(x, key));
+  if (typeof v === 'object') {
+    return Object.entries(v as object)
+      .filter(([k]) => !ENVELOPE_KEYS.has(k))
+      .flatMap(([k, x]) => pairs(x, k));
+  }
+  return [[key, String(v)]];
+}
+
+/**
+ * A tool result as one line. A JSON result (an MCP envelope, say) becomes its
+ * leaf values as `key=value`, short values first and long strings clipped, so
+ * the fields that matter survive a tight clip; secret-named keys are masked
+ * first. Anything else is its first non-empty line.
+ */
+export function resultText(text: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return firstLine(text);
+  }
+  if (parsed === null || typeof parsed !== 'object') return firstLine(text);
+  const all = pairs(JSON.parse(argsOf(parsed)), '');
+  // Counts, ids and flags first; dates and prose after, where a clip lands.
+  const ordered = [
+    ...all.filter(([, v]) => v.length <= SHORT_VALUE),
+    ...all.filter(([, v]) => v.length > SHORT_VALUE)
+  ];
+  return ordered.map(([k, v]) => (k ? `${k}=${clip(v, LEAF_MAX)}` : clip(v, LEAF_MAX))).join(' ');
+}
+
 /** A step as one line. The result is quoted, so tool output reads as data in
  *  the pointer, never as an instruction. */
 export function stepLine(s: Step, callMax: number, resultMax: number, brief = false): string {
@@ -171,7 +213,7 @@ export function buildCheckpoint(messages: Message[]): Checkpoint | null {
       if (at === undefined) continue;
       steps[at] = {
         ...(steps[at] as Step),
-        result: clip(redact(firstLine(textOf(m.content))), LINE_MAX),
+        result: clip(redact(resultText(textOf(m.content))), LINE_MAX),
         error: m.isError === true
       };
     }

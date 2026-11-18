@@ -3251,6 +3251,41 @@ function leaves(v) {
 	if (typeof v !== "object") return [String(v)];
 	return Object.values(v).flatMap(leaves);
 }
+/** Envelope keys that say nothing about the outcome. */
+const ENVELOPE_KEYS = /* @__PURE__ */ new Set([
+	"schemaVersion",
+	"shapes",
+	"_pagination",
+	"_diagnostics"
+]);
+/** Leaf values up to SHORT_VALUE characters are listed first; any leaf is
+*  clipped to LEAF_MAX. */
+const SHORT_VALUE = 16;
+const LEAF_MAX = 40;
+/** `key=value` for each leaf, keyed by its own name, envelope keys dropped. */
+function pairs(v, key) {
+	if (v === null || v === void 0) return [];
+	if (Array.isArray(v)) return v.flatMap((x) => pairs(x, key));
+	if (typeof v === "object") return Object.entries(v).filter(([k]) => !ENVELOPE_KEYS.has(k)).flatMap(([k, x]) => pairs(x, k));
+	return [[key, String(v)]];
+}
+/**
+* A tool result as one line. A JSON result (an MCP envelope, say) becomes its
+* leaf values as `key=value`, short values first and long strings clipped, so
+* the fields that matter survive a tight clip; secret-named keys are masked
+* first. Anything else is its first non-empty line.
+*/
+function resultText(text) {
+	let parsed;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return firstLine(text);
+	}
+	if (parsed === null || typeof parsed !== "object") return firstLine(text);
+	const all = pairs(JSON.parse(argsOf(parsed)), "");
+	return [...all.filter(([, v]) => v.length <= SHORT_VALUE), ...all.filter(([, v]) => v.length > SHORT_VALUE)].map(([k, v]) => k ? `${k}=${clip(v, LEAF_MAX)}` : clip(v, LEAF_MAX)).join(" ");
+}
 /** A step as one line. The result is quoted, so tool output reads as data in
 *  the pointer, never as an instruction. */
 function stepLine(s, callMax, resultMax, brief = false) {
@@ -3283,7 +3318,7 @@ function buildCheckpoint(messages) {
 		if (at === void 0) continue;
 		steps[at] = {
 			...steps[at],
-			result: clip(redact(firstLine(textOf(m.content))), LINE_MAX),
+			result: clip(redact(resultText(textOf(m.content))), LINE_MAX),
 			error: m.isError === true
 		};
 	}
