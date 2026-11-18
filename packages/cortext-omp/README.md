@@ -2,7 +2,7 @@
 
 The OMP (oh-my-pi) skin for Cortext. An OMP extension that:
 
-- appends the synoptic cold-start (the rule index, the pointers, the session line and the inbox) to the system prompt at `before_agent_start`, and on later prompts adds a one-line unread-mail summary
+- appends the synoptic cold-start (a line keeping Substrate access to the MCP tools, the rule index, the pointers, the session line and the inbox) to the system prompt at `before_agent_start`, and on later prompts adds a one-line unread-mail summary
 - continues a turn once at `session_stop` when unread agent mail is waiting
 - compacts into Substrate: at every compaction, mid-turn included, it saves the steps being compacted away (each tool call with a one-line result, and the model's last note) as a `cortext/ExecutionCheckpoint` under the session's `cortext/Task`, and replaces OMP's summary with a pointer carrying the request and those steps
 

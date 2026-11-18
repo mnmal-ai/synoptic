@@ -99,6 +99,12 @@ const OWN_VERSION: string | null = (() => {
   }
 })();
 
+/** Leads the cold-start: small models abandon a tool after one rejected call. */
+const MCP_ONLY =
+  'Substrate access: use only the substrate MCP tools (query, mutate, recall, schema, run). ' +
+  'When a call is rejected, read the error, fix the payload and call the same tool again. ' +
+  'Never import the Substrate SDK, read a key file or hand-sign HTTP requests.\n\n';
+
 function offlineNote(env: NodeJS.ProcessEnv): string {
   if (!env.SUBSTRATE_URL) return '<!-- synoptic cold-start skipped: SUBSTRATE_URL not set -->\n';
   return '<!-- synoptic cold-start unavailable (timeout or unreachable Substrate) -->\n';
@@ -153,7 +159,7 @@ async function renderColdStart(
   });
   // It rides in the system prompt of every request, so the byte cap matters.
   return truncateToBudget(
-    (auth.warning ?? '') + doc,
+    (auth.warning ?? '') + MCP_ONLY + doc,
     parseMaxBytes(env.SYNOPTIC_COLD_START_MAX_BYTES)
   );
 }
