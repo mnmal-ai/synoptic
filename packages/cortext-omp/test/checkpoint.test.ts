@@ -6,10 +6,16 @@ import {
   NEXT_ACTION,
   redact,
   renderPointer,
+  renderSteps,
   saveCheckpoint
 } from '../src/checkpoint.js';
 
-const cp: Checkpoint = { completed: '- read(x) → ok', nextAction: NEXT_ACTION };
+const cp: Checkpoint = {
+  completed: '- read(x) → ok',
+  nextAction: NEXT_ACTION,
+  steps: ['read(x) → ok'],
+  note: ''
+};
 const call = (id: string, name: string, args: object) => ({
   type: 'toolCall',
   id,
@@ -160,11 +166,32 @@ describe('saveCheckpoint', () => {
 });
 
 describe('renderPointer', () => {
-  it('carries the request, the steps and where earlier revisions are', () => {
-    const out = renderPointer({ id: 'u1', shortId: 7, title: 'T' }, 3, 'sum them', cp);
+  it('carries the request, every step so far and the last note', () => {
+    const out = renderPointer(
+      { id: 'u1', shortId: 7, title: 'T' },
+      3,
+      'sum them',
+      ['a() → "1"', 'b() → "2"'],
+      'half way'
+    );
+    expect(out).toContain('(saved as Task #7, revision 3)');
     expect(out).toContain('Request: sum them');
-    expect(out).toContain('(Task #7, checkpoint revision 3; revisions 1–2 hold earlier ones)');
-    expect(out).toContain('- read(x) → ok');
+    expect(out).toContain('Steps done so far: 2');
+    expect(out).toContain('- a() → "1"\n- b() → "2"\nLast note: half way');
     expect(out).toContain(`Next: ${NEXT_ACTION}`);
+  });
+});
+
+describe('renderSteps', () => {
+  it('keeps the newest whole, clips older ones and counts what the budget drops', () => {
+    const all = Array.from({ length: 200 }, (_, i) => `s${i}(${'x'.repeat(150)})`);
+    const out = renderSteps(all);
+    expect(out[0]).toMatch(/^\(\d+ earliest steps not listed\)$/);
+    expect(out.at(-1)).toBe(`- ${all[199]}`);
+    expect(out.at(-11)?.length).toBeLessThanOrEqual(82);
+    expect(out.join('\n').length).toBeLessThan(3600);
+  });
+  it('lists everything when it fits', () => {
+    expect(renderSteps(['a', 'b'])).toEqual(['- a', '- b']);
   });
 });

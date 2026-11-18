@@ -162,6 +162,8 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   const nudged = new Map<string, Set<string>>();
   // shortcut: the session's Task lives in memory, so a restarted OMP opens a new Task; persist it in the session if that proves noisy.
   const tasks = new Map<string, TaskRef>();
+  // Every step compacted so far, per session, so each pointer carries them all.
+  const history = new Map<string, string[]>();
   const compactOn = env.SYNOPTIC_OMP_COMPACT !== 'off';
 
   pi.on('before_agent_start', async (event, ctx) => {
@@ -216,6 +218,9 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       if (cp === null) return undefined;
       const id = ctx.sessionManager.getSessionId();
       const request = lastRequest(event.branchEntries);
+      // Appended whether or not this save lands: the steps happened either way.
+      const all = [...(history.get(id) ?? []), ...cp.steps];
+      history.set(id, all);
       const namespace = env.SUBSTRATE_NAMESPACE ?? 'cortext';
       const saved = await bounded(
         () =>
@@ -238,7 +243,7 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       tasks.set(id, saved.task);
       return {
         compaction: {
-          summary: renderPointer(saved.task, saved.revision, request, cp),
+          summary: renderPointer(saved.task, saved.revision, request, all, cp.note),
           firstKeptEntryId: preparation.firstKeptEntryId,
           tokensBefore: preparation.tokensBefore
         }
