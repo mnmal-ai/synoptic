@@ -74,7 +74,7 @@ describe('redact', () => {
     expect(redact('curl -H "Authorization: Bearer abc.def" x')).not.toContain('abc.def');
     expect(redact('use ghp_abcdefghijklmnop now')).toBe('use [redacted] now');
     expect(redact('API_TOKEN=s3cr3t ok')).toBe('API_TOKEN=[redacted] ok');
-    expect(redact('-H "X: Basic dXNlcjpwYXNz"')).toBe('-H "X: Basic [redacted]"');
+    expect(redact('-H "X: Basic not-a-credential"')).toBe('-H "X: Basic [redacted]"');
     expect(redact('git clone https://me:pw@host/r')).toBe('git clone https://[redacted]@host/r');
     expect(redact('curl -u me:pw x')).toBe('curl -u [redacted] x');
     const escaped = buildCheckpoint([
