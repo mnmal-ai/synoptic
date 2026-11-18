@@ -3180,8 +3180,9 @@ const REQUEST_MAX = 2e3;
 *  facts); the oldest dropped only once the list passes STEPS_BUDGET. */
 const RECENT_STEPS = 5;
 const OLD_CLIP = 40;
-const STEPS_BUDGET = 4500;
-const NEXT_ACTION = "Carry on with the request from where the steps above leave off; do not redo a step listed there.";
+const HINT_MAX = 30;
+const STEPS_BUDGET = 5500;
+const NEXT_ACTION = "Compare the request with the steps above: do only what the request names that the steps do not show, and when nothing remains, give the answer.";
 /** Argument keys whose values are never saved. */
 const SECRET_KEY = /token|secret|passw|api[-_]?key|auth|cookie|credential|private/i;
 /** Known-safe names the substring match would mask, each only for the value
@@ -3304,9 +3305,11 @@ function stepLine(s, callMax, resultMax, brief = false) {
 function times(s) {
 	return s.count > 1 ? ` ×${s.count}` : "";
 }
-/** An older step: the tool and its result's short facts, else a short brief. */
+/** An older step: the tool, a short hint of what it was for, and its result's
+*  short facts (the hint keeps facts attributable when a result omits its key),
+*  else a short brief. */
 function olderLine(s) {
-	if (s.facts && !s.error) return `${s.tool} → ${JSON.stringify(s.facts)}${times(s)}`;
+	if (s.facts && !s.error) return `${s.tool}(${clip(s.hint, HINT_MAX)}) → ${JSON.stringify(s.facts)}${times(s)}`;
 	return stepLine(s, OLD_CLIP, OLD_CLIP, true);
 }
 /**
@@ -3317,11 +3320,11 @@ function olderLine(s) {
 */
 function mergeSteps(prev, next) {
 	const out = [...prev];
-	const at = new Map(out.map((s, i) => [s.call, i]));
+	const at = new Map(out.map((s, i) => [s.key, i]));
 	for (const s of next) {
-		const i = at.get(s.call);
+		const i = at.get(s.key);
 		if (i === void 0) {
-			at.set(s.call, out.length);
+			at.set(s.key, out.length);
 			out.push(s);
 			continue;
 		}
@@ -3346,11 +3349,15 @@ function buildCheckpoint(messages) {
 			if (c?.type !== "toolCall") continue;
 			pending.set(String(c.id), calls.length);
 			const args = argsOf(c.arguments);
+			const parsed = JSON.parse(args);
+			const { i: intent, ...rest } = parsed && typeof parsed === "object" ? parsed : {};
 			const tool = redact(shortName(String(c.name)));
 			calls.push({
 				call: redact(`${c.name}(${args})`),
-				brief: redact(`${tool}(${leaves(JSON.parse(args)).join(", ")})`),
+				brief: redact(`${tool}(${leaves(parsed).join(", ")})`),
 				tool,
+				hint: redact(typeof intent === "string" && intent.trim() ? intent : leaves(rest).join(", ")),
+				key: redact(`${c.name}(${JSON.stringify(rest)})`),
 				result: null,
 				facts: "",
 				error: false,
