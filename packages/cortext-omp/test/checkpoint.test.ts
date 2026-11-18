@@ -3,18 +3,31 @@ import {
   buildCheckpoint,
   type Checkpoint,
   lastRequest,
+  mergeSteps,
   NEXT_ACTION,
   redact,
   renderPointer,
   renderSteps,
+  resultFacts,
   resultText,
+  type Step,
   saveCheckpoint
 } from '../src/checkpoint.js';
+
+const mk = (s: Partial<Step> & { call: string }): Step => ({
+  brief: s.call,
+  tool: s.call.split('(')[0] as string,
+  result: null,
+  facts: '',
+  error: false,
+  count: 1,
+  ...s
+});
 
 const cp: Checkpoint = {
   completed: '- read(x) → ok',
   nextAction: NEXT_ACTION,
-  steps: [{ call: 'read(x)', brief: 'read(x)', result: 'ok', error: false }],
+  steps: [mk({ call: 'read(x)', result: 'ok' })],
   note: ''
 };
 const call = (id: string, name: string, args: object) => ({
@@ -192,15 +205,12 @@ describe('renderPointer', () => {
       { id: 'u1', shortId: 7, title: 'T' },
       3,
       'sum them',
-      [
-        { call: 'a()', brief: 'a()', result: '1', error: false },
-        { call: 'b()', brief: 'b()', result: null, error: false }
-      ],
+      [mk({ call: 'a()', result: '1' }), mk({ call: 'b()', count: 2 })],
       'half way'
     );
     expect(out).toContain('(saved as Task #7, revision 3)');
     expect(out).toContain('Request: sum them');
-    expect(out).toContain('Steps done so far: 2');
+    expect(out).toContain('Steps done so far: 2 distinct (3 calls;');
     expect(out).toContain('- a() → "1"\n- b()\nLast note: half way');
     expect(out).toContain(`Next: ${NEXT_ACTION}`);
   });
@@ -236,26 +246,51 @@ describe('resultText', () => {
   });
 });
 
-describe('renderSteps', () => {
-  const step = (i: number) => ({
-    call: `query(${JSON.stringify({ i: `Reading session log ${i}`, pad: 'x'.repeat(120) })})`,
-    brief: `query(Reading session log ${i}, ${'x'.repeat(120)})`,
-    result: resultText(envelope(i)),
-    error: false
-  });
-  it('keeps the newest whole, keeps older outcomes, and counts what the budget drops', () => {
-    const all = Array.from({ length: 200 }, (_, i) => step(i));
-    const out = renderSteps(all);
-    expect(out[0]).toMatch(/^\(\d+ earliest steps not listed\)$/);
-    expect(out.at(-1)).toContain('Reading session log 199');
-    expect(out.at(-6)).toMatch(
-      /^- query\(Reading session log 194, x+… → "shortId=194 decisionsCount=2 /
+describe('mergeSteps', () => {
+  it('folds a repeated call into its step, keeping its place and the latest result', () => {
+    const merged = mergeSteps(
+      [mk({ call: 'q(1)', result: 'old' }), mk({ call: 'q(2)', result: 'x' })],
+      [mk({ call: 'q(1)', result: 'new' }), mk({ call: 'q(3)' }), mk({ call: 'q(1)' })]
     );
+    expect(merged.map((s) => [s.call, s.result, s.count])).toEqual([
+      ['q(1)', 'new', 3],
+      ['q(2)', 'x', 1],
+      ['q(3)', null, 1]
+    ]);
+  });
+  it('dedupes within one compaction too', () => {
+    const out = buildCheckpoint([
+      { role: 'assistant', content: [call('a', 'read', { p: 1 }), call('b', 'read', { p: 1 })] }
+    ]);
+    expect(out?.steps).toHaveLength(1);
+    expect(out?.steps[0]?.count).toBe(2);
+  });
+});
+
+describe('renderSteps', () => {
+  const step = (i: number) =>
+    mk({
+      call: `query(${JSON.stringify({ i: `Reading session log ${i}`, pad: 'x'.repeat(120) })})`,
+      brief: `query(Reading session log ${i}, ${'x'.repeat(120)})`,
+      tool: 'query',
+      result: resultText(envelope(i)),
+      facts: resultFacts(envelope(i))
+    });
+  it('lists 48 real-shaped reads whole: older ones as their facts', () => {
+    const out = renderSteps(Array.from({ length: 48 }, (_, i) => step(1200 + i)));
+    expect(out).toHaveLength(48);
+    expect(out[0]).toBe('- query → "shortId=1200 decisionsCount=0"');
+    expect(out.at(-1)).toContain('Reading session log 1247');
     expect(out.join('\n').length).toBeLessThan(4600);
   });
+  it('drops the oldest only past the budget, and says where the list starts', () => {
+    const out = renderSteps(Array.from({ length: 300 }, (_, i) => step(i)));
+    expect(out[0]).toMatch(
+      /^\(\d+ earliest steps not listed; first listed: query\(Reading session log \d+, x+…\)$/
+    );
+    expect(out.join('\n').length).toBeLessThan(4700);
+  });
   it('lists everything when it fits', () => {
-    expect(renderSteps([{ call: 'a', brief: 'a', result: 'b', error: true }])).toEqual([
-      '- a → error "b"'
-    ]);
+    expect(renderSteps([mk({ call: 'a', result: 'b', error: true })])).toEqual(['- a → error "b"']);
   });
 });
