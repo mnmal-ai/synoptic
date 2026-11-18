@@ -17,6 +17,8 @@ import {
 const mk = (s: Partial<Step> & { call: string }): Step => ({
   brief: s.call,
   tool: s.call.split('(')[0] as string,
+  hint: s.call,
+  key: s.call,
   result: null,
   facts: '',
   error: false,
@@ -70,12 +72,12 @@ describe('buildCheckpoint', () => {
   it('lists the last 30 steps and counts the rest', () => {
     const msgs = Array.from({ length: 35 }, (_, i) => ({
       role: 'assistant',
-      content: [call(String(i), 't', { i })]
+      content: [call(String(i), 't', { n: i })]
     }));
     const lines = buildCheckpoint(msgs)?.completed.split('\n') ?? [];
     expect(lines[0]).toBe('(5 earlier steps)');
     expect(lines).toHaveLength(31);
-    expect(lines[30]).toBe('- t({"i":34})');
+    expect(lines[30]).toBe('- t({"n":34})');
   });
 
   it('is null with no step and no note', () => {
@@ -258,6 +260,39 @@ describe('mergeSteps', () => {
       ['q(3)', null, 1]
     ]);
   });
+  it('dedupes calls whose only difference is the reworded intent', () => {
+    const out = buildCheckpoint([
+      {
+        role: 'assistant',
+        content: [
+          call('a', 'query', { i: 'Reading log 7', id: 7 }),
+          call('b', 'query', { i: 'Re-reading SessionLog 7', id: 7 })
+        ]
+      }
+    ]);
+    expect(out?.steps).toHaveLength(1);
+    expect(out?.steps[0]?.count).toBe(2);
+  });
+
+  it('keeps a result attributable when it omits its key: the intent rides as the hint', () => {
+    const out = buildCheckpoint([
+      {
+        role: 'assistant',
+        content: [call('a', 'query', { i: 'SessionLog 1241 decisions', id: 1241 })]
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'a',
+        content: [{ type: 'text', text: '{"decisionsCount":0}' }]
+      } as never
+    ]);
+    const lines = renderSteps([
+      ...(out?.steps ?? []),
+      ...Array.from({ length: 5 }, (_, n) => mk({ call: `x(${n})` }))
+    ]);
+    expect(lines[0]).toBe('- query(SessionLog 1241 decisions) → "decisionsCount=0"');
+  });
+
   it('dedupes within one compaction too', () => {
     const out = buildCheckpoint([
       { role: 'assistant', content: [call('a', 'read', { p: 1 }), call('b', 'read', { p: 1 })] }
@@ -273,13 +308,14 @@ describe('renderSteps', () => {
       call: `query(${JSON.stringify({ i: `Reading session log ${i}`, pad: 'x'.repeat(120) })})`,
       brief: `query(Reading session log ${i}, ${'x'.repeat(120)})`,
       tool: 'query',
+      hint: `Reading session log ${i}`,
       result: resultText(envelope(i)),
       facts: resultFacts(envelope(i))
     });
   it('lists 48 real-shaped reads whole: older ones as their facts', () => {
     const out = renderSteps(Array.from({ length: 48 }, (_, i) => step(1200 + i)));
     expect(out).toHaveLength(48);
-    expect(out[0]).toBe('- query → "shortId=1200 decisionsCount=0"');
+    expect(out[0]).toBe('- query(Reading session log 1200) → "shortId=1200 decisionsCount=0"');
     expect(out.at(-1)).toContain('Reading session log 1247');
     expect(out.join('\n').length).toBeLessThan(4600);
   });
@@ -288,7 +324,7 @@ describe('renderSteps', () => {
     expect(out[0]).toMatch(
       /^\(\d+ earliest steps not listed; first listed: query\(Reading session log \d+, x+…\)$/
     );
-    expect(out.join('\n').length).toBeLessThan(4700);
+    expect(out.join('\n').length).toBeLessThan(5700);
   });
   it('lists everything when it fits', () => {
     expect(renderSteps([mk({ call: 'a', result: 'b', error: true })])).toEqual(['- a → error "b"']);
