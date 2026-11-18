@@ -12,6 +12,11 @@
 //   with the unread-mail reason. `stop_hook_active` bounds it to one
 //   continuation per user prompt, and each message id nudges only once.
 //
+// - `session_before_compact` (every compaction, mid-turn included) saves the
+//   steps being compacted away as an ExecutionCheckpoint and replaces OMP's
+//   summary with a pointer at it. With no acknowledged write, OMP compacts as
+//   it would without us.
+//
 // Not here yet: the push watcher (mid-turn mail), the conventions text (about
 // 6k tokens, more than a small local model's whole first call), commands and
 // tools. Identity and endpoint come from the launching env: SUBSTRATE_URL,
@@ -27,6 +32,16 @@ import { readOrNull } from '../../synoptic/src/fs-safe.js';
 import { inboxStopNudge, promptHookContext } from '../../synoptic/src/inbox-hooks.js';
 import { projectSlug, sessionRoot } from '../../synoptic/src/scope.js';
 import { parseMaxBytes, SESSION_START_BUDGET_MS } from '../../synoptic/src/session-start.js';
+import {
+  buildCheckpoint,
+  type Entry,
+  lastRequest,
+  type Message,
+  renderPointer,
+  type Step,
+  saveCheckpoint,
+  type TaskRef
+} from './checkpoint.js';
 
 /** The slice of OMP's ExtensionAPI this skin uses, typed locally so the
  *  build needs no OMP package (it ships TS source that imports Bun). */
@@ -34,6 +49,18 @@ export type OmpContext = { cwd: string; sessionManager: { getSessionId(): string
 type BeforeAgentStart = { reason: 'prompt' | 'revive'; systemPrompt: string[] };
 type SessionStop = { stop_hook_active: boolean };
 type StopResult = { continue: true; additionalContext: string };
+type BeforeCompact = {
+  preparation: {
+    firstKeptEntryId: string;
+    tokensBefore: number;
+    messagesToSummarize: Message[];
+    turnPrefixMessages: Message[];
+  };
+  branchEntries: Entry[];
+};
+type CompactResult = {
+  compaction: { summary: string; firstKeptEntryId: string; tokensBefore: number };
+};
 export type OmpApi = {
   on(
     event: 'before_agent_start',
@@ -46,10 +73,17 @@ export type OmpApi = {
     event: 'session_stop',
     handler: (event: SessionStop, ctx: OmpContext) => Promise<StopResult | undefined>
   ): void;
+  on(
+    event: 'session_before_compact',
+    handler: (event: BeforeCompact, ctx: OmpContext) => Promise<CompactResult | undefined>
+  ): void;
 };
 
 /** An inbox read at a prompt or a stop loses its line, never the turn. */
 const INBOX_TIMEOUT_MS = 3000;
+
+/** Under OMP's 30 s handler timeout, with room for the fallback to start. */
+const SAVE_TIMEOUT_MS = 20_000;
 
 const NUDGE_HEADER =
   '[Automated end-of-turn check by the cortext extension. This is NOT a message from the user.]';
@@ -127,6 +161,11 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   // A promise per session, so overlapping preparations share one render.
   const renders = new Map<string, Promise<string>>();
   const nudged = new Map<string, Set<string>>();
+  // shortcut: the session's Task lives in memory, so a restarted OMP opens a new Task; persist it in the session if that proves noisy.
+  const tasks = new Map<string, TaskRef>();
+  // Every step compacted so far, per session, so each pointer carries them all.
+  const history = new Map<string, Step[]>();
+  const compactOn = env.SYNOPTIC_OMP_COMPACT !== 'off';
 
   pi.on('before_agent_start', async (event, ctx) => {
     try {
@@ -164,6 +203,52 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       for (const m of nudge.ids) done.add(m);
       nudged.set(id, done);
       return { continue: true, additionalContext: `${NUDGE_HEADER}\n${nudge.reason}` };
+    } catch {
+      return undefined;
+    }
+  });
+
+  pi.on('session_before_compact', async (event, ctx) => {
+    try {
+      if (!compactOn || !env.SUBSTRATE_URL) return undefined;
+      const { preparation } = event;
+      const cp = buildCheckpoint([
+        ...preparation.messagesToSummarize,
+        ...preparation.turnPrefixMessages
+      ]);
+      if (cp === null) return undefined;
+      const id = ctx.sessionManager.getSessionId();
+      const request = lastRequest(event.branchEntries);
+      // Appended whether or not this save lands: the steps happened either way.
+      const all = [...(history.get(id) ?? []), ...cp.steps];
+      history.set(id, all);
+      const namespace = env.SUBSTRATE_NAMESPACE ?? 'cortext';
+      const saved = await bounded(
+        () =>
+          saveCheckpoint(
+            {
+              substrateUrl: env.SUBSTRATE_URL as string,
+              namespace,
+              project: projectSlug(sessionRoot(ctx.cwd), env) ?? null,
+              fetchImpl: access(env).fetchImpl
+            },
+            tasks.get(id) ?? null,
+            cp,
+            // Not the request: a Task title is readable by every agent in the namespace.
+            `OMP session ${id.slice(0, 8)}`
+          ),
+        SAVE_TIMEOUT_MS,
+        null
+      );
+      if (saved === null) return undefined;
+      tasks.set(id, saved.task);
+      return {
+        compaction: {
+          summary: renderPointer(saved.task, saved.revision, request, all, cp.note),
+          firstKeptEntryId: preparation.firstKeptEntryId,
+          tokensBefore: preparation.tokensBefore
+        }
+      };
     } catch {
       return undefined;
     }
