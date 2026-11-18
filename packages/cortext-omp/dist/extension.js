@@ -3177,6 +3177,12 @@ const REQUEST_MAX = 2e3;
 const NEXT_ACTION = "Carry on with the request from where the steps above leave off; do not redo a step listed there.";
 /** Argument keys whose values are never saved. */
 const SECRET_KEY = /token|secret|passw|api[-_]?key|auth|cookie|credential|private/i;
+/** Known-safe names the substring match would mask. Fail-closed: anything
+*  not listed here that matches SECRET_KEY is masked. */
+const SAFE_KEY = /^(?:author|authored(?:By|At)?|(?:max|min)?tokens(?:Before|After|Used)?|tokenCount)$/i;
+function secretKey(k) {
+	return SECRET_KEY.test(k) && !SAFE_KEY.test(k);
+}
 /** Secret-shaped substrings and what replaces them: auth schemes, vendor
 *  token prefixes, PEM private keys, URL userinfo, curl's `-u user:pass`, and
 *  `name=value` pairs with a secret-like name. */
@@ -3197,7 +3203,7 @@ function redact(text) {
 *  escaped quote cannot hide a value) and secret-named keys masked whole. */
 function argsOf(args) {
 	return JSON.stringify(args ?? {}, (k, v) => {
-		if (k && SECRET_KEY.test(k)) return "[redacted]";
+		if (k && secretKey(k)) return "[redacted]";
 		return typeof v === "string" ? redact(v) : v;
 	});
 }
@@ -3232,7 +3238,7 @@ function buildCheckpoint(messages) {
 		for (const c of m.content) {
 			if (c?.type !== "toolCall") continue;
 			pending.set(String(c.id), steps.length);
-			steps.push(clip(`${c.name}(${argsOf(c.arguments)})`, LINE_MAX));
+			steps.push(clip(redact(`${c.name}(${argsOf(c.arguments)})`), LINE_MAX));
 		}
 		const text = textOf(m.content);
 		if (text.trim()) note = redact(text);

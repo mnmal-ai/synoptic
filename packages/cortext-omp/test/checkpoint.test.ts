@@ -75,6 +75,23 @@ describe('redact', () => {
       { role: 'assistant', content: [call('a', 'bash', { cmd: 'export API_TOKEN="abc def"' })] }
     ]);
     expect(escaped?.completed).not.toContain('abc');
+    const keys = buildCheckpoint([
+      {
+        role: 'assistant',
+        content: [
+          call('a', 'w', {
+            accessToken: 'x1',
+            OAUTHTOKEN: 'x2',
+            authoredBy: 'me',
+            tokensBefore: 5,
+            key: 'k'
+          })
+        ]
+      }
+    ]);
+    expect(keys?.completed).toBe(
+      '- w({"accessToken":"[redacted]","OAUTHTOKEN":"[redacted]","authoredBy":"me","tokensBefore":5,"key":"k"})'
+    );
     const out = buildCheckpoint([
       { role: 'assistant', content: [call('a', 'login', { user: 'u', password: 'hunter2' })] }
     ]);
