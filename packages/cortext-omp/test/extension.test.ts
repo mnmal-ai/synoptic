@@ -3,25 +3,17 @@ import cortext, { type OmpApi, type OmpContext } from '../src/extension.js';
 
 type Handler = (event: never, ctx: OmpContext) => Promise<unknown>;
 
-function load(env: NodeJS.ProcessEnv, usage = 0) {
-  let percent = usage;
+function load(env: NodeJS.ProcessEnv) {
   const handlers = new Map<string, Handler>();
   const pi = { on: (name: string, h: Handler) => handlers.set(name, h) } as unknown as OmpApi;
   cortext(pi, env);
   const ctx: OmpContext = {
     cwd: process.cwd(),
-    sessionManager: { getSessionId: () => 's1' },
-    getContextUsage: () => ({ percent })
+    sessionManager: { getSessionId: () => 's1' }
   };
   const fire = (name: string, event: unknown) =>
     (handlers.get(name) as (e: unknown, c: OmpContext) => Promise<unknown>)(event, ctx);
-  return {
-    handlers,
-    fire,
-    setPercent: (p: number) => {
-      percent = p;
-    }
-  };
+  return { handlers, fire };
 }
 
 describe('cortext OMP extension', () => {
@@ -60,32 +52,44 @@ describe('cortext OMP extension', () => {
     expect(await fire('session_stop', { stop_hook_active: false })).toBeUndefined();
   });
 
-  it('asks for a checkpoint past the threshold, then again every 10 points', async () => {
-    const low = load({}, 49);
-    expect(await low.fire('session_stop', { stop_hook_active: false })).toBeUndefined();
-    const high = load({}, 50);
-    const out = (await high.fire('session_stop', { stop_hook_active: false })) as {
-      additionalContext: string;
+  it('leaves compaction to OMP when there is nothing to save, or no Substrate', async () => {
+    const empty = {
+      preparation: {
+        firstKeptEntryId: 'e9',
+        tokensBefore: 1000,
+        messagesToSummarize: [],
+        turnPrefixMessages: []
+      },
+      branchEntries: []
     };
-    expect(out.additionalContext).toContain('```checkpoint');
-    expect(await high.fire('session_stop', { stop_hook_active: false })).toBeUndefined();
-    high.setPercent(59);
-    expect(await high.fire('session_stop', { stop_hook_active: false })).toBeUndefined();
-    high.setPercent(60);
-    expect(await high.fire('session_stop', { stop_hook_active: false })).toBeDefined();
+    expect(
+      await load({ SUBSTRATE_URL: 'http://127.0.0.1:9' }).fire('session_before_compact', empty)
+    ).toBeUndefined();
+    const busy = {
+      ...empty,
+      preparation: {
+        ...empty.preparation,
+        messagesToSummarize: [{ role: 'assistant', content: [{ type: 'text', text: 'working' }] }]
+      }
+    };
+    expect(await load({}).fire('session_before_compact', busy)).toBeUndefined();
   });
 
-  it('asks nothing with SYNOPTIC_OMP_COMPACT=off', async () => {
-    const { fire } = load({ SYNOPTIC_OMP_COMPACT: 'off' }, 99);
-    expect(await fire('session_stop', { stop_hook_active: false })).toBeUndefined();
-  });
-
-  it('leaves compaction to OMP when no checkpoint was stated', async () => {
-    const { fire } = load({ SUBSTRATE_URL: 'http://127.0.0.1:9' });
+  it('leaves compaction to OMP with SYNOPTIC_OMP_COMPACT=off', async () => {
     const event = {
-      preparation: { firstKeptEntryId: 'e9', tokensBefore: 1000 },
-      branchEntries: [{ type: 'message', message: { role: 'assistant', content: 'done' } }]
+      preparation: {
+        firstKeptEntryId: 'e9',
+        tokensBefore: 1000,
+        messagesToSummarize: [{ role: 'assistant', content: [{ type: 'text', text: 'working' }] }],
+        turnPrefixMessages: []
+      },
+      branchEntries: []
     };
-    expect(await fire('session_before_compact', event)).toBeUndefined();
+    expect(
+      await load({ SUBSTRATE_URL: 'http://127.0.0.1:9', SYNOPTIC_OMP_COMPACT: 'off' }).fire(
+        'session_before_compact',
+        event
+      )
+    ).toBeUndefined();
   });
 });

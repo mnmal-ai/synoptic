@@ -2119,12 +2119,12 @@ const RANK = {
 	unknown: 1,
 	warn: 2
 };
-const NOTE_MAX = 200;
+const NOTE_MAX$1 = 200;
 const WHOAMI_TIMEOUT_MS = 1e3;
 const GIT_TIMEOUT_MS = 1e3;
 function oneLine$1(text) {
 	const flat = String(text ?? "").replace(/\s+/g, " ").trim();
-	return flat.length > NOTE_MAX ? `${flat.slice(0, NOTE_MAX)}…` : flat;
+	return flat.length > NOTE_MAX$1 ? `${flat.slice(0, NOTE_MAX$1)}…` : flat;
 }
 /**
 * The worst finding's state and text: warn over unknown over ok, the later
@@ -2820,7 +2820,7 @@ const TASK_LIMIT = 10;
 /** Longest `nextAction` / title rendered, in characters. */
 const TEXT_MAX = 200;
 /** Refs shown per checkpoint; the rest are a read away. */
-const REFS_MAX$1 = 3;
+const REFS_MAX = 3;
 /**
 * @returns {Promise<Array<{ task: object, checkpoint: object|null }>|null>}
 *   null when there is no project to scope by, or the server has no Task type
@@ -2885,8 +2885,8 @@ function renderTasks(entries, { ns = "cortext" } = {}) {
 		if (checkpoint === null) return `${head} — no checkpoint yet`;
 		const blocked = checkpoint.blockers ? `; blocked: ${oneLine(checkpoint.blockers)}` : "";
 		const refs = Array.isArray(checkpoint.refs) ? checkpoint.refs : [];
-		const shown = refs.slice(0, REFS_MAX$1).map(oneLine).join(", ");
-		const more = refs.length > REFS_MAX$1 ? ", …" : "";
+		const shown = refs.slice(0, REFS_MAX).map(oneLine).join(", ");
+		const more = refs.length > REFS_MAX ? ", …" : "";
 		const refsPart = shown ? `; refs: ${shown}${more}` : "";
 		return `${head} — rev ${Number(checkpoint.revision)}, next: ${oneLine(checkpoint.nextAction)}${blocked}${refsPart}`;
 	});
@@ -3171,69 +3171,61 @@ function parseMaxBytes(raw) {
 
 //#endregion
 //#region src/checkpoint.ts
-const CHECKPOINT_REQUEST = [
-	"[Automated context check by the cortext extension. This is NOT a message from the user.]",
-	"Context is filling up and will be compacted soon. Reply now with only your work state, as one fenced block:",
-	"```checkpoint",
-	"{\"task\": \"<short title of the overall task>\", \"completed\": \"<what is done so far>\", \"nextAction\": \"<the very next step>\", \"blockers\": null, \"refs\": [\"<file path or #id you will need again>\"]}",
-	"```",
-	"It replaces this conversation after compaction, so make nextAction and refs enough to carry on."
-].join("\n");
-const FENCE = /```checkpoint\s*\n([\s\S]*?)\n?```/g;
-/** Longest field kept, in characters: the pointer rides in every request. */
-const FIELD_MAX = 2e3;
-const REFS_MAX = 20;
-function clip(s) {
-	const t = s.trim();
-	return t.length > FIELD_MAX ? `${t.slice(0, 1999)}…` : t;
-}
-/** The last valid checkpoint block in `text`, or null. */
-function parseCheckpoint(text) {
-	let found = null;
-	for (const m of text.matchAll(FENCE)) try {
-		const { task, completed, nextAction, blockers, refs } = JSON.parse(m[1]);
-		if (typeof completed !== "string" || !completed.trim()) continue;
-		if (typeof nextAction !== "string" || !nextAction.trim()) continue;
-		found = {
-			task: typeof task === "string" && task.trim() ? clip(task) : null,
-			completed: clip(completed),
-			nextAction: clip(nextAction),
-			blockers: typeof blockers === "string" && blockers.trim() ? clip(blockers) : null,
-			refs: Array.isArray(refs) ? refs.filter((r) => typeof r === "string" && r.trim() !== "").slice(0, REFS_MAX).map(clip) : []
-		};
-	} catch {}
-	return found;
+const LINE_MAX = 160;
+const NOTE_MAX = 600;
+const REQUEST_MAX = 2e3;
+const NEXT_ACTION = "Carry on with the request from where the steps above leave off; do not redo a step listed there.";
+function clip(s, max) {
+	const t = s.replace(/\s+/g, " ").trim();
+	return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 function textOf(content) {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return content.map((c) => c && typeof c === "object" && c.type === "text" ? String(c.text ?? "") : "").join("\n");
+	return content.map((c) => c?.type === "text" ? String(c.text ?? "") : "").filter((t) => t.trim() !== "").join("\n");
 }
-/** The newest checkpoint an assistant message stated since the last
-*  compaction, with the index of that message in `entries`. */
-function findCheckpoint(entries) {
+function firstLine(text) {
+	return text.split("\n").find((l) => l.trim() !== "") ?? "";
+}
+/** The newest user request on the branch, compacted away or not. */
+function lastRequest(entries) {
 	for (let i = entries.length - 1; i >= 0; i--) {
-		const e = entries[i];
-		if (e.type === "compaction") return null;
-		if (e.type !== "message" || e.message?.role !== "assistant") continue;
-		const cp = parseCheckpoint(textOf(e.message.content));
-		if (cp !== null) return {
-			cp,
-			at: i
-		};
+		const m = entries[i].message;
+		if (entries[i].type !== "message" || m?.role !== "user") continue;
+		const text = textOf(m.content);
+		if (text.trim()) return clip(text, REQUEST_MAX);
 	}
 	return null;
 }
-/**
-* Where the kept history starts under a checkpoint stated at `at`: OMP's own
-* cut when the block lies inside the kept tail, otherwise the entry after the
-* block, so turns the checkpoint does not cover are kept rather than dropped
-* unsummarised. Null when the block is the last entry before an earlier cut.
-*/
-function keepFrom(entries, at, ompCut) {
-	const cut = entries.findIndex((e) => e.id === ompCut);
-	if (cut >= 0 && cut <= at) return ompCut;
-	return entries[at + 1]?.id ?? null;
+/** The checkpoint for `messages`, or null when they hold no step or note. */
+function buildCheckpoint(messages) {
+	const steps = [];
+	const pending = /* @__PURE__ */ new Map();
+	let note = "";
+	for (const m of messages) if (m.role === "assistant" && Array.isArray(m.content)) {
+		for (const c of m.content) {
+			if (c?.type !== "toolCall") continue;
+			pending.set(String(c.id), steps.length);
+			steps.push(clip(`${c.name}(${JSON.stringify(c.arguments ?? {})})`, LINE_MAX));
+		}
+		const text = textOf(m.content);
+		if (text.trim()) note = text;
+	} else if (m.role === "toolResult") {
+		const at = pending.get(String(m.toolCallId));
+		if (at === void 0) continue;
+		const result = clip(firstLine(textOf(m.content)), LINE_MAX);
+		steps[at] = `${steps[at]} → ${m.isError ? "error: " : ""}${result || "(no output)"}`;
+	}
+	if (steps.length === 0 && !note.trim()) return null;
+	const shown = steps.slice(-30);
+	return {
+		completed: [
+			...steps.length > shown.length ? [`(${steps.length - shown.length} earlier steps)`] : [],
+			...shown.map((s) => `- ${s}`),
+			...note.trim() ? [`Last note: ${clip(note, NOTE_MAX)}`] : []
+		].join("\n"),
+		nextAction: NEXT_ACTION
+	};
 }
 async function createTask(a, title) {
 	const key = `${a.namespace}/createTask`;
@@ -3278,8 +3270,6 @@ async function writeRevision(a, task, cp) {
 				revision,
 				completed: cp.completed,
 				nextAction: cp.nextAction,
-				blockers: cp.blockers,
-				refs: cp.refs,
 				project: a.project
 			},
 			fields: { id: true }
@@ -3295,8 +3285,8 @@ async function writeRevision(a, task, cp) {
 	return null;
 }
 /** Saves `cp` under `task` (creating the Task when null). Null on any refusal. */
-async function saveCheckpoint(a, task, cp, fallbackTitle) {
-	const t = task ?? await createTask(a, cp.task ?? fallbackTitle);
+async function saveCheckpoint(a, task, cp, title) {
+	const t = task ?? await createTask(a, title);
 	if (t === null) return null;
 	const revision = await writeRevision(a, t.id, cp);
 	return revision === null ? null : {
@@ -3305,16 +3295,14 @@ async function saveCheckpoint(a, task, cp, fallbackTitle) {
 	};
 }
 /** What replaces the compacted history. */
-function renderPointer(ns, task, revision, cp) {
+function renderPointer(task, revision, request, cp) {
+	const earlier = revision > 1 ? `; revisions 1–${revision - 1} hold earlier ones` : "";
 	return [
-		"[Context compacted into Substrate by the cortext extension. Earlier turns are saved there, not here.]",
-		`Task #${task.shortId} "${task.title}" (\`${task.id}\`), checkpoint revision ${revision}.`,
-		`Completed: ${cp.completed}`,
-		`Next: ${cp.nextAction}`,
-		...cp.blockers ? [`Blockers: ${cp.blockers}`] : [],
-		...cp.refs.length > 0 ? [`Refs: ${cp.refs.join(", ")}`] : [],
-		"Read a ref again only when the next step needs it.",
-		`After each further step, write ${ns}/createExecutionCheckpoint { task: "${task.id}", revision: ${revision + 1}, completed, nextAction }.`
+		"[Context compacted into Substrate by the cortext extension. This is NOT a message from the user.]",
+		...request ? [`Request: ${request}`] : [],
+		`Steps compacted away (Task #${task.shortId}, checkpoint revision ${revision}${earlier}):`,
+		cp.completed,
+		`Next: ${cp.nextAction}`
 	].join("\n");
 }
 
@@ -3324,8 +3312,6 @@ function renderPointer(ns, task, revision, cp) {
 const INBOX_TIMEOUT_MS = 3e3;
 /** Under OMP's 30 s handler timeout, with room for the fallback to start. */
 const SAVE_TIMEOUT_MS = 2e4;
-/** Points of context use between checkpoint requests. */
-const ASK_STEP = 10;
 const NUDGE_HEADER = "[Automated end-of-turn check by the cortext extension. This is NOT a message from the user.]";
 /** Recorded in HostInstall. dist/extension.js sits one level below package.json. */
 const OWN_VERSION = (() => {
@@ -3386,9 +3372,7 @@ function cortext(pi, env = process.env) {
 	const renders = /* @__PURE__ */ new Map();
 	const nudged = /* @__PURE__ */ new Map();
 	const tasks = /* @__PURE__ */ new Map();
-	const asked = /* @__PURE__ */ new Map();
 	const compactOn = env.SYNOPTIC_OMP_COMPACT !== "off";
-	const askAt = Number(env.SYNOPTIC_OMP_CHECKPOINT_PERCENT) || 50;
 	pi.on("before_agent_start", async (event, ctx) => {
 		try {
 			if (event.reason !== "prompt") return void 0;
@@ -3410,26 +3394,17 @@ function cortext(pi, env = process.env) {
 	pi.on("session_stop", async (event, ctx) => {
 		try {
 			if (event.stop_hook_active) return void 0;
-			const id = ctx.sessionManager.getSessionId();
-			const parts = [];
 			const nudge = await bounded(() => inboxStopNudge(access(env)), INBOX_TIMEOUT_MS, null);
-			if (nudge !== null) {
-				const done = nudged.get(id) ?? /* @__PURE__ */ new Set();
-				if (!nudge.ids.every((m) => done.has(m))) {
-					for (const m of nudge.ids) done.add(m);
-					nudged.set(id, done);
-					parts.push(`${NUDGE_HEADER}\n${nudge.reason}`);
-				}
-			}
-			const percent = ctx.getContextUsage?.()?.percent ?? 0;
-			if (compactOn && percent >= askAt && percent >= (asked.get(id) ?? -10) + ASK_STEP) {
-				asked.set(id, percent);
-				parts.push(CHECKPOINT_REQUEST);
-			}
-			return parts.length > 0 ? {
+			if (nudge === null) return void 0;
+			const id = ctx.sessionManager.getSessionId();
+			const done = nudged.get(id) ?? /* @__PURE__ */ new Set();
+			if (nudge.ids.every((m) => done.has(m))) return void 0;
+			for (const m of nudge.ids) done.add(m);
+			nudged.set(id, done);
+			return {
 				continue: true,
-				additionalContext: parts.join("\n\n")
-			} : void 0;
+				additionalContext: `${NUDGE_HEADER}\n${nudge.reason}`
+			};
 		} catch {
 			return;
 		}
@@ -3437,26 +3412,24 @@ function cortext(pi, env = process.env) {
 	pi.on("session_before_compact", async (event, ctx) => {
 		try {
 			if (!compactOn || !env.SUBSTRATE_URL) return void 0;
+			const { preparation } = event;
+			const cp = buildCheckpoint([...preparation.messagesToSummarize, ...preparation.turnPrefixMessages]);
+			if (cp === null) return void 0;
 			const id = ctx.sessionManager.getSessionId();
-			asked.delete(id);
-			const found = findCheckpoint(event.branchEntries);
-			if (found === null) return void 0;
-			const { cp } = found;
-			const firstKeptEntryId = keepFrom(event.branchEntries, found.at, event.preparation.firstKeptEntryId);
-			if (firstKeptEntryId === null) return void 0;
+			const request = lastRequest(event.branchEntries);
 			const namespace = env.SUBSTRATE_NAMESPACE ?? "cortext";
 			const saved = await bounded(() => saveCheckpoint({
 				substrateUrl: env.SUBSTRATE_URL,
 				namespace,
 				project: projectSlug(sessionRoot(ctx.cwd), env) ?? null,
 				fetchImpl: access(env).fetchImpl
-			}, tasks.get(id) ?? null, cp, `OMP session ${id.slice(0, 8)}`), SAVE_TIMEOUT_MS, null);
+			}, tasks.get(id) ?? null, cp, (request ?? `OMP session ${id.slice(0, 8)}`).slice(0, 120)), SAVE_TIMEOUT_MS, null);
 			if (saved === null) return void 0;
 			tasks.set(id, saved.task);
 			return { compaction: {
-				summary: renderPointer(namespace, saved.task, saved.revision, cp),
-				firstKeptEntryId,
-				tokensBefore: event.preparation.tokensBefore
+				summary: renderPointer(saved.task, saved.revision, request, cp),
+				firstKeptEntryId: preparation.firstKeptEntryId,
+				tokensBefore: preparation.tokensBefore
 			} };
 		} catch {
 			return;

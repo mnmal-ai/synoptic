@@ -1,66 +1,73 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCheckpoint,
   type Checkpoint,
-  findCheckpoint,
-  keepFrom,
-  parseCheckpoint,
+  lastRequest,
+  NEXT_ACTION,
   renderPointer,
   saveCheckpoint
 } from '../src/checkpoint.js';
 
-const block = (o: unknown) => `text\n\`\`\`checkpoint\n${JSON.stringify(o)}\n\`\`\`\n`;
-const cp: Checkpoint = {
-  task: 'T',
-  completed: 'a',
-  nextAction: 'b',
-  blockers: null,
-  refs: ['f.ts']
-};
+const cp: Checkpoint = { completed: '- read(x) → ok', nextAction: NEXT_ACTION };
+const call = (id: string, name: string, args: object) => ({
+  type: 'toolCall',
+  id,
+  name,
+  arguments: args
+});
 
-describe('parseCheckpoint', () => {
-  it('takes the last valid block and skips near misses', () => {
-    const text =
-      block({ completed: 'one', nextAction: 'x' }) +
-      '```checkpoint\n{not json}\n```' +
-      block({ completed: 'two', nextAction: 'y', refs: ['a', 3, ''] });
-    expect(parseCheckpoint(text)).toEqual({
-      task: null,
-      completed: 'two',
-      nextAction: 'y',
-      blockers: null,
-      refs: ['a']
-    });
+describe('buildCheckpoint', () => {
+  it('pairs each tool call with the first line of its result, and keeps the last note', () => {
+    const out = buildCheckpoint([
+      { role: 'user', content: 'sum them' },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'starting' }, call('a', 'query', { id: 1 })]
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'a',
+        content: [{ type: 'text', text: '\n42 rows\nmore' }]
+      } as never,
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'total so far 42' }, call('b', 'read', { p: 'f' })]
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'b',
+        isError: true,
+        content: [{ type: 'text', text: 'ENOENT' }]
+      } as never
+    ]);
+    expect(out?.completed).toBe(
+      '- query({"id":1}) → 42 rows\n- read({"p":"f"}) → error: ENOENT\nLast note: total so far 42'
+    );
+    expect(out?.nextAction).toBe(NEXT_ACTION);
   });
 
-  it('refuses a block without completed and nextAction', () => {
-    expect(parseCheckpoint(block({ completed: 'a' }))).toBeNull();
-    expect(parseCheckpoint('no block')).toBeNull();
+  it('lists the last 30 steps and counts the rest', () => {
+    const msgs = Array.from({ length: 35 }, (_, i) => ({
+      role: 'assistant',
+      content: [call(String(i), 't', { i })]
+    }));
+    const lines = buildCheckpoint(msgs)?.completed.split('\n') ?? [];
+    expect(lines[0]).toBe('(5 earlier steps)');
+    expect(lines).toHaveLength(31);
+    expect(lines[30]).toBe('- t({"i":34})');
+  });
+
+  it('is null with no step and no note', () => {
+    expect(buildCheckpoint([{ role: 'user', content: 'hi' }])).toBeNull();
   });
 });
 
-describe('findCheckpoint', () => {
-  const said = (text: unknown) => ({
-    type: 'message',
-    message: { role: 'assistant', content: text }
-  });
-  it('reads assistant text parts, newest first', () => {
-    const entries = [
-      said(block({ completed: 'old', nextAction: 'x' })),
-      said([{ type: 'text', text: block({ completed: 'new', nextAction: 'y' }) }])
-    ];
-    expect(findCheckpoint(entries)).toMatchObject({ cp: { completed: 'new' }, at: 1 });
-  });
-
-  it('stops at the last compaction and ignores user text', () => {
+describe('lastRequest', () => {
+  it('takes the newest user message on the branch', () => {
+    const user = (text: string) => ({ type: 'message', message: { role: 'user', content: text } });
+    expect(lastRequest([user('first'), { type: 'compaction' }, user('second')])).toBe('second');
     expect(
-      findCheckpoint([
-        said(block({ completed: 'before', nextAction: 'x' })),
-        { type: 'compaction' },
-        {
-          type: 'message',
-          message: { role: 'user', content: block({ completed: 'u', nextAction: 'x' }) }
-        }
-      ])
+      lastRequest([{ type: 'message', message: { role: 'assistant', content: 'x' } }])
     ).toBeNull();
   });
 });
@@ -82,16 +89,6 @@ function server(answer: (key: string, params: Record<string, unknown>) => object
   };
 }
 
-describe('keepFrom', () => {
-  const e = ['a', 'b', 'c', 'd'].map((id) => ({ type: 'message', id }));
-  it("keeps OMP's cut when the block is inside the kept tail", () => {
-    expect(keepFrom(e, 2, 'b')).toBe('b');
-  });
-  it('keeps everything after a block older than the cut', () => {
-    expect(keepFrom(e, 1, 'd')).toBe('c');
-  });
-});
-
 describe('saveCheckpoint', () => {
   it('creates the Task, then writes revision one above the latest', async () => {
     const s = server((key, params) => {
@@ -100,7 +97,7 @@ describe('saveCheckpoint', () => {
       if (key === 'cortext/ExecutionCheckpoint') return { data: { [key]: [{ revision: 2 }] } };
       return { data: { [key]: { id: 'c1' } } };
     });
-    expect(await saveCheckpoint(s.access, null, cp, 'fallback')).toEqual({
+    expect(await saveCheckpoint(s.access, null, cp, 'T')).toEqual({
       task: { id: 'u1', shortId: 7, title: 'T' },
       revision: 3
     });
@@ -126,10 +123,11 @@ describe('saveCheckpoint', () => {
 });
 
 describe('renderPointer', () => {
-  it('names the task, the revision and the next write', () => {
-    const out = renderPointer('cortext', { id: 'u1', shortId: 7, title: 'T' }, 3, cp);
-    expect(out).toContain('Task #7 "T" (`u1`), checkpoint revision 3.');
-    expect(out).toContain('revision: 4');
-    expect(out).toContain('Refs: f.ts');
+  it('carries the request, the steps and where earlier revisions are', () => {
+    const out = renderPointer({ id: 'u1', shortId: 7, title: 'T' }, 3, 'sum them', cp);
+    expect(out).toContain('Request: sum them');
+    expect(out).toContain('(Task #7, checkpoint revision 3; revisions 1–2 hold earlier ones)');
+    expect(out).toContain('- read(x) → ok');
+    expect(out).toContain(`Next: ${NEXT_ACTION}`);
   });
 });
