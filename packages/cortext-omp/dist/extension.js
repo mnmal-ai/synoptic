@@ -3177,23 +3177,29 @@ const REQUEST_MAX = 2e3;
 const NEXT_ACTION = "Carry on with the request from where the steps above leave off; do not redo a step listed there.";
 /** Argument keys whose values are never saved. */
 const SECRET_KEY = /token|secret|passw|api[-_]?key|auth|cookie|credential|private/i;
-/** Secret-shaped substrings: bearer tokens, common vendor token prefixes,
-*  PEM blocks, and `name=value` pairs with a secret-like name. */
+/** Secret-shaped substrings and what replaces them: auth schemes, vendor
+*  token prefixes, PEM private keys, URL userinfo, curl's `-u user:pass`, and
+*  `name=value` pairs with a secret-like name. */
 const SECRET_TEXT = [
-	/\bBearer\s+[^\s"']+/gi,
-	/\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|xox[abpr]|glpat|npm)[-_][A-Za-z0-9_-]{10,}/g,
-	/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
-	/\b([A-Za-z_]*(?:token|secret|passw|api[-_]?key|auth)[A-Za-z_]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s"']+)/gi
+	[/\b(Bearer|Basic|Token)\s+[^\s"']+/gi, "$1 [redacted]"],
+	[/\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|xox[abpr]|glpat|npm)[-_][A-Za-z0-9_-]{10,}/g, "[redacted]"],
+	[/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, "[redacted]"],
+	[/(\/\/)[^/@\s:]+:[^/@\s]+@/g, "$1[redacted]@"],
+	[/(\s(?:-u|--user)[=\s]+)\S+/g, "$1[redacted]"],
+	[/\b([A-Za-z_]*(?:token|secret|passw|api[-_]?key|auth)[A-Za-z_]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s"']+)/gi, "$1$2[redacted]"]
 ];
 /** `text` with secret-shaped substrings masked. A store write is readable by
 *  every agent holding the namespace, so redaction runs before it. */
 function redact(text) {
-	let out = text;
-	for (const re of SECRET_TEXT) out = out.replace(re, (_m, name, sep) => typeof name === "string" && typeof sep === "string" ? `${name}${sep}[redacted]` : "[redacted]");
-	return out;
+	return SECRET_TEXT.reduce((out, [re, by]) => out.replace(re, by), text);
 }
+/** Arguments as JSON, each string leaf redacted before serialising (so an
+*  escaped quote cannot hide a value) and secret-named keys masked whole. */
 function argsOf(args) {
-	return JSON.stringify(args ?? {}, (k, v) => k && SECRET_KEY.test(k) ? "[redacted]" : v);
+	return JSON.stringify(args ?? {}, (k, v) => {
+		if (k && SECRET_KEY.test(k)) return "[redacted]";
+		return typeof v === "string" ? redact(v) : v;
+	});
 }
 function clip(s, max) {
 	const t = s.replace(/\s+/g, " ").trim();
@@ -3226,7 +3232,7 @@ function buildCheckpoint(messages) {
 		for (const c of m.content) {
 			if (c?.type !== "toolCall") continue;
 			pending.set(String(c.id), steps.length);
-			steps.push(clip(redact(`${c.name}(${argsOf(c.arguments)})`), LINE_MAX));
+			steps.push(clip(`${c.name}(${argsOf(c.arguments)})`, LINE_MAX));
 		}
 		const text = textOf(m.content);
 		if (text.trim()) note = redact(text);
