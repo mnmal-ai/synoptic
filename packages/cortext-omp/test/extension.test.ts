@@ -21,6 +21,7 @@ describe('cortext OMP extension', () => {
     expect([...load({}).handlers.keys()].sort()).toEqual([
       'before_agent_start',
       'session_before_compact',
+      'session_shutdown',
       'session_stop'
     ]);
   });
