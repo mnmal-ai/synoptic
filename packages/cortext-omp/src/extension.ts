@@ -12,12 +12,16 @@
 //   with the unread-mail reason. `stop_hook_active` bounds it to one
 //   continuation per user prompt, and each message id nudges only once.
 //
+// - agent mail is pushed as it arrives (inbox-push.ts): steered into a turn
+//   in progress, or with SYNOPTIC_INBOX_WAKE=on, a turn is started in an idle
+//   session. SYNOPTIC_INBOX_PUSH=off turns the watcher off.
+//
 // - `session_before_compact` (every compaction, mid-turn included) saves the
 //   steps being compacted away as an ExecutionCheckpoint and replaces OMP's
 //   summary with a pointer at it. With no acknowledged write, OMP compacts as
 //   it would without us.
 //
-// Not here yet: the push watcher (mid-turn mail), the conventions text (about
+// Not here yet: the conventions text (about
 // 6k tokens, more than a small local model's whole first call), commands and
 // tools. Identity and endpoint come from the launching env: SUBSTRATE_URL,
 // SUBSTRATE_NAMESPACE, SUBSTRATE_AGENT_KEY_ID and SUBSTRATE_AGENT_KEY_PATH.
@@ -43,6 +47,7 @@ import {
   saveCheckpoint,
   type TaskRef
 } from './checkpoint.js';
+import { type SendMessage, startInboxPush } from './inbox-push.js';
 
 /** The slice of OMP's ExtensionAPI this skin uses, typed locally so the
  *  build needs no OMP package (it ships TS source that imports Bun). */
@@ -78,6 +83,8 @@ export type OmpApi = {
     event: 'session_before_compact',
     handler: (event: BeforeCompact, ctx: OmpContext) => Promise<CompactResult | undefined>
   ): void;
+  on(event: 'session_shutdown', handler: () => Promise<void> | void): void;
+  sendMessage?: SendMessage;
 };
 
 /** An inbox read at a prompt or a stop loses its line, never the turn. */
@@ -173,6 +180,15 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   // Every step compacted so far, per session, so each pointer carries them all.
   const history = new Map<string, Step[]>();
   const compactOn = env.SYNOPTIC_OMP_COMPACT !== 'off';
+
+  let stopPush = () => {};
+  try {
+    const send = pi.sendMessage?.bind(pi);
+    if (send) stopPush = startInboxPush(send, access(env));
+  } catch {
+    // No push: the prompt summary and the stop check still surface mail.
+  }
+  pi.on('session_shutdown', () => stopPush());
 
   pi.on('before_agent_start', async (event, ctx) => {
     try {

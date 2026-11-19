@@ -4,6 +4,7 @@ The OMP (oh-my-pi) skin for Cortext. An OMP extension that:
 
 - appends the synoptic cold-start (a line keeping Substrate access to the MCP tools, the rule index, the pointers, the session line and the inbox) to the system prompt at `before_agent_start`, and on later prompts adds a one-line unread-mail summary
 - continues a turn once at `session_stop` when unread agent mail is waiting
+- pushes agent mail as it arrives: steered into a turn in progress, or, with `SYNOPTIC_INBOX_WAKE=on`, a turn is started in an idle session (at most 6 an hour and 2 per thread); without wake, an idle session reads it on its next turn
 - compacts into Substrate: at every compaction, mid-turn included, it saves the steps being compacted away (each tool call with a one-line result, and the model's last note) as a `cortext/ExecutionCheckpoint` under the session's `cortext/Task`, and replaces OMP's summary with a pointer carrying the request and those steps
 
 `dist/extension.js` is a committed, byte-deterministic bundle with the synoptic host inlined and no runtime dependencies.
@@ -32,6 +33,8 @@ Run it from inside the repo whose rows you want; the project scope is the repo r
 | `SYNOPTIC_HOST_REPORT=off` | Skip the HostInstall write (harness `omp`) |
 | `SYNOPTIC_OMP_COMPACT=off` | Leave compaction entirely to OMP |
 | `SYNOPTIC_INBOX_PROMPT_CHECK=off` / `SYNOPTIC_INBOX_STOP_CHECK=off` | Disable the inbox seams |
+| `SYNOPTIC_INBOX_PUSH=off` | Do not watch the inbox (no pushed mail) |
+| `SYNOPTIC_INBOX_WAKE=on` | Let pushed mail start a turn in an idle session |
 
 A read-only identity works: the cold-start and the inbox are reads, the HostInstall write fails into a comment line, and a refused checkpoint write falls back to OMP's own compaction.
 
@@ -43,4 +46,4 @@ The pointer is used only when the write is acknowledged. A refused write (a read
 
 ## Not yet
 
-The push watcher (mid-turn mail), the substrate conventions text, and commands and tools.
+The substrate conventions text, urgent preemption of a running turn (`SYNOPTIC_INBOX_URGENT_FROM`), and commands and tools.
