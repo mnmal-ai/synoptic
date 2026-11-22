@@ -12,7 +12,7 @@ The agent-coordination host. It ships **Cortext**, an agent-neutral workflow and
 | `packages/cortext-plugin` | *(not npm)* | The Claude Code skin for cortext. `private: true`, distributed through the `mnmal-ai` marketplace in `.claude-plugin/marketplace.json` |
 | `packages/cortext-opencode` | `@mnmal-ai/cortext-opencode` | The OpenCode skin: cold-start injection via `experimental.chat.system.transform`, zero-dep committed `dist/plugin.js`. Published to npm because OpenCode installs plugins through Bun |
 | `packages/cortext-omp` | `@mnmal-ai/cortext-omp` | The OMP (oh-my-pi) skin: cold-start and inbox seams as an OMP extension, zero-dep committed `dist/extension.js`. Published to npm because `omp plugin install` installs from it |
-| `packages/cortext-codex` | *(not npm)* | Local Codex delivery |
+| `packages/cortext-codex` | `@mnmal-ai/cortext-codex` | The Codex skin: cold-start and inbox hooks, a bundled Substrate MCP server and shared skills, committed self-contained `hooks/` and `bin/` bundles. Published to npm; the installed package is added as a local Codex marketplace |
 
 This repo is the single source of the cold-start machinery and of the `substrate-conventions.md` fragment. The copy in `.claude/` is an untracked install, as in every consumer.
 
@@ -49,7 +49,7 @@ Four distribution layers, and a change usually touches one. A release can legiti
 | `packages/cortext-plugin/fragments/` | the installed `.claude/substrate-conventions.md` in each consumer repo | the above, plus `/substrate-setup` re-run per repo, and only if the content digest changed |
 | `pnpm-workspace.yaml`, root docs, `biome.json`, CI | nothing, repo-local | nothing |
 
-**Skins ride one tag.** The Claude plugin is served from this repo's marketplace, `.claude-plugin/marketplace.json`, as a `git-subdir` pinned to a synoptic tag, and `@mnmal-ai/cortext-opencode` and `@mnmal-ai/cortext-omp` publish on the same release, so every release bumps every skin. The `version` script stamps `package.json`'s version into `plugin.json` and into the marketplace's `ref`, so the release PR carries its own repin; `release-alignment.test.js` fails if the ref and the version disagree. Between the merge and the tag the ref names a tag that does not exist yet, so an install in that window fails rather than serving unreleased code.
+**Skins ride one tag.** The Claude plugin is served from this repo's marketplace, `.claude-plugin/marketplace.json`, as a `git-subdir` pinned to a synoptic tag, and `@mnmal-ai/cortext-opencode`, `@mnmal-ai/cortext-omp` and `@mnmal-ai/cortext-codex` publish on the same release, so every release bumps every skin. The `version` script stamps `package.json`'s version into `plugin.json` and into the marketplace's `ref`, so the release PR carries its own repin; `release-alignment.test.js` fails if the ref and the version disagree. Between the merge and the tag the ref names a tag that does not exist yet, so an install in that window fails rather than serving unreleased code.
 
 To check whether a release ships anything, run `git diff <last-tag>..HEAD -- packages/`. Empty means byte-identical artifacts. **Published** (on the registry), **pinned** (the marketplace names the tag) and **live** (a runtime serves it) are separate states.
 

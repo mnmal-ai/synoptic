@@ -18,7 +18,7 @@ that onboards agents (Claude, Kimi, Codex, Gemini, …) to it.
 | `cortext` (CC plugin) | The Claude Code delivery — cold-start hooks + skills (the "skin"). |
 | [`@mnmal-ai/cortext-opencode`](packages/cortext-opencode/README.md) | The OpenCode skin — cold-start injection via `experimental.chat.system.transform`, zero-dep committed `dist/plugin.js`. |
 | [`@mnmal-ai/cortext-omp`](packages/cortext-omp/README.md) | The OMP (oh-my-pi) skin — cold-start and inbox seams as an OMP extension, zero-dep committed `dist/extension.js`. |
-| [`cortext-codex`](packages/cortext-codex/README.md) | Local Codex delivery — cold-start and compaction refresh, prompt/stop inbox checks, shared council/todo skills and architecture review. |
+| [`@mnmal-ai/cortext-codex`](packages/cortext-codex/README.md) | The Codex skin — cold-start and compaction refresh, prompt/stop inbox checks, shared council/todo skills and architecture review. |
 
 ## Install
 
@@ -40,8 +40,9 @@ no default URL and no discovery.
 - **Muse Spark.** Muse has no plugin system; its hooks run the cold-start from an
   installed `@mnmal-ai/synoptic` by absolute path. See
   [`muse-substrate-setup.md`](packages/synoptic/docs/muse-substrate-setup.md).
-- **Codex.** Local only, from a checkout. See
-  [`packages/cortext-codex`](packages/cortext-codex/README.md).
+- **Codex.** Install `@mnmal-ai/cortext-codex` from npm and add the installed
+  package as a local Codex marketplace. See
+  [`packages/cortext-codex`](packages/cortext-codex/README.md#install).
 
 `@mnmal-ai/substrate` and these packages are public on npmjs.com; installing them needs no token.
 

@@ -88,9 +88,18 @@ environment settings such as `PATH` and `NODE_OPTIONS` are ignored there.
 Identity needs the operator-granted `cortext` and `recall` capabilities for the
 shared cold-start. The plugin does not provision or expand those grants itself.
 
-## Install locally
+## Install
 
-Build from this checkout, then add the package's self-contained local catalog:
+The package carries its own local catalog, `synoptic-codex-local`. Install it
+from npm (prereleases ride the `next` tag), then add the installed package as a
+Codex marketplace:
+
+```sh
+npm install -g @mnmal-ai/cortext-codex@next
+codex plugin marketplace add "$(npm root -g)/@mnmal-ai/cortext-codex"
+```
+
+Or build from a checkout and add the package directory instead:
 
 ```sh
 pnpm --filter @mnmal-ai/cortext-codex build
@@ -136,8 +145,9 @@ the current diagnostics inspect Claude install paths. Plugin conventions are
 included directly in startup context instead.
 
 Set the plugin's `enabled = false` and restart to disable both its hooks and
-bundled MCP. Shared Cortext records remain accessible to other agents. This
-package is local-only and private; no external marketplace rail is added.
+bundled MCP. Shared Cortext records remain accessible to other agents. The
+catalog stays local to wherever the package is installed; no external
+marketplace rail is added.
 
 ## Verify
 
