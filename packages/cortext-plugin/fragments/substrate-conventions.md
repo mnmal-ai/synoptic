@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.21+7dece7b7 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.21+2694fd70 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -20,6 +20,7 @@ When the `act` tool is loaded (`SUBSTRATE_MCP_TOOLS=core,act` in the MCP server'
 - `find Todo status=open project=<repo> fields=title,priority` returns rows holding `id`, `shortId` and the named fields. `count Todo status=open` counts.
 - `? Todo` shows a type's actions, params and fields. Steps split by `;` commit together or not at all, and `mode: "dry-run"` checks a sketch without writing.
 - From substrate 1.0.0-beta.11 the reply carries `find` rows in `found` and a dry run's values in `plan`. On beta.10, pass the reply's `result` to read them.
+- When a write you keep repeating has no word, coin one (substrate 1.0.0-beta.11 or later): `define Todo.start started status=in_progress` adds `start Todo #12`. `field=$` makes a param typed by the field (`$name` names it, a trailing `?` makes it optional), and the bare word after the name is the past tense for acks. The word is yours at once and becomes everyone's after five uses at least an hour apart. Coining is opt-in: a refusal naming `_system_proposals` means your key is not opted in, so carry on with `update`.
 - Keep `query`, `mutate` and `run` for walks, aggregates, json paths, by-filter writes and deletes, and `recall` for search.
 
 ## Qualified frame keys
