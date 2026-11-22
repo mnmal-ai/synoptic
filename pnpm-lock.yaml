@@ -168,8 +168,8 @@ catalogs:
       specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
-      specifier: 1.0.0-alpha.20
-      version: 1.0.0-alpha.20
+      specifier: 1.0.0-beta.10
+      version: 1.0.0-beta.10
     '@opencode-ai/plugin':
       specifier: ^1.19.0
       version: 1.19.5
@@ -231,7 +231,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.20
+        version: 1.0.0-beta.10
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -249,7 +249,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.20
+        version: 1.0.0-beta.10
       '@mnmal-ai/synoptic':
         specifier: workspace:*
         version: link:../synoptic
@@ -285,7 +285,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.20
+        version: 1.0.0-beta.10
       '@mnmal-ai/synoptic':
         specifier: workspace:*
         version: link:../synoptic
@@ -333,7 +333,7 @@ importers:
         version: link:../context-render
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-alpha.20
+        version: 1.0.0-beta.10
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -622,8 +622,8 @@ packages:
   '@mnmal-ai/holomap-clusterer@0.2.1':
     resolution: {integrity: sha512-X3d4Zj0IQoliinQ6ajjZOMYJ5AyfXZZoaZxyTJWJWmxCNNN2ZbP/nnt8WLS/Ddbrs3WxdfreAyzGX9pDCAKxRQ==}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.20':
-    resolution: {integrity: sha512-mCAFOeqGp3bNMj6W8y/txNz9LhDWLBmzNAQolKlUxZ9a9W+TIQsBAPy1z8/LmY48cNakB2Re0Y4bxxw+3NrrAQ==}
+  '@mnmal-ai/substrate@1.0.0-beta.10':
+    resolution: {integrity: sha512-KH079j2uU1xwcLlmqa/clfcEdCf9ooB8IJnVBCyHBxO44Z2Nfe7JsTd1PIB1rRYIVDoJJ8cx6UZ/kElTEENNLw==}
     engines: {node: '>=26.13.1'}
     hasBin: true
 
@@ -3363,7 +3363,7 @@ snapshots:
 
   '@mnmal-ai/holomap-clusterer@0.2.1': {}
 
-  '@mnmal-ai/substrate@1.0.0-alpha.20':
+  '@mnmal-ai/substrate@1.0.0-beta.10':
     dependencies:
       '@fastify/compress': 9.2.2
       '@fastify/cors': 11.3.1

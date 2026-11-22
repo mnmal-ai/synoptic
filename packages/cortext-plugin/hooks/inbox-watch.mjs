@@ -11,7 +11,7 @@ var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).expor
 var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/env-utils-s25Z1YSA.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/env-utils-s25Z1YSA.js
 /**
 * `url` with its trailing slashes removed, for joining a configured base URL
 * to a path. A loop rather than `/\/+$/`, which backtracks quadratically on a
@@ -2460,12 +2460,12 @@ if (!(process.env.MSGPACKR_NATIVE_ACCELERATION_DISABLED !== void 0 && process.en
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/msgpackr-Dq18g6Ds.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/msgpackr-Dq18g6Ds.js
 const unpack = (...args) => unpack$1(...args);
 const createUnpackr = (options) => new Unpackr(options);
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/src-B_kHkbsr.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/src-DjIW8yvR.js
 /**
 * Exhaustiveness guard for the `default:` arm of a `switch` over a
 * discriminated union. An unhandled variant makes the call fail to
@@ -2521,6 +2521,19 @@ const EXPR_FUNCTIONS = [
 	sig$1("case", "variadic", "any", "Pairs [cond, then] then a final else; branches share a type."),
 	sig$1("coalesce", "variadic", "any", "First non-null of one or more arguments sharing a type.")
 ];
+/**
+* `JSON.stringify` that writes a bigint as a decimal string, so an `int64`
+* keeps every digit on the JSON wire. The plain call runs first, so a value
+* with no bigint pays nothing for the replacer.
+*/
+function stringifyJson(value, space) {
+	try {
+		return JSON.stringify(value, null, space);
+	} catch (e) {
+		if (!(e instanceof TypeError) || !/BigInt/.test(e.message)) throw e;
+		return JSON.stringify(value, (_k, v) => typeof v === "bigint" ? v.toString() : v, space);
+	}
+}
 function parseQualifiedKey(key) {
 	const slash = key.indexOf("/");
 	if (slash <= 0 || slash === key.length - 1) return null;
@@ -2539,17 +2552,25 @@ function walkSlot(name, sel, fieldMap) {
 	};
 	const walk = sel._walk;
 	if (!isObj(walk)) return void 0;
-	let type;
-	if (typeof walk.in === "string") type = /^[^/]+\/([^./]+)\./.exec(walk.in)?.[1];
-	else if (typeof walk.out === "string") {
+	let far;
+	if (typeof walk.in === "string") {
+		const m = /^([^/]+)\/([^./]+)\./.exec(walk.in);
+		if (m !== null) far = {
+			ns: m[1],
+			type: m[2]
+		};
+	} else if (typeof walk.out === "string") {
 		const def = Object.hasOwn(fieldMap, walk.out) ? fieldMap[walk.out] : void 0;
-		if (def?.kind === "crossRef") type = def.type;
+		if (def?.kind === "crossRef") far = {
+			ns: def.ns,
+			type: def.type
+		};
 	}
-	if (type === void 0) return void 0;
+	if (far === void 0) return void 0;
 	const fields = isObj(sel.fields) ? sel.fields : {};
 	return {
 		kind: "nested",
-		type,
+		...far,
 		fields: {
 			id: true,
 			...fields
@@ -2870,10 +2891,11 @@ function decodeWalkSlot(cell, slot, schema, path, ctx) {
 			return Object.fromEntries(slot.names.map((n, i) => [n, cell[i] ?? null]));
 		case "nested": {
 			if (!Array.isArray(cell)) throw new PackDecodeError("expected array for nested selection", path);
-			const plan = getRowPlan(slot.fields, resolveFieldMap(schema, slot.type, path));
+			const [far, at] = inNamespace(slot.ns, slot.type, "walk", schema, path, ctx);
+			const plan = getRowPlan(slot.fields, resolveFieldMap(far, slot.type, path));
 			return cell.map((tuple, idx) => {
 				path.push(`[${idx}]`);
-				const out = decodeRowWithPlan(tuple, plan, schema, path, ctx);
+				const out = decodeRowWithPlan(tuple, plan, far, path, at);
 				path.pop();
 				return out;
 			});
@@ -2934,15 +2956,24 @@ function decodeListElement(elem, selection, inner, schema, elemPath, ctx, struct
 	}
 }
 function decodeCrossRef(cell, selection, def, schema, path, ctx) {
-	if (def.ns === ctx.currentNs) return decodeRowWithPlan(cell, getRowPlan(selection, resolveFieldMap(schema, def.type, path)), schema, path, ctx);
+	const [target, at] = inNamespace(def.ns, def.type, "crossRef", schema, path, ctx);
+	return decodeRowWithPlan(cell, getRowPlan(selection, resolveFieldMap(target, def.type, path)), target, path, at);
+}
+/**
+* The schema rows of `ns` decode under, and the context to decode them in:
+* the current ones when `ns` is current, else `ctx.schemas[ns]`. `hop` names
+* what crossed into `ns` when its schema is missing.
+*/
+function inNamespace(ns, type, hop, schema, path, ctx) {
+	if (ns === ctx.currentNs) return [schema, ctx];
 	const schemas = ctx.schemas;
-	if (schemas === void 0) throw new PackDecodeError(`cross-namespace crossRef '${def.ns}/${def.type}' requires ctx.schemas`, path);
-	const targetSchema = schemas[def.ns];
-	if (targetSchema === void 0) throw new PackDecodeError(`cross-namespace crossRef target namespace '${def.ns}' not in ctx.schemas`, path);
-	return decodeRowWithPlan(cell, getRowPlan(selection, resolveFieldMap(targetSchema, def.type, path)), targetSchema, path, {
+	if (schemas === void 0) throw new PackDecodeError(`cross-namespace ${hop} '${ns}/${type}' requires ctx.schemas`, path);
+	const target = Object.hasOwn(schemas, ns) ? schemas[ns] : void 0;
+	if (target === void 0) throw new PackDecodeError(`cross-namespace ${hop} target namespace '${ns}' not in ctx.schemas`, path);
+	return [target, {
 		...ctx,
-		currentNs: def.ns
-	});
+		currentNs: ns
+	}];
 }
 function decodeFieldDef(value, def, schema, path, ctx) {
 	if (value === null || value === void 0) return null;
@@ -3607,7 +3638,7 @@ function j(i, t) {
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/src-BNdhH_Hx.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/src-CyeuukOh.js
 /**
 * A fetch-shaped function over `node:http2`: the transport seam's HTTP/2
 * adapter for Node and Bun (Todo #1850, Decision #625).
@@ -4042,7 +4073,10 @@ function createAdminApi(t) {
 			const out = [];
 			let cursor;
 			for (;;) {
-				const qs = cursor === void 0 ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+				const q = new URLSearchParams();
+				if (opts.filter === "all") q.set("filter", "all");
+				if (cursor !== void 0) q.set("cursor", cursor);
+				const qs = q.toString() === "" ? "" : `?${q.toString()}`;
 				const page = await (await t.raw(`/substrate/v1/_system/keys${qs}`, {
 					method: "GET",
 					...opts.signal !== void 0 ? { signal: opts.signal } : {}
@@ -4460,16 +4494,6 @@ var ReconnectScheduler = class {
 	reset() {
 		this.#attempt = 0;
 	}
-	/**
-	* Resolve after `nextDelay()` ms. Callers must use this serially — the
-	* `#attempt` counter is shared across calls, so overlapping `schedule()`
-	* invocations will produce incorrect delays. The stream reconnect loop awaits
-	* each `schedule()` before firing the next attempt.
-	*/
-	async schedule() {
-		const d = this.nextDelay();
-		await new Promise((resolve) => setTimeout(resolve, d));
-	}
 };
 /** Server response frames as the subscribe and stream iterables yield them. */
 const DEFAULT_RECONNECT = {
@@ -4612,7 +4636,6 @@ async function* run(http, path, frame, opts, signal) {
 			const idleMs = opts.idleMs ?? 65e3;
 			for await (const payload of decodeStreamFrames(idleMs > 0 ? withIdleTimeout(body, idleMs) : body)) {
 				const msg = decodeFrame(payload, opts.wire);
-				if (Date.now() - openedAt >= reconnect.maxDelayMs) backoff.reset();
 				if (subscribe && msg.kind === "error" && msg.errors?.[0]?.code === OVERLOADED && overload.enabled) {
 					const now = Date.now();
 					if (lastOverloadAt !== null && now - lastOverloadAt > overload.healthyResetMs) overloadAttempts = 0;
@@ -4637,6 +4660,7 @@ async function* run(http, path, frame, opts, signal) {
 			if (err instanceof SubscribeError || err instanceof NetworkError && err.code === "stream_interrupted") throw err;
 			if (!subscribe) throw err instanceof NetworkError ? err : new NetworkError(`POST ${path}: the stream broke before its end frame`, err);
 		}
+		if (Date.now() - openedAt >= reconnect.maxDelayMs) backoff.reset();
 		if (next === "stop") return;
 		if (next === void 0) {
 			if (signal.aborted) return;
@@ -4869,7 +4893,7 @@ var HttpTransport = class {
 			res = await this.#fetch(url, {
 				method: "POST",
 				headers,
-				body: JSON.stringify(body),
+				body: stringifyJson(body),
 				...opts.signal !== void 0 ? { signal: opts.signal } : {}
 			});
 		} catch (err) {
@@ -4905,7 +4929,9 @@ var HttpTransport = class {
 			};
 			throw new AuthError(`${res.status === 401 ? "Unauthorised" : "Forbidden"}: ${url}`, res.status, info);
 		}
-		throw new NetworkError(`${res.status} from ${url}`, null, await errorInfo(res));
+		const info = await errorInfo(res);
+		const reason = [info.code, info.serverMessage].filter((s) => s !== void 0).join(": ");
+		throw new NetworkError(`${res.status} from ${url}${reason ? `: ${reason}` : ""}`, null, info);
 	}
 };
 /** The status plus whatever a JSON body says: the whole object as `body`, the first string of `error.message` (the recall plugin's nested shape), `error`, `message` as the message, and the first string of `error.code`, `code` as the code. Non-JSON bodies leave the status alone. */
@@ -5094,6 +5120,24 @@ var SubstrateClient = class {
 	async errors(opts = {}) {
 		this.#ensureOpen();
 		return await (await this.#http.raw("/substrate/v1/errors", {
+			method: "GET",
+			...opts.signal !== void 0 ? { signal: opts.signal } : {}
+		})).json();
+	}
+	/** Runs a sketch. Resolves with the reply for any 200, refusals and failures included. */
+	async act(req, opts = {}) {
+		this.#ensureOpen();
+		return await (await this.#http.raw("/substrate/v1/act", {
+			method: "POST",
+			body: req,
+			accept: "application/json",
+			...opts.signal !== void 0 ? { signal: opts.signal } : {}
+		})).json();
+	}
+	/** A stored act result. A missing or foreign id throws a `NetworkError` with status 404. */
+	async actResult(id, opts = {}) {
+		this.#ensureOpen();
+		return await (await this.#http.raw(`/substrate/v1/act/results/${encodeURIComponent(id)}`, {
 			method: "GET",
 			...opts.signal !== void 0 ? { signal: opts.signal } : {}
 		})).json();

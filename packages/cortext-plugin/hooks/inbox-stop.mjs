@@ -4,7 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import http2 from "node:http2";
 
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-alpha.20/node_modules/@mnmal-ai/substrate/dist/src-BNdhH_Hx.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/src-CyeuukOh.js
 /**
 * A fetch-shaped function over `node:http2`: the transport seam's HTTP/2
 * adapter for Node and Bun (Todo #1850, Decision #625).
