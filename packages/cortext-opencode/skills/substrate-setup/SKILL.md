@@ -132,6 +132,7 @@ leaves empty:
         "codemode": false,
         "environment": {
           "SUBSTRATE_URL": "<the url>",
+          "SUBSTRATE_MCP_TOOLS": "core,act",
           "SUBSTRATE_AGENT_KEY_PATH": "{env:SUBSTRATE_AGENT_KEY_PATH}",
           "SUBSTRATE_AGENT_KEY_ID": "{env:SUBSTRATE_AGENT_KEY_ID}"
         }

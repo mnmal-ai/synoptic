@@ -187,12 +187,15 @@ Project scope is still the right default: the server definition and its `SUBSTRA
          "command": "npx",
          "args": ["-y", "@mnmal-ai/substrate@next", "mcp"],
          "env": {
-           "SUBSTRATE_URL": "<the url>"
+           "SUBSTRATE_URL": "<the url>",
+           "SUBSTRATE_MCP_TOOLS": "core,act"
          }
        }
      }
    }
    ```
+
+   `SUBSTRATE_MCP_TOOLS: "core,act"` adds the `act` tool to the default set, for the conventions fragment's *`act` first* section. It needs substrate 1.0.0-beta.10 or later; leave it out for an older server.
 
    No identity keys in `env` — that is the whole arrangement, not an omission. The server inherits `SUBSTRATE_AGENT_KEY_ID` / `SUBSTRATE_AGENT_KEY_PATH` from `.claude/settings.local.json` `env` at spawn (Step 7). Naming them here would hand them to launch-shell expansion instead, and shadow the settings layer.
 
