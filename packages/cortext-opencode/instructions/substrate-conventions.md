@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.22+2694fd70 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.23+2694fd70 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
 
 # Substrate interaction conventions
 
