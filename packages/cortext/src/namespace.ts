@@ -290,6 +290,33 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
       // keep exactly the tokens this arm exists to reach unreachable.
       lexical: {
         source: (r) => lexicalText(r.synopsis, r.summary, r.body)
+      },
+      // `act` sketches: `log SessionLog summary="…" branch=main closes=#12,#13`
+      // writes the log and closes each listed Todo in one transaction.
+      // Fields beyond the params (project, synopsis, tags) pass as field=value.
+      actions: {
+        log: {
+          kind: 'create',
+          past: 'logged',
+          params: {
+            summary: { type: field.string() },
+            branch: { type: field.string() },
+            packages: { type: field.string(), default: '' },
+            decisionsCount: { type: field.number(), default: 0 },
+            body: { type: field.string(), optional: true },
+            closes: { list: `${ns}/Todo`, optional: true }
+          },
+          set: {
+            summary: { param: 'summary' },
+            branch: { param: 'branch' },
+            packages: { param: 'packages' },
+            decisionsCount: { param: 'decisionsCount' },
+            body: { param: 'body' },
+            startedAt: { now: true }
+          },
+          // biome-ignore lint/suspicious/noThenProperty: `then` is the action declaration's key
+          then: [{ action: `${ns}/Todo.close`, each: { param: 'closes' } }]
+        }
       }
     },
     Decision: {
@@ -371,6 +398,9 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
        */
       lexical: {
         source: (r) => lexicalText(r.topic, r.choice, r.rationale)
+      },
+      actions: {
+        supersede: { past: 'superseded', set: { status: 'superseded' } }
       }
     },
     Todo: {
@@ -455,6 +485,30 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           onDelete: 'set_null'
         }),
         project: field.string({ nullable: true, indexed: true })
+      },
+      // `act` sketches: `close Todo #12 resolution=wont_do`, `defer Todo #12
+      // revisitWhen="…"`, `block Todo #12 blockedBy="#9"`. Closing archives.
+      actions: {
+        close: {
+          past: 'closed',
+          params: {
+            resolution: {
+              type: field.vocab(TODO_RESOLUTION_VOCAB, { aliases: TODO_RESOLUTION_ALIASES }),
+              default: 'completed'
+            }
+          },
+          set: { status: 'closed', resolution: { param: 'resolution' }, archived: true }
+        },
+        defer: {
+          past: 'deferred',
+          params: { revisitWhen: { type: field.string() } },
+          set: { status: 'deferred', revisitWhen: { param: 'revisitWhen' } }
+        },
+        block: {
+          past: 'blocked',
+          params: { blockedBy: { type: field.string() } },
+          set: { status: 'blocked', blockedBy: { param: 'blockedBy' } }
+        }
       }
     },
     AgentRule: {
