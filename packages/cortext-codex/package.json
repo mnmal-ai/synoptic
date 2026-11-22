@@ -1,8 +1,7 @@
 {
   "name": "@mnmal-ai/cortext-codex",
   "version": "1.0.0-alpha.22",
-  "private": true,
-  "description": "Local Codex skin for Cortext: cold-start, inbox seams and shared coordination skills.",
+  "description": "Cortext — the Codex skin: cold-start, inbox seams, a bundled Substrate MCP server and shared coordination skills. Installed as a local Codex marketplace from the installed package. Published to npm, not the Claude marketplace.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -10,6 +9,19 @@
     "directory": "packages/cortext-codex"
   },
   "type": "module",
+  "files": [
+    ".agents",
+    ".codex-plugin",
+    ".mcp.json",
+    "bin",
+    "hooks",
+    "skills",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown",
     "test": "node --test --test-isolation=none test/*.test.js",
