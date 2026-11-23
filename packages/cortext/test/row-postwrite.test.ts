@@ -109,14 +109,14 @@ async function runCreate(
 
 describe('postWrite wiring — kernel-driven', () => {
   describe('contributePostWrites coverage', () => {
-    it('contributes hooks for all 6 embeddable types when embedder is present', () => {
+    it('contributes hooks for all 7 embeddable types when embedder is present', () => {
       const embedder = new FakeEmbedder({ dimension: 8 });
       const store = new InMemoryEmbeddingsStore();
       const recall = createRecallPlugin({ embedder, store });
       const nsDef = buildClaudeNamespace('claude');
       const contribs = recall.contributePostWrites!(nsDef);
       expect(Object.keys(contribs).sort()).toEqual(
-        ['AgentRule', 'AnchorIntent', 'Concept', 'Decision', 'Memory', 'SessionLog'].sort()
+        ['AgentRule', 'AnchorIntent', 'Concept', 'Decision', 'Memory', 'SessionLog', 'Todo'].sort()
       );
     });
 
@@ -128,16 +128,17 @@ describe('postWrite wiring — kernel-driven', () => {
       expect(Object.keys(contribs)).toHaveLength(0);
     });
 
-    it('non-embeddable types (Todo) are absent; AgentRule is now embeddable', () => {
+    it('non-embeddable types (Task) are absent; AgentRule and Todo are embeddable', () => {
       const embedder = new FakeEmbedder({ dimension: 8 });
       const store = new InMemoryEmbeddingsStore();
       const recall = createRecallPlugin({ embedder, store });
       const nsDef = buildClaudeNamespace('claude');
       const contribs = recall.contributePostWrites!(nsDef);
-      expect(contribs).not.toHaveProperty('Todo');
+      expect(contribs).not.toHaveProperty('Task');
       // AgentRule declares an embed.source (semantic salience), so it
       // contributes a postWrite like the other embeddable types.
       expect(contribs).toHaveProperty('AgentRule');
+      expect(contribs).toHaveProperty('Todo');
     });
   });
 
@@ -248,6 +249,23 @@ describe('postWrite wiring — kernel-driven', () => {
         embedder
       );
       expect(embedSpy).toHaveBeenCalledWith('an intent synopsis', expect.anything());
+      expect(upserts).toHaveLength(1);
+    });
+
+    it('Todo: fires embed with the title', async () => {
+      const embedder = new FakeEmbedder({ dimension: 8 });
+      const { embedSpy, upserts } = await runCreate(
+        'Todo',
+        {
+          title: 'index todos for recall',
+          area: 'recall',
+          status: 'open',
+          priority: 'medium',
+          project: 'synoptic'
+        },
+        embedder
+      );
+      expect(embedSpy).toHaveBeenCalledWith('index todos for recall', expect.anything());
       expect(upserts).toHaveLength(1);
     });
 
@@ -366,7 +384,7 @@ describe('postWrite wiring — loadPlugins integration', () => {
     const nsDef = claude.namespaces[0]!;
     const contribs = recall.contributePostWrites!(nsDef);
     expect(Object.keys(contribs).sort()).toEqual(
-      ['AgentRule', 'AnchorIntent', 'Concept', 'Decision', 'Memory', 'SessionLog'].sort()
+      ['AgentRule', 'AnchorIntent', 'Concept', 'Decision', 'Memory', 'SessionLog', 'Todo'].sort()
     );
 
     // Verify the hook fires correctly when called directly (end-to-end source parity)
@@ -389,7 +407,7 @@ describe('postWrite wiring — loadPlugins integration', () => {
     expect(upserts[0]?.rowId).toBe('test-id-123');
   });
 
-  it('Todo write does NOT produce an embedding (non-embeddable type)', async () => {
+  it('Task write does NOT produce an embedding (non-embeddable type)', async () => {
     const embedder = new FakeEmbedder({ dimension: 8 });
     const store = new InMemoryEmbeddingsStore();
     const recall = createRecallPlugin({ embedder, store });
@@ -402,7 +420,7 @@ describe('postWrite wiring — loadPlugins integration', () => {
     });
     const nsDef = claude.namespaces[0]!;
     const contribs = recall.contributePostWrites!(nsDef);
-    expect(contribs).not.toHaveProperty('Todo');
+    expect(contribs).not.toHaveProperty('Task');
   });
 
   describe('Decision embed.source — crossRef enrichment via EmbedSourceContext', () => {

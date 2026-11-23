@@ -21,27 +21,28 @@ const SYN = 'a short handle';
 const SHORT = 'x'.repeat(1200);
 const LONG = 'y'.repeat(1201);
 
-/** The type, and a row whose long form is exactly `long`. */
-const CASES: Array<[string, (long: string) => Row, string]> = [
+/** The type, a row whose long form is exactly `long`, the suffix, and the handle field when it is not `synopsis`. */
+const CASES: Array<[string, (long: string) => Row, string, string?]> = [
   ['Memory', (long) => ({ id: 'm', description: 'd', body: long.slice(3) }), ''],
   ['Concept', (long) => ({ id: 'c', description: 'd', body: long.slice(3) }), ''],
   ['SessionLog', (long) => ({ id: 's', summary: long }), ''],
   ['AnchorIntent', (long) => ({ id: 'a', body: long }), ''],
-  ['AgentRule', (long) => ({ id: 'r', rule: long, category: 'style' }), ' [style]']
+  ['AgentRule', (long) => ({ id: 'r', rule: long, category: 'style' }), ' [style]'],
+  ['Todo', (long) => ({ id: 't', notes: 'n', body: long.slice(3) }), '', 'title']
 ];
 
 describe('embed.source on synopsis-bearing types', () => {
-  for (const [type, row, suffix] of CASES) {
+  for (const [type, row, suffix, handle = 'synopsis'] of CASES) {
     describe(type, () => {
       const source = sourceFor(type);
 
       it('embeds the synopsis alone when the long form is at most 1200 chars', () => {
-        expect(source({ ...row(SHORT), synopsis: SYN })).toBe(`${SYN}${suffix}`);
+        expect(source({ ...row(SHORT), [handle]: SYN })).toBe(`${SYN}${suffix}`);
       });
 
       it('embeds the synopsis followed by the long form past 1200 chars', () => {
         const r = row(LONG);
-        const out = source({ ...r, synopsis: SYN });
+        const out = source({ ...r, [handle]: SYN });
         expect(out.startsWith(`${SYN}\n\n`)).toBe(true);
         expect(out.endsWith(`${LONG.slice(3)}${suffix}`)).toBe(true);
       });
