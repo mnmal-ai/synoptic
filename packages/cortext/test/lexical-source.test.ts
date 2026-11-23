@@ -36,11 +36,12 @@ const EXPECTED = [
   'Concept',
   'Decision',
   'Memory',
-  'SessionLog'
+  'SessionLog',
+  'Todo'
 ] as const;
 
 describe('lexical.source declarations', () => {
-  it('declares a lexical source on exactly the six embeddable types', () => {
+  it('declares a lexical source on exactly the seven embeddable types', () => {
     const nsDef = buildClaudeNamespace('cortext');
     const declared = Object.entries(nsDef.types as Record<string, { lexical?: unknown }>)
       .filter(([, def]) => def.lexical !== undefined)
@@ -109,6 +110,19 @@ describe('lexical.source declarations', () => {
       expect(sourceFor('Decision')!({ id: 'x', topic: 't', choice: 'c', rationale: 'r' })).toBe(
         't\n\nc\n\nr'
       );
+    });
+
+    it('Todo: title + notes + body, and NOT blockedBy or revisitWhen', () => {
+      const out = sourceFor('Todo')!({
+        id: 'x',
+        title: 't',
+        notes: 'n',
+        body: 'b',
+        blockedBy: 'the gate',
+        revisitWhen: 'after beta.13'
+      });
+      expect(out).toBe('t\n\nn\n\nb');
+      expect(out).not.toContain('the gate');
     });
   });
 

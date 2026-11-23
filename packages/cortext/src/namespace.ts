@@ -486,6 +486,14 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         }),
         project: field.string({ nullable: true, indexed: true })
       },
+      // `title` is the handle, as `synopsis` is on the other types: a short Todo
+      // embeds its title alone, and notes + body follow once they pass 1200 chars.
+      embed: {
+        source: (r) => embedText(r.title, lexicalText(r.notes, r.body) ?? '')
+      },
+      lexical: {
+        source: (r) => lexicalText(r.title, r.notes, r.body)
+      },
       // `act` sketches: `close Todo #12 resolution=wont_do`, `defer Todo #12
       // revisitWhen="…"`, `block Todo #12 blockedBy="#9"`. Closing archives.
       actions: {
