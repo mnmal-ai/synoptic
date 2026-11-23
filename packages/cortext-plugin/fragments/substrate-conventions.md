@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.23+03824888 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.24+03824888 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
