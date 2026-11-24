@@ -407,11 +407,13 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
       fields: {
         title: field.string(),
         area: field.string(),
-        // Lifecycle only; the outcome lives in `resolution`.
+        // Lifecycle only; the outcome lives in `resolution`. A new Todo is
+        // open unless the create says otherwise.
         status: field.vocab(TODO_LIFECYCLE_VOCAB, {
           aliases: TODO_STATUS_ALIASES,
           implies: TODO_STATUS_IMPLIES,
-          indexed: true
+          indexed: true,
+          default: 'open'
         }),
         // Why a closed Todo stopped. Set by the closing alias (`done` ->
         // completed) or explicitly; null while the Todo is live.
