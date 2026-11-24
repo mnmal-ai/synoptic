@@ -1520,11 +1520,11 @@
       "status": {
         "kind": "scalar",
         "nullable": false,
-        "hasDefault": false,
+        "hasDefault": true,
         "readonly": false,
         "serverSet": false,
         "indexed": true,
-        "required": true,
+        "required": false,
         "type": "string",
         "enum": [
           "blocked",

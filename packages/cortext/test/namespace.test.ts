@@ -335,6 +335,33 @@ describe('buildClaudeNamespace', () => {
     expect(status).not.toMatchObject({ indexed: false });
   });
 
+  it('Todo.status defaults to open, so a create need not name it', async () => {
+    const { server, stop } = await setup();
+    cleanup = stop;
+    const schema = jsonBody<FederatedSchemaShape>(
+      await server.inject({ method: 'GET', path: '/substrate/v1/federated-schema' })
+    );
+    expect(schema[NS]?.types.Todo?.fields.status).toMatchObject({ default: 'open' });
+
+    const key = `${NS}/createTodo`;
+    const res = await server.inject({
+      method: 'POST',
+      path: '/substrate/v1/mutate',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from(
+        JSON.stringify({
+          [key]: {
+            params: { title: 'no status given', area: 'act', priority: 'high' },
+            fields: { status: true, archived: true }
+          }
+        })
+      )
+    });
+    const env = jsonBody<{ data: Record<string, unknown>; errors?: unknown[] }>(res);
+    expect(env.errors).toBeUndefined();
+    expect(env.data[key]).toMatchObject({ status: 'open', archived: false });
+  });
+
   it('Decision.status carries a default, so an omitted key cannot write null', async () => {
     // `status` is non-nullable, but assertEnumValues skips fields ABSENT from
     // params, the kernel CHECK constraints carry an explicit `OR <field> IS
