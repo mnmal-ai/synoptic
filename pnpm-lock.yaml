@@ -168,8 +168,8 @@ catalogs:
       specifier: 2.5.15
       version: 2.5.15
     '@mnmal-ai/substrate':
-      specifier: 1.0.0-beta.10
-      version: 1.0.0-beta.10
+      specifier: 1.0.0-beta.16
+      version: 1.0.0-beta.16
     '@opencode-ai/plugin':
       specifier: ^1.19.0
       version: 1.19.6
@@ -180,8 +180,8 @@ catalogs:
       specifier: ^26.6.4
       version: 26.6.4
     postgres:
-      specifier: 4.1.0
-      version: 4.1.0
+      specifier: 4.1.1
+      version: 4.1.1
     tsdown:
       specifier: ^0.23.0
       version: 0.23.0
@@ -224,14 +224,14 @@ importers:
     dependencies:
       postgres:
         specifier: 'catalog:'
-        version: 4.1.0
+        version: 4.1.1
       zod:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-beta.10
+        version: 1.0.0-beta.16
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -249,7 +249,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-beta.10
+        version: 1.0.0-beta.16
       '@mnmal-ai/synoptic':
         specifier: workspace:*
         version: link:../synoptic
@@ -285,7 +285,7 @@ importers:
     devDependencies:
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-beta.10
+        version: 1.0.0-beta.16
       '@mnmal-ai/synoptic':
         specifier: workspace:*
         version: link:../synoptic
@@ -333,7 +333,7 @@ importers:
         version: link:../context-render
       '@mnmal-ai/substrate':
         specifier: 'catalog:'
-        version: 1.0.0-beta.10
+        version: 1.0.0-beta.16
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -622,8 +622,8 @@ packages:
   '@mnmal-ai/holomap-clusterer@0.2.1':
     resolution: {integrity: sha512-X3d4Zj0IQoliinQ6ajjZOMYJ5AyfXZZoaZxyTJWJWmxCNNN2ZbP/nnt8WLS/Ddbrs3WxdfreAyzGX9pDCAKxRQ==}
 
-  '@mnmal-ai/substrate@1.0.0-beta.10':
-    resolution: {integrity: sha512-KH079j2uU1xwcLlmqa/clfcEdCf9ooB8IJnVBCyHBxO44Z2Nfe7JsTd1PIB1rRYIVDoJJ8cx6UZ/kElTEENNLw==}
+  '@mnmal-ai/substrate@1.0.0-beta.16':
+    resolution: {integrity: sha512-eamvoL+8RgreTgdO4ZAaXZFzyE7z2aDDSqjhZtBYmRuKf/BKqiMw/ABwjlveembI2QSb7DBpFNZ0EyvkMC/eOQ==}
     engines: {node: '>=26.13.1'}
     hasBin: true
 
@@ -2447,8 +2447,8 @@ packages:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postgres@4.1.0:
-    resolution: {integrity: sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ==}
+  postgres@4.1.1:
+    resolution: {integrity: sha512-1kJDojqNZC+iTHHXh6eif0J98LUtyLAePe/qkW1GK35eh2JixlsAiIKq3FGI+xqI+SUGTNodzf7TScVeIIyUug==}
     engines: {node: '>=18'}
 
   powershell-utils@0.2.1:
@@ -2976,12 +2976,15 @@ packages:
 
   yuku-ast@0.10.2:
     resolution: {integrity: sha512-UnG9mA6giglCvSErft2/40TVFX750Sj1xgwddPLpG7J7rlr/P1wPADg9G2RK+d/1tNLtRVoLdMMOMVBB9561TQ==}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   yuku-codegen@0.10.2:
     resolution: {integrity: sha512-hentl2dtrF6cPjiAirtkfxfFZBA6Hdm61UqRJ7cA0qrlDNMk9PZGOjw5w1mx3E0hu/6pHcJF4dJW+D0SXHPZOA==}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   yuku-parser@0.10.2:
     resolution: {integrity: sha512-CgaU0/PPjCAIEZ3WQroosOxTY3eeKldAN3h+vk8pMNz4+jl1CZzBR4pW+K/rRPF112VooCL5FdjJoiMNjDrL2A==}
+    deprecated: 'Yuku is now one package with one core. Use "yuku" instead: https://yuku.fyi/javascript/. Existing installs keep working but get no more fixes.'
 
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
@@ -3363,7 +3366,7 @@ snapshots:
 
   '@mnmal-ai/holomap-clusterer@0.2.1': {}
 
-  '@mnmal-ai/substrate@1.0.0-beta.10':
+  '@mnmal-ai/substrate@1.0.0-beta.16':
     dependencies:
       '@fastify/compress': 9.2.2
       '@fastify/cors': 11.3.1
@@ -3372,7 +3375,7 @@ snapshots:
       '@preact/signals-core': 1.14.4
       fastify: 5.12.7
       msgpackr: 2.1.0
-      postgres: 4.1.0
+      postgres: 4.1.1
       semver: 7.8.5
       zod: 4.6.7
     transitivePeerDependencies:
@@ -5082,7 +5085,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  postgres@4.1.0: {}
+  postgres@4.1.1: {}
 
   powershell-utils@0.2.1: {}
 

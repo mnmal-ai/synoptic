@@ -11,7 +11,7 @@ var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).expor
 var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/env-utils-s25Z1YSA.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.16/node_modules/@mnmal-ai/substrate/dist/env-utils-s25Z1YSA.js
 /**
 * `url` with its trailing slashes removed, for joining a configured base URL
 * to a path. A loop rather than `/\/+$/`, which backtracks quadratically on a
@@ -2460,12 +2460,12 @@ if (!(process.env.MSGPACKR_NATIVE_ACCELERATION_DISABLED !== void 0 && process.en
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/msgpackr-Dq18g6Ds.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.16/node_modules/@mnmal-ai/substrate/dist/msgpackr-Dq18g6Ds.js
 const unpack = (...args) => unpack$1(...args);
 const createUnpackr = (options) => new Unpackr(options);
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/src-DjIW8yvR.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.16/node_modules/@mnmal-ai/substrate/dist/src-DjIW8yvR.js
 /**
 * Exhaustiveness guard for the `default:` arm of a `switch` over a
 * discriminated union. An unhandled variant makes the call fail to
@@ -3638,7 +3638,7 @@ function j(i, t) {
 }
 
 //#endregion
-//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.10/node_modules/@mnmal-ai/substrate/dist/src-CyeuukOh.js
+//#region ../../node_modules/.pnpm/@mnmal-ai+substrate@1.0.0-beta.16/node_modules/@mnmal-ai/substrate/dist/src-DR5JlnF9.js
 /**
 * A fetch-shaped function over `node:http2`: the transport seam's HTTP/2
 * adapter for Node and Bun (Todo #1850, Decision #625).

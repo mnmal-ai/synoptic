@@ -27,6 +27,7 @@
  */
 
 import type {
+  ActionDecl,
   Dataset,
   FieldDef,
   NamespaceInstallContext,
@@ -475,10 +476,12 @@ function transitionResolver(
  * callers to build a shape that cannot work, and the refusal reads like a
  * grant problem. Field defs arrive pre-augmentation; the reserved engine
  * fields are added here, the way defineNamespace adds them for autoCRUD types.
+ * `actions` are the type's declared `act` actions.
  */
 export function installMailboxMutations(
   ctx: NamespaceInstallContext,
-  messageFields: Record<string, FieldDef>
+  messageFields: Record<string, FieldDef>,
+  actions?: Record<string, ActionDecl>
 ): void {
   const fields: Record<string, FieldDef> = { ...messageFields, ...RESERVED_AUTOCRUD_FIELDS };
 
@@ -492,7 +495,10 @@ export function installMailboxMutations(
     resolver: listResolver(TYPE, ctx.dataset, { fields }),
     kind: 'type',
     policy: writePolicy,
-    fields
+    fields,
+    // The type's `act` actions, published on the type entry as defineNamespace
+    // publishes them for an autoCRUD type.
+    ...(actions !== undefined ? { actions } : {})
   });
 
   ctx.registry.register(`get${TYPE}`, {

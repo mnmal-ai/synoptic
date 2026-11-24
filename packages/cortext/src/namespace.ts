@@ -870,6 +870,15 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // Set once at send; mailboxWriteGuard refuses it on update.
         instance: field.string({ nullable: true }),
         archived: field.boolean({ default: false })
+      },
+      // `act` sketches: `send AgentMessage to=peer@host subject="…" body="…"`,
+      // `ack AgentMessage #12` and `read AgentMessage #12`. Each calls its
+      // mailbox mutation, so addressing, fan-out and the recipient-only
+      // check are that mutation's, and the sketch's args are its params.
+      actions: {
+        send: { kind: 'create', mutation: 'sendAgentMessage', past: 'sent' },
+        ack: { mutation: 'ackAgentMessage', past: 'acked' },
+        read: { mutation: 'markAgentMessageRead', past: 'read' }
       }
     },
     // What one host has installed for one repo. One row per (host, repo,
@@ -982,7 +991,9 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
       installMailboxMutations(
         ctx,
         // biome-ignore lint/style/noNonNullAssertion: deliberate internal-seam assertion, see above
-        definition.types!.AgentMessage!.fields as Record<string, FieldDef>
+        definition.types!.AgentMessage!.fields as Record<string, FieldDef>,
+        // biome-ignore lint/style/noNonNullAssertion: same internal-seam assertion
+        definition.types!.AgentMessage!.actions
       );
       // AgentIdentity keeps its autoCRUD surface, but a create may not claim
       // another machine, an edit is the row's own kid's or an operator's, and
