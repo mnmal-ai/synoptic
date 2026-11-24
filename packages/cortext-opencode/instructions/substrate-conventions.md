@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.26+03824888 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.26+71c5648b — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
 
 # Substrate interaction conventions
 
@@ -18,6 +18,7 @@ When the `act` tool is loaded (`SUBSTRATE_MCP_TOOLS=core,act` in the MCP server'
 - `log SessionLog summary="…" synopsis="…" branch=feat/x project=<repo> closes=#12,#13` writes the log and closes each listed Todo in the same transaction.
 - `create Todo title="…" area=act priority=high project=<repo>`, and `update Todo #12 priority=low`.
 - `find Todo status=open project=<repo> fields=title,priority` returns rows holding `id`, `shortId` and the named fields. `count Todo status=open` counts.
+- Mail: `send AgentMessage to=peer@host subject="…" body="…" instance=session:1a2b3c4d`, `ack AgentMessage #12` and `read AgentMessage #12` call the mailbox mutations described under *The mailbox*, and `find AgentMessage recipient=kid:@me status=unread archived=false fields=subject` is your inbox. These need substrate 1.0.0-beta.16 or later and a cortext that declares them: `? AgentMessage` lists the actions when it does.
 - `? Todo` shows a type's actions, params and fields. From beta.12 a `?` step can sit beside other steps, and the reply carries its answer in `help`. Steps split by `;` commit together or not at all (a leading `define` commits first), and `mode: "dry-run"` checks a sketch without writing.
 - From substrate 1.0.0-beta.11 the reply carries `find` rows in `found` and a dry run's values in `plan`. On beta.10, pass the reply's `result` to read them.
 - When a write you keep repeating has no word, coin one (substrate 1.0.0-beta.11 or later): `define Todo.start started status=in_progress` adds `start Todo #12`. `field=$` makes a param typed by the field (`$name` names it, a trailing `?` makes it optional), and the bare word after the name is the past tense for acks. From beta.12 the sketch that coins a word can use it: `define Todo.start started status=in_progress; start Todo #12`. The define commits first, so the word stays defined if a later step fails. The word is yours at once and becomes everyone's after five uses at least an hour apart. Coining is opt-in: a refusal naming `_system_proposals` means your key is not opted in, so carry on with `update`.
@@ -150,7 +151,7 @@ Both are **recipient-only**, enforced against your signed identity: you cannot a
 { "cortext/AgentMessage": { "params": { "where": { "recipient": { "eq": "<my AgentIdentity id>" }, "status": { "eq": "unread" }, "archived": { "eq": false } } }, "fields": { "id": true, "subject": true } } }
 ```
 
-Note `recipient` is a crossRef and takes the **UUID** of your `AgentIdentity` row, not your kid string — resolve the row first.
+Note `recipient` is a crossRef and takes the **UUID** of your `AgentIdentity` row, not your kid string — resolve the row first. In an `act` sketch, `recipient=kid:@me` does that resolution for you (substrate 1.0.0-beta.16 or later).
 
 Several copies of one broadcast, or unread mail addressed to a retired kid, are other agents' rows, not a defect. **Nothing in the result marks a row as somebody else's** — only the projection does.
 

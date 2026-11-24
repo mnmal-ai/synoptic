@@ -3640,7 +3640,7 @@ function j(i, t) {
 }
 
 //#endregion
-//#region ../../node_modules/@mnmal-ai/substrate/dist/src-CyeuukOh.js
+//#region ../../node_modules/@mnmal-ai/substrate/dist/src-DR5JlnF9.js
 /**
 * A fetch-shaped function over `node:http2`: the transport seam's HTTP/2
 * adapter for Node and Bun (Todo #1850, Decision #625).
