@@ -269,13 +269,19 @@ async function drawTodos(
           Box,
           { key: `row-${t.id}`, flexDirection: 'row', gap: 1 },
           el(
-            Text,
-            { wrap: 'truncate-end', flexGrow: 1 },
-            el(Text, { dimColor: true }, `#${t.shortId} `),
-            el(Text, { bold: t.priority === 'high' }, `${t.priority.padEnd(6)} `),
-            t.status === 'open' ? '' : el(Text, { dimColor: true }, `[${t.status}] `),
-            t.title,
-            scope === 'all' ? el(Text, { dimColor: true }, `  ${t.project ?? 'cross-cutting'}`) : ''
+            Box,
+            { flexGrow: 1 },
+            el(
+              Text,
+              { wrap: 'truncate-end' },
+              el(Text, { dimColor: true }, `#${t.shortId} `),
+              el(Text, { bold: t.priority === 'high' }, `${t.priority.padEnd(6)} `),
+              t.status === 'open' ? '' : el(Text, { dimColor: true }, `[${t.status}] `),
+              t.title,
+              scope === 'all'
+                ? el(Text, { dimColor: true }, `  ${t.project ?? 'cross-cutting'}`)
+                : ''
+            )
           ),
           el(Button, {
             key: `edit-btn-${t.id}`,
@@ -568,9 +574,9 @@ async function drawSession(
   const step = (ev: FeedEvent): RenderElement => {
     if (ev.kind === 'tool') {
       return el(
-        Text,
-        { key: `ev-${ev.step}`, dimColor: true, wrap: 'truncate-end' },
-        `  ${ev.tool ?? 'tool'}: ${ev.text}`
+        Box,
+        { key: `ev-${ev.step}` },
+        el(Text, { dimColor: true, wrap: 'truncate-end' }, `  ${ev.tool ?? 'tool'}: ${ev.text}`)
       );
     }
     if (ev.kind === 'prompt') {
@@ -582,7 +588,7 @@ async function drawSession(
     }
     return Markdown
       ? el(Markdown, { key: `ev-${ev.step}`, text: ev.text })
-      : el(Text, { key: `ev-${ev.step}` }, ev.text);
+      : el(Box, { key: `ev-${ev.step}` }, el(Text, {}, ev.text));
   };
 
   const picked = list.find((f) => f.id === feed);

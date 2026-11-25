@@ -409,10 +409,7 @@ async function drawTodos(p, $, e) {
 		key: `row-${t.id}`,
 		flexDirection: "row",
 		gap: 1
-	}, el(Text, {
-		wrap: "truncate-end",
-		flexGrow: 1
-	}, el(Text, { dimColor: true }, `#${t.shortId} `), el(Text, { bold: t.priority === "high" }, `${t.priority.padEnd(6)} `), t.status === "open" ? "" : el(Text, { dimColor: true }, `[${t.status}] `), t.title, scope === "all" ? el(Text, { dimColor: true }, `  ${t.project ?? "cross-cutting"}`) : ""), el(Button, {
+	}, el(Box, { flexGrow: 1 }, el(Text, { wrap: "truncate-end" }, el(Text, { dimColor: true }, `#${t.shortId} `), el(Text, { bold: t.priority === "high" }, `${t.priority.padEnd(6)} `), t.status === "open" ? "" : el(Text, { dimColor: true }, `[${t.status}] `), t.title, scope === "all" ? el(Text, { dimColor: true }, `  ${t.project ?? "cross-cutting"}`) : "")), el(Button, {
 		key: `edit-btn-${t.id}`,
 		label: "Edit",
 		onPress: () => void update($, editing, () => ({
@@ -682,11 +679,10 @@ async function drawSession(p, $, e) {
 	const now = await $.clock.now();
 	const room = Math.max(3, (e.viewport?.rows ?? 40) - 6);
 	const step = (ev) => {
-		if (ev.kind === "tool") return el(Text, {
-			key: `ev-${ev.step}`,
+		if (ev.kind === "tool") return el(Box, { key: `ev-${ev.step}` }, el(Text, {
 			dimColor: true,
 			wrap: "truncate-end"
-		}, `  ${ev.tool ?? "tool"}: ${ev.text}`);
+		}, `  ${ev.tool ?? "tool"}: ${ev.text}`));
 		if (ev.kind === "prompt") return el(Box, {
 			key: `ev-${ev.step}`,
 			borderStyle: "round",
@@ -695,7 +691,7 @@ async function drawSession(p, $, e) {
 		return Markdown ? el(Markdown, {
 			key: `ev-${ev.step}`,
 			text: ev.text
-		}) : el(Text, { key: `ev-${ev.step}` }, ev.text);
+		}) : el(Box, { key: `ev-${ev.step}` }, el(Text, {}, ev.text));
 	};
 	const picked = list.find((f) => f.id === feed);
 	return el(Box, {
