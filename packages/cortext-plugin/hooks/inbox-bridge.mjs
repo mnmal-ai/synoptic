@@ -685,7 +685,7 @@ function textField(els, o) {
 function header(els, p, $, s) {
 	const { Box, Text, Button, Input, Select } = els;
 	const Svg = els.Svg;
-	const logo = Svg ? el(Svg, {
+	const logo = Svg && !s.tty ? el(Svg, {
 		source: LOGO_SVG,
 		alt: "mnmal-ai",
 		width: 28,
@@ -895,7 +895,29 @@ async function drawTodos(p, $, e) {
 	}, detailView(back));
 	let body;
 	if (mode === "board") {
-		const lanes = empty ?? el(Box, {
+		const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
+			status: lane.key,
+			title: lane.title,
+			tone: lane.tone,
+			cards: inLane.map((t) => ({
+				id: t.id,
+				title: `#${t.shortId}  ${t.title}`,
+				meta: `${allProjects ? `${t.project ?? "cross-cutting"} · ` : ""}${t.priority}${t.area ? ` · ${t.area}` : ""}`,
+				tags: tagLine(t),
+				strong: t.priority === "high"
+			}))
+		}));
+		const tallest = Math.max(1, ...laneData.map((l) => l.cards.length));
+		const lanes = empty ?? (Client ? h(Client, {
+			key: "todo-board",
+			module: "./board.mjs",
+			props: {
+				lanes: laneData,
+				picked: opened ? pick : null
+			},
+			height: 2 + tallest * 5,
+			flexGrow: 1
+		}) : el(Box, {
 			flexDirection: "row",
 			gap: 2,
 			flexGrow: 1
@@ -904,12 +926,11 @@ async function drawTodos(p, $, e) {
 			flexDirection: "column",
 			flexGrow: 1,
 			flexShrink: 1,
-			width: `${Math.floor(100 / Math.max(1, voc.status.length))}%`,
 			gap: 1
 		}, el(Text, {
 			bold: true,
 			color: lane.tone
-		}, `${lane.title} (${inLane.length})`), inLane.length === 0 ? el(Text, { color: "subtle" }, "Empty") : null, ...inLane.map((t) => card(els, t, allProjects, t.id === pick && opened, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true)))))));
+		}, `${lane.title} (${inLane.length})`), ...inLane.map((t) => card(els, t, allProjects, t.id === pick && opened, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true))))))));
 		body = opened && current ? el(Box, {
 			flexDirection: "row",
 			gap: 1
@@ -927,12 +948,26 @@ async function drawTodos(p, $, e) {
 		width: `${split}%`,
 		flexShrink: 0,
 		paddingRight: 1
-	}, empty, ...rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), h(Client, {
+	}, empty, ...Client ? [h(Client, {
+		key: "todo-list",
+		module: "./list.mjs",
+		props: {
+			rows: rows.map((t) => ({
+				id: t.id,
+				num: `#${t.shortId}`,
+				title: allProjects ? `${t.title}  · ${t.project ?? "cross-cutting"}` : t.title,
+				tone: t.status === "blocked" ? "error" : t.priority === "high" ? "warning" : "subtle",
+				strong: t.priority === "high" || t.status === "blocked"
+			})),
+			picked: pick
+		},
+		height: Math.max(1, rows.length)
+	})] : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), Client ? h(Client, {
 		key: "todo-splitter",
 		module: "./splitter.mjs",
 		props: { rows: Math.max(10, rows.length) },
 		width: 1
-	}), el(Box, {
+	}) : null, el(Box, {
 		flexDirection: "column",
 		flexGrow: 1,
 		paddingLeft: 1
@@ -1284,6 +1319,23 @@ function registerPanes(on, p) {
 	});
 	on("ui.message", async ($, e, next) => {
 		const data = e.data;
+		if ((data?.type === "open" || data?.type === "move" || data?.type === "pick") && typeof data.id === "string") {
+			const t = (await read($, todos)).find((r) => r.id === data.id);
+			if (t && data.type === "pick") await selectTodo(p, $, t);
+			if (t && data.type === "open") {
+				await selectTodo(p, $, t);
+				await update($, cardOpen, () => true);
+			}
+			if (t && data.type === "move" && typeof data.status === "string" && data.status !== t.status) {
+				const status = data.status;
+				await update($, todos, (rows) => rows.map((r) => r.id === t.id ? {
+					...r,
+					status
+				} : r));
+				await saveField(p, $, t, { status });
+				await note($, `Moved #${t.shortId} to ${humanize(status)}.`);
+			}
+		}
 		if (data?.type === "split" && typeof data.delta === "number" && p.cols > 0) {
 			const step = data.delta * 100 / p.cols;
 			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round((v + step) * 10) / 10)));

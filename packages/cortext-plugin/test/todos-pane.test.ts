@@ -93,7 +93,11 @@ test('opens with the first row picked, its detail on the right, on every surface
     const ui = await $.ui.mount({ ...PANE, surface });
     // Priority sort: high first, so "High one" (#2) is picked and its title fills the editor.
     expect(await ui.find({ type: 'Input', key: 'f-title-b' })).toBeDefined();
-    expect(await ui.find({ type: 'Button', key: 'pick-b' })).toBeDefined();
+    if (surface === 'terminal' || surface === 'desktop') {
+      expect(JSON.stringify(await ui.drawn({ in: 'todo-list' }))).toContain('High one');
+    } else {
+      expect(await ui.find({ type: 'Button', key: 'pick-b' })).toBeDefined();
+    }
     expect(await ui.find({ type: 'Input', key: 'f-notes-b' })).toBeDefined();
     expect(await ui.find({ type: 'Button', key: 'todo-close' })).toBeDefined();
     await ui.unmount();
@@ -125,24 +129,27 @@ test('the status filter narrows the list and says how many it hides', async ($, 
   await ui.unmount();
 });
 
-test('the board has a lane per schema status, shows tags, and a card opens a side panel', async ($, on) => {
-  substrate(on, []);
+test('the board draws a lane per schema status; a click opens a card, a drop moves it', async ($, on) => {
+  const writes: unknown[] = [];
+  substrate(on, writes);
   await $.command.run({ command: 'cortext-todos', args: '' });
 
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...PANE, surface });
-    await ui.press({ key: 'todo-layout' });
-    expect((await ui.find({ type: 'Text', text: /^Blocked/ }))?.text).toBe('Blocked (1)');
-    expect((await ui.find({ type: 'Text', text: /^Closed/ }))?.text).toBe('Closed (0)');
-    expect((await ui.find({ type: 'Text', text: /^psa$/ }))?.text).toBe('psa');
-    await ui.press({ key: 'open-c' });
-    expect(await ui.find({ type: 'Input', key: 'f-title-c' })).toBeDefined();
-    // The lanes stay drawn beside the open panel.
-    expect(await ui.find({ type: 'Button', key: 'open-a' })).toBeDefined();
-    await ui.press({ key: 'todo-back' });
-    await ui.press({ key: 'todo-layout' });
-    await ui.unmount();
-  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
+  await ui.press({ key: 'todo-layout' });
+  const board = { in: 'todo-board' } as const;
+  expect((await ui.find({ ...board, type: 'Text', text: /^Blocked/ }))?.text).toBe('Blocked 1');
+  expect((await ui.find({ ...board, type: 'Text', text: /^Closed/ }))?.text).toBe('Closed 0');
+  expect((await ui.find({ ...board, type: 'Text', text: /^psa$/ }))?.text).toBe('psa');
+  // Lane one holds #2 then #1 (priority order); a click on the first card opens #2 at the right.
+  await ui.pointer({ key: 'todo-board', type: 'down', x: 1, y: 2, button: 'left' });
+  await ui.pointer({ key: 'todo-board', type: 'up', x: 1, y: 2, button: 'left' });
+  expect(await ui.find({ type: 'Input', key: 'f-title-b' })).toBeDefined();
+  // Drag the second card (#1) to the last lane.
+  await ui.pointer({ key: 'todo-board', type: 'down', x: 1, y: 7, button: 'left' });
+  await ui.pointer({ key: 'todo-board', type: 'move', x: 500, y: 7, button: 'left' });
+  await ui.pointer({ key: 'todo-board', type: 'up', x: 500, y: 7, button: 'left' });
+  expect(JSON.stringify(writes)).toContain('"status":"closed"');
+  await ui.unmount();
 });
 
 test('all projects: 170 rows from 8 projects draw on every surface', async ($, on) => {
@@ -174,9 +181,9 @@ test('dragging the splitter widens the list', async ($, on) => {
   substrate(on, []);
   await $.command.run({ command: 'cortext-todos', args: '' });
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
-  await ui.pointer({ key: 'todo-splitter', type: 'down', x: 0, y: 2, button: 'left' });
-  await ui.pointer({ key: 'todo-splitter', type: 'move', x: 12, y: 2, button: 'left' });
-  await ui.pointer({ key: 'todo-splitter', type: 'up', x: 12, y: 2, button: 'left' });
+  await ui.pointer({ in: 'todo-splitter', type: 'down', x: 0, y: 2, button: 'left' });
+  await ui.pointer({ in: 'todo-splitter', type: 'move', x: 12, y: 2, button: 'left' });
+  await ui.pointer({ in: 'todo-splitter', type: 'up', x: 12, y: 2, button: 'left' });
   // 12 of 120 columns is 10 points: the list goes from 34% to 44%.
   expect(JSON.stringify(await ui.drawn())).toContain('"width":"44%"');
   await ui.unmount();

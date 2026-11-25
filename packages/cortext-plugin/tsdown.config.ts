@@ -46,6 +46,22 @@ export default defineConfig([
     target: 'es2022',
     deps: { neverBundle: ['claude-code'], alwaysBundle: [/^(?!claude-code$).*/] }
   },
+  // The Todos list: a Client surface module the panes name as './list.mjs'.
+  {
+    ...shared,
+    entry: { list: 'src/list.ts' },
+    platform: 'neutral' as const,
+    target: 'es2022',
+    deps: { neverBundle: ['claude-code'], alwaysBundle: [/^(?!claude-code$).*/] }
+  },
+  // The Todos board: a Client surface module the panes name as './board.mjs'.
+  {
+    ...shared,
+    entry: { board: 'src/board.ts' },
+    platform: 'neutral' as const,
+    target: 'es2022',
+    deps: { neverBundle: ['claude-code'], alwaysBundle: [/^(?!claude-code$).*/] }
+  },
   // Not hooks — CLIs the /substrate-setup skill shells out to. Bundled the same way
   // and for the same reason: a self-contained artifact has no import resolution
   // to get wrong (a hand-written file importing `../src/` would throw, since
