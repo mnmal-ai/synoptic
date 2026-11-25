@@ -195,6 +195,18 @@ const PATHS = {
 		"M10 10l-2 2l2 2"
 	],
 	mail: ["M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10", "M3 7l9 6l9 -6"],
+	"mail-down": [
+		"M12 19h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v5.5",
+		"M19 16v6",
+		"M22 19l-3 3l-3 -3",
+		"M3 7l9 6l9 -6"
+	],
+	"mail-up": [
+		"M12 19h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v5.5",
+		"M19 22v-6",
+		"M22 19l-3 -3l-3 3",
+		"M3 7l9 6l9 -6"
+	],
 	"mail-opened": [
 		"M3 9l9 6l9 -6l-9 -6l-9 6",
 		"M21 9v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10",
@@ -713,7 +725,7 @@ function mailCard(els, surface, m) {
 		flexDirection: "row",
 		gap: 1,
 		alignItems: "center"
-	}, mark(m.dir === "in" ? m.isOpen ? "mail-opened" : "mail" : "send", m.dir === "in" ? "✉" : "➤"), el(Text, {
+	}, mark(m.dir === "in" ? "mail-down" : "mail-up", m.dir === "in" ? "✉↓" : "✉↑", 18), el(Text, {
 		bold: true,
 		color: tone
 	}, m.shortId !== void 0 ? `${label} #${m.shortId}` : label), el(Text, {

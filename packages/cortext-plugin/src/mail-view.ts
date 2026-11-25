@@ -80,10 +80,8 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
     el(
       Box,
       { flexDirection: 'row', gap: 1, alignItems: 'center' },
-      mark(
-        m.dir === 'in' ? (m.isOpen ? 'mail-opened' : 'mail') : 'send',
-        m.dir === 'in' ? '✉' : '➤'
-      ),
+      // Received: an envelope with a down arrow; sent: one with an up arrow.
+      mark(m.dir === 'in' ? 'mail-down' : 'mail-up', m.dir === 'in' ? '✉↓' : '✉↑', 18),
       el(
         Text,
         { bold: true, color: tone },
