@@ -5,7 +5,7 @@ import { accent, BRAND, MARK_SVG, rule, statusTone } from './brand.js';
 import { el } from './el.js';
 import { groupedView } from './grouped.js';
 import { openMail } from './mail-card.js';
-import { mailCard, promptCard } from './mail-view.js';
+import { mailCard, messageRow, promptCard } from './mail-view.js';
 import {
   ago,
   clockTime,
@@ -1206,10 +1206,11 @@ async function drawSession(
       });
     }
     if (ev.kind === 'tool') {
+      // A step of the agent's, indented under its avatar column as the chat does.
       return el(
         Box,
-        { key: `ev-${ev.step}` },
-        el(Text, { dimColor: true, wrap: 'truncate-end' }, `  ${ev.tool ?? 'tool'}: ${ev.text}`)
+        { key: `ev-${ev.step}`, paddingLeft: e.surface === 'terminal' ? 2 : 3 },
+        el(Text, { dimColor: true, wrap: 'truncate-end' }, `${ev.tool ?? 'tool'} · ${ev.text}`)
       );
     }
     if (ev.kind === 'prompt') {
@@ -1223,9 +1224,12 @@ async function drawSession(
         text: turn ? turn.text : ev.text
       });
     }
-    return Markdown
-      ? el(Markdown, { key: `ev-${ev.step}`, text: ev.text })
-      : el(Box, { key: `ev-${ev.step}` }, el(Text, {}, ev.text));
+    return messageRow(
+      els,
+      e.surface,
+      { key: `ev-${ev.step}`, speaker: 'agent', name: 'Their agent', meta: picked?.host ?? '' },
+      Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text)
+    );
   };
 
   return el(
