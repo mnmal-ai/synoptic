@@ -5,7 +5,12 @@ import type { ClientKeyEvent, ClientModule, ClientPointerEvent, RenderElement } 
 // up and down arrows post the neighbour while the list has the focus (a click gives it).
 
 export type ListRow = { id: string; num: string; title: string; tone: string; strong: boolean };
-export type ListProps = { rows: ListRow[]; picked: string | null };
+export type ListProps = { rows: ListRow[]; picked: string | null; tty?: boolean };
+
+// Off the terminal the picked row and the row under the pointer take a brand-tinted fill;
+// on the terminal they keep inverse and underline, which every terminal theme draws.
+const PICKED_FILL = '#0a9fdc2e';
+const HOVER_FILL = '#8593a81f';
 type State = { hover?: number };
 
 const latest = new WeakMap<object, ListProps>();
@@ -47,12 +52,23 @@ const List: ClientModule<ListProps, State> = (props, surface) => {
     ...props.rows.map((r, i) => {
       const on = r.id === props.picked;
       const lit = !on && i === hover;
+      const look = props.tty
+        ? { inverse: on, underline: lit }
+        : on
+          ? { backgroundColor: PICKED_FILL, bold: true }
+          : lit
+            ? { backgroundColor: HOVER_FILL }
+            : {};
       // biome-ignore lint/correctness/noUndeclaredVariables: as above
       return h(
         Text,
-        { key: `r-${r.id}`, inverse: on, underline: lit, wrap: 'truncate-end' },
+        { key: `r-${r.id}`, ...look, wrap: 'truncate-end' },
         // biome-ignore lint/correctness/noUndeclaredVariables: as above
-        h(Text, { color: on ? undefined : r.tone, bold: true }, r.strong ? '● ' : '  '),
+        h(
+          Text,
+          { color: on && props.tty ? undefined : r.tone, bold: true },
+          r.strong ? '● ' : on ? '▌ ' : '  '
+        ),
         // biome-ignore lint/correctness/noUndeclaredVariables: as above
         h(Text, { dimColor: !on }, `${r.num} `),
         r.title,

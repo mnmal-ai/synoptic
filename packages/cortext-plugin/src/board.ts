@@ -7,7 +7,10 @@ import type { ClientModule, ClientPointerEvent, RenderElement } from 'claude-cod
 
 export type BoardCard = { id: string; title: string; meta: string; tags: string; strong: boolean };
 export type BoardLane = { status: string; title: string; tone: string; cards: BoardCard[] };
-export type BoardProps = { lanes: BoardLane[]; picked: string | null };
+export type BoardColors = { accent: string; rule: string; tags: string };
+export type BoardProps = { lanes: BoardLane[]; picked: string | null; colors?: BoardColors };
+
+const FALLBACK: BoardColors = { accent: 'suggestion', rule: 'promptBorder', tags: 'suggestion' };
 
 type Drag = { id: string; from: number; x: number; y: number; moved: boolean };
 type State = { hover?: string; drag?: Drag; over?: number };
@@ -76,6 +79,7 @@ const Board: ClientModule<BoardProps, State> = (props, surface) => {
   const n = Math.max(1, lanes.length);
   const width = Math.max(8, Math.floor((surface.columns - GAP * (n - 1)) / n));
   const dragging = st.drag?.moved ? st.drag : undefined;
+  const ink = props.colors ?? FALLBACK;
 
   const cardEl = (c: BoardCard): RenderElement => {
     const lifted = dragging?.id === c.id;
@@ -88,16 +92,21 @@ const Board: ClientModule<BoardProps, State> = (props, surface) => {
         flexDirection: 'column',
         width,
         height: CARD_ROWS,
-        borderStyle: 'round',
-        borderColor: lifted ? 'subtle' : lit ? 'suggestion' : 'promptBorder',
+        borderStyle: lifted ? 'single' : 'round',
+        borderColor: lifted ? ink.rule : lit ? ink.accent : ink.rule,
+        borderDimColor: lifted,
         paddingX: 1
       },
       // biome-ignore lint/correctness/noUndeclaredVariables: as above
-      h(Text, { bold: c.strong, dimColor: lifted, wrap: 'truncate-end' }, c.title),
+      h(
+        Text,
+        { bold: c.strong, dimColor: lifted, wrap: 'truncate-end' },
+        lifted ? `↔ ${c.title}` : c.title
+      ),
       // biome-ignore lint/correctness/noUndeclaredVariables: as above
       h(Text, { color: 'subtle', wrap: 'truncate-end' }, c.meta),
       // biome-ignore lint/correctness/noUndeclaredVariables: as above
-      h(Text, { color: 'suggestion', wrap: 'truncate-end' }, c.tags || ' ')
+      h(Text, { color: ink.tags, dimColor: lifted, wrap: 'truncate-end' }, c.tags || ' ')
     ) as RenderElement;
   };
 
@@ -114,14 +123,20 @@ const Board: ClientModule<BoardProps, State> = (props, surface) => {
         // biome-ignore lint/correctness/noUndeclaredVariables: as above
         h(
           Text,
-          { bold: true, color: lane.tone, underline: target, wrap: 'truncate-end' },
-          `${lane.title} ${lane.cards.length}${target ? '  · drop here' : ''}`
+          { bold: true, color: target ? ink.accent : lane.tone, wrap: 'truncate-end' },
+          `${target ? '▸ ' : ''}${lane.title} ${lane.cards.length}${target ? '  · drop here' : ''}`
         ),
         // biome-ignore lint/correctness/noUndeclaredVariables: as above
         h(Text, {}, ' '),
         ...(lane.cards.length === 0
-          ? // biome-ignore lint/correctness/noUndeclaredVariables: as above
-            [h(Text, { color: 'subtle' }, target ? '' : 'Empty')]
+          ? [
+              // biome-ignore lint/correctness/noUndeclaredVariables: as above
+              h(
+                Text,
+                { color: target ? ink.accent : 'subtle' },
+                target ? 'Drop to move here' : 'Empty'
+              )
+            ]
           : lane.cards.map(cardEl))
       );
     })

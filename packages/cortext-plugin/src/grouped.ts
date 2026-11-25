@@ -4,6 +4,7 @@
 // its rows in a card bordered in the status's color. A row's glyph opens a status picker under
 // it; its title opens the todo in the side rail. Statuses come from the server's schema.
 import type { RenderElement, RenderSurface } from 'claude-code';
+import { BRAND, HOVER_FILL, tint } from './brand.js';
 import { icon } from './icons.js';
 import { humanize } from './pane-text.js';
 
@@ -18,21 +19,21 @@ export type GroupedRow = {
 
 type Els = Record<string, unknown>;
 
-// Each status's color as a raw color for surfaces other than the terminal, which takes theme
-// keys: readable on dark and light themes, and what an Svg image needs.
+// Each status's color as a raw mnmal-ai brand color for surfaces other than the terminal, which
+// takes theme keys: readable on dark and light themes, and what an Svg image needs.
 const HEX: Record<string, string | null> = {
-  open: null,
-  in_progress: '#58a6ff',
-  blocked: '#d29922',
-  deferred: '#8b949e',
-  closed: '#3fb950'
+  open: BRAND.accent,
+  in_progress: BRAND.magenta,
+  blocked: BRAND.yellow,
+  deferred: BRAND.slate,
+  closed: BRAND.slate
 };
 const THEME: Record<string, string | null> = {
-  open: null,
-  in_progress: 'suggestion',
+  open: 'suggestion',
+  in_progress: 'claude',
   blocked: 'warning',
   deferred: 'subtle',
-  closed: 'success'
+  closed: 'subtle'
 };
 const GLYPH: Record<string, string> = {
   open: '○',
@@ -48,9 +49,9 @@ const ICON: Record<string, string> = {
   deferred: 'clock-pause',
   closed: 'circle-check'
 };
-const TRACK = '#8b949e33';
-const ROW_HOVER = '#8b949e1f';
-const NEUTRAL = '#8b949e';
+const TRACK = tint(BRAND.slate, '33');
+const ROW_HOVER = HOVER_FILL;
+const NEUTRAL = BRAND.slate;
 
 export type GroupedArgs = {
   els: Els;
@@ -103,7 +104,7 @@ export function groupedView(a: GroupedArgs): RenderElement {
   const row = (r: GroupedRow): RenderElement => {
     const done = r.status === 'closed';
     const meta = [
-      r.priority === 'high' ? el(Text, { color: tty ? 'warning' : '#d29922' }, 'high') : null,
+      r.priority === 'high' ? el(Text, { color: tty ? 'warning' : BRAND.yellow }, 'high') : null,
       a.allProjects ? el(Text, { dimColor: true }, r.project ?? 'cross-cutting') : null,
       el(Text, { dimColor: true }, `#${r.shortId}`)
     ].filter(Boolean) as RenderElement[];
@@ -208,9 +209,9 @@ export function groupedView(a: GroupedArgs): RenderElement {
     return el(
       Text,
       {},
-      el(Text, { color: 'success' }, '━'.repeat(done ?? 0)),
-      el(Text, { color: 'suggestion' }, '━'.repeat(doing ?? 0)),
-      el(Text, { color: 'warning' }, '━'.repeat(waiting ?? 0)),
+      el(Text, { color: tty ? 'success' : BRAND.accent }, '━'.repeat(done ?? 0)),
+      el(Text, { color: tty ? 'claude' : BRAND.magenta }, '━'.repeat(doing ?? 0)),
+      el(Text, { color: tty ? 'warning' : BRAND.yellow }, '━'.repeat(waiting ?? 0)),
       el(
         Text,
         { dimColor: true },

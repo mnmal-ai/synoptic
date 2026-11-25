@@ -1,4 +1,6 @@
 //#region src/list.ts
+const PICKED_FILL = "#0a9fdc2e";
+const HOVER_FILL = "#8593a81f";
 const latest = /* @__PURE__ */ new WeakMap();
 const List = (props, surface) => {
 	const { Box, Text } = surface.elements;
@@ -35,15 +37,21 @@ const List = (props, surface) => {
 	return h(Box, { flexDirection: "column" }, ...props.rows.map((r, i) => {
 		const on = r.id === props.picked;
 		const lit = !on && i === hover;
+		const look = props.tty ? {
+			inverse: on,
+			underline: lit
+		} : on ? {
+			backgroundColor: PICKED_FILL,
+			bold: true
+		} : lit ? { backgroundColor: HOVER_FILL } : {};
 		return h(Text, {
 			key: `r-${r.id}`,
-			inverse: on,
-			underline: lit,
+			...look,
 			wrap: "truncate-end"
 		}, h(Text, {
-			color: on ? void 0 : r.tone,
+			color: on && props.tty ? void 0 : r.tone,
 			bold: true
-		}, r.strong ? "● " : "  "), h(Text, { dimColor: !on }, `${r.num} `), r.title, " ".repeat(Math.max(0, surface.columns)));
+		}, r.strong ? "● " : on ? "▌ " : "  "), h(Text, { dimColor: !on }, `${r.num} `), r.title, " ".repeat(Math.max(0, surface.columns)));
 	}));
 };
 

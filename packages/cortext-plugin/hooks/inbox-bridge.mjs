@@ -127,6 +127,53 @@ function laterCursor(cursor, createdAt) {
 }
 
 //#endregion
+//#region src/brand.ts
+const BRAND = {
+	/** The site's `--accent` (#00aeef), a shade deeper so it reads on white. */
+	accent: "#0a9fdc",
+	/** The mark's magenta (#ff3794). */
+	magenta: "#f0358c",
+	/** The site's `--yellow` (#ffe644), deepened to amber so it reads on white. */
+	yellow: "#d9a600",
+	/** Between the site's `--muted` (#94a3b8) and slate-500, for both themes. */
+	slate: "#8593a8"
+};
+/** A translucent fill: `alpha` is two hex digits. */
+function tint(hex, alpha) {
+	return `${hex}${alpha}`;
+}
+/** The picked row's fill and the row under the pointer's. */
+const PICKED_FILL = tint(BRAND.accent, "2e");
+const HOVER_FILL = tint(BRAND.slate, "1f");
+const STATUS_HEX = {
+	open: BRAND.accent,
+	in_progress: BRAND.magenta,
+	blocked: BRAND.yellow,
+	deferred: BRAND.slate,
+	closed: BRAND.slate
+};
+const STATUS_KEY = {
+	open: "suggestion",
+	in_progress: "claude",
+	blocked: "warning",
+	deferred: "subtle",
+	closed: "subtle"
+};
+/** A status's color: a theme key on the terminal, a brand color elsewhere. */
+function statusTone(status, tty) {
+	return tty ? STATUS_KEY[status] ?? "text" : STATUS_HEX[status] ?? BRAND.slate;
+}
+/** The accent: the theme's suggestion color on the terminal, brand cyan elsewhere. */
+function accent(tty) {
+	return tty ? "suggestion" : BRAND.accent;
+}
+/** A quiet border: the prompt's on the terminal, slate at low weight elsewhere. */
+function rule(tty) {
+	return tty ? "promptBorder" : tint(BRAND.slate, "59");
+}
+const MARK_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 72 72\"><rect width=\"72\" height=\"72\" rx=\"14\" fill=\"#ff3794\"/><path fill=\"#1a1a1a\" d=\"M12.33 36 L23.698 24.632 L31.737 24.632 L31.737 36 L28.407 36 L17.039 47.368 L9 47.368 L9 36 Z M35.067 36 L46.435 24.632 L54.474 24.632 L54.474 36 L51.144 36 L39.776 47.368 L31.737 47.368 L31.737 36 Z M54.474 47.368 L54.474 36 L63 36 L63 47.368 Z\"/></svg>";
+
+//#endregion
 //#region src/icons.ts
 const PATHS = {
 	"circle-check": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0", "M9 12l2 2l4 -4"],
@@ -343,18 +390,18 @@ function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
 //#endregion
 //#region src/grouped.ts
 const HEX = {
-	open: null,
-	in_progress: "#58a6ff",
-	blocked: "#d29922",
-	deferred: "#8b949e",
-	closed: "#3fb950"
+	open: BRAND.accent,
+	in_progress: BRAND.magenta,
+	blocked: BRAND.yellow,
+	deferred: BRAND.slate,
+	closed: BRAND.slate
 };
 const THEME = {
-	open: null,
-	in_progress: "suggestion",
+	open: "suggestion",
+	in_progress: "claude",
 	blocked: "warning",
 	deferred: "subtle",
-	closed: "success"
+	closed: "subtle"
 };
 const GLYPH = {
 	open: "○",
@@ -370,9 +417,9 @@ const ICON = {
 	deferred: "clock-pause",
 	closed: "circle-check"
 };
-const TRACK = "#8b949e33";
-const ROW_HOVER = "#8b949e1f";
-const NEUTRAL = "#8b949e";
+const TRACK = tint(BRAND.slate, "33");
+const ROW_HOVER = HOVER_FILL;
+const NEUTRAL = BRAND.slate;
 /** The Grouped view's tree: heading and progress, then a group per status that has rows. */
 function groupedView(a) {
 	const { el } = a;
@@ -402,7 +449,7 @@ function groupedView(a) {
 	const row = (r) => {
 		const done = r.status === "closed";
 		const meta = [
-			r.priority === "high" ? el(Text, { color: tty ? "warning" : "#d29922" }, "high") : null,
+			r.priority === "high" ? el(Text, { color: tty ? "warning" : BRAND.yellow }, "high") : null,
 			a.allProjects ? el(Text, { dimColor: true }, r.project ?? "cross-cutting") : null,
 			el(Text, { dimColor: true }, `#${r.shortId}`)
 		].filter(Boolean);
@@ -474,7 +521,7 @@ function groupedView(a) {
 		}
 		const width = Math.max(10, Math.min(60, a.columns - 2));
 		const [done, doing, waiting] = parts.map(([, n]) => Math.round(width * n / total));
-		return el(Text, {}, el(Text, { color: "success" }, "━".repeat(done ?? 0)), el(Text, { color: "suggestion" }, "━".repeat(doing ?? 0)), el(Text, { color: "warning" }, "━".repeat(waiting ?? 0)), el(Text, { dimColor: true }, "━".repeat(Math.max(0, width - (done ?? 0) - (doing ?? 0) - (waiting ?? 0)))));
+		return el(Text, {}, el(Text, { color: tty ? "success" : BRAND.accent }, "━".repeat(done ?? 0)), el(Text, { color: tty ? "claude" : BRAND.magenta }, "━".repeat(doing ?? 0)), el(Text, { color: tty ? "warning" : BRAND.yellow }, "━".repeat(waiting ?? 0)), el(Text, { dimColor: true }, "━".repeat(Math.max(0, width - (done ?? 0) - (doing ?? 0) - (waiting ?? 0)))));
 	};
 	const group = (s, rows) => {
 		const open = !a.folded.includes(s);
@@ -543,7 +590,6 @@ const POLL_MS = 4e3;
 const TITLE_MAX = 80;
 const TEXT_MAX = 4e3;
 const TOOL_TEXT_MAX = 160;
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><image width="200" height="200" href="data:image/png;base64,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"/></svg>`;
 const AUTO_REFRESH_MS = 6e4;
 const todos = atom({
 	plugin: "cortext",
@@ -894,15 +940,15 @@ function card(els, t, showProject, on, onPress) {
 	return el(Box, {
 		key: `card-${t.id}`,
 		borderStyle: "round",
-		borderColor: on ? "suggestion" : "promptBorder",
+		borderColor: on ? BRAND.accent : rule(false),
 		paddingX: 1,
-		hover: { borderColor: "suggestion" }
+		hover: { borderColor: BRAND.accent }
 	}, el(Button, {
 		key: `open-${t.id}`,
 		label: t.title,
 		plain: true,
 		onPress
-	}, el(Text, { bold: t.priority === "high" }, t.title), "\n", el(Text, { dimColor: true }, `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ""}`), tags ? "\n" : "", tags ? el(Text, { color: "suggestion" }, tags) : ""));
+	}, el(Text, { bold: t.priority === "high" }, t.title), "\n", el(Text, { dimColor: true }, `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ""}`), tags ? "\n" : "", tags ? el(Text, { color: BRAND.accent }, tags) : ""));
 }
 /**
 * A field that is always editable: click into the text and type. Enter saves (Shift+Enter is a
@@ -940,24 +986,28 @@ function textField(els, o) {
 function header(els, p, $, s) {
 	const { Box, Text, Button, Input, Select } = els;
 	const Svg = els.Svg;
-	const logo = Svg && !s.tty ? el(Svg, {
-		source: LOGO_SVG,
+	const brand = el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, Svg && !s.tty ? el(Svg, {
+		source: MARK_SVG,
 		alt: "mnmal-ai",
-		width: 28,
-		height: 28
+		width: 22,
+		height: 22
 	}) : el(Text, {
 		bold: true,
 		color: "claude"
-	}, "mnmal");
+	}, "mnmal"), el(Text, { bold: true }, "Todos"));
 	const filtered = s.view.status !== "any" || s.view.priority !== "any" || s.view.search.trim() !== "";
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1
 	}, el(Box, {
 		flexDirection: "row",
-		gap: 1,
+		gap: 2,
 		alignItems: "center"
-	}, logo, el(Box, { flexGrow: 1 }, el(Input, {
+	}, brand, el(Box, { flexGrow: 1 }, el(Input, {
 		key: "todo-search",
 		placeholder: "Search title, #id or tag",
 		submitLabel: "find",
@@ -984,17 +1034,18 @@ function header(els, p, $, s) {
 		],
 		onSelect: (v) => void update($, layout, () => v === "board" || v === "grouped" ? v : "list").then(() => update($, cardOpen, () => false))
 	}), el(Box, {
-		flexDirection: "column",
-		alignItems: "flex-end"
-	}, el(Button, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, el(Text, {
+		color: "subtle",
+		tabular: true
+	}, s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : "Not refreshed yet"), el(Button, {
 		key: "todo-refresh",
 		label: "Refresh",
 		hotkey: s.tty ? "r" : void 0,
 		onPress: () => void refreshTodos(p, $)
-	}), el(Text, {
-		color: "subtle",
-		tabular: true
-	}, s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : "Not refreshed yet"))), el(Box, {
+	}))), el(Box, {
 		flexDirection: "row",
 		columnGap: 2,
 		rowGap: 1,
@@ -1137,7 +1188,7 @@ async function drawTodos(p, $, e) {
 			label: humanize(v)
 		})),
 		onSelect: (v) => void saveField(p, $, current, { status: v })
-	})), fact("Created", current.createdAt ? ago(current.createdAt, now) : "—"), fact("Updated", current.updatedAt ? ago(current.updatedAt, now) : "—"), more?.targetDate ? fact("Target", more.targetDate.slice(0, 10)) : null), tagLine(current) ? labelled(els, "Tags", el(Text, { color: "suggestion" }, tagLine(current))) : null, field("area", "Area", current.area, void 0, "Area"), current.status === "blocked" || more?.blockedBy ? field("blockedBy", "Waiting on", more?.blockedBy, 2, "What it needs from you") : null, current.status === "deferred" || more?.revisitWhen ? field("revisitWhen", "Revisit when", more?.revisitWhen, 2, "When to look again") : null, field("notes", "Notes", more?.notes, 6, "Add notes"), field("body", "Description", more?.body, 10, "Add a description"));
+	})), fact("Created", current.createdAt ? ago(current.createdAt, now) : "—"), fact("Updated", current.updatedAt ? ago(current.updatedAt, now) : "—"), more?.targetDate ? fact("Target", more.targetDate.slice(0, 10)) : null), tagLine(current) ? labelled(els, "Tags", el(Text, { color: accent(tty) }, tagLine(current))) : null, field("area", "Area", current.area, void 0, "Area"), current.status === "blocked" || more?.blockedBy ? field("blockedBy", "Waiting on", more?.blockedBy, 2, "What it needs from you") : null, current.status === "deferred" || more?.revisitWhen ? field("revisitWhen", "Revisit when", more?.revisitWhen, 2, "When to look again") : null, field("notes", "Notes", more?.notes, 6, "Add notes"), field("body", "Description", more?.body, 10, "Add a description"));
 	const head = header(els, p, $, {
 		tty,
 		view,
@@ -1158,7 +1209,7 @@ async function drawTodos(p, $, e) {
 		flexShrink: 0,
 		width,
 		borderStyle: "round",
-		borderColor: "promptBorder",
+		borderColor: rule(tty),
 		paddingX: 2,
 		paddingY: 1
 	}, detailView(back));
@@ -1207,7 +1258,7 @@ async function drawTodos(p, $, e) {
 		const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
 			status: lane.key,
 			title: lane.title,
-			tone: lane.tone,
+			tone: statusTone(lane.key, tty),
 			cards: inLane.map((t) => ({
 				id: t.id,
 				title: `#${t.shortId}  ${t.title}`,
@@ -1222,7 +1273,12 @@ async function drawTodos(p, $, e) {
 			module: "./board.mjs",
 			props: {
 				lanes: laneData,
-				picked: opened ? pick : null
+				picked: opened ? pick : null,
+				colors: {
+					accent: accent(tty),
+					rule: rule(tty),
+					tags: accent(tty)
+				}
 			},
 			height: 2 + tallest * 5,
 			flexGrow: 1
@@ -1238,7 +1294,7 @@ async function drawTodos(p, $, e) {
 			gap: 1
 		}, el(Text, {
 			bold: true,
-			color: lane.tone
+			color: statusTone(lane.key, tty)
 		}, `${lane.title} (${inLane.length})`), ...inLane.map((t) => card(els, t, allProjects, t.id === pick && opened, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true))))))));
 		body = opened && current ? el(Box, {
 			flexDirection: "row",
@@ -1265,16 +1321,21 @@ async function drawTodos(p, $, e) {
 				id: t.id,
 				num: `#${t.shortId}`,
 				title: allProjects ? `${t.title}  · ${t.project ?? "cross-cutting"}` : t.title,
-				tone: t.status === "blocked" ? "error" : t.priority === "high" ? "warning" : "subtle",
+				tone: statusTone(t.status, tty),
 				strong: t.priority === "high" || t.status === "blocked"
 			})),
-			picked: pick
+			picked: pick,
+			tty
 		},
 		height: Math.max(1, rows.length)
 	})] : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), Client ? h(Client, {
 		key: "todo-splitter",
 		module: "./splitter.mjs",
-		props: { rows: Math.max(10, rows.length) },
+		props: {
+			rows: Math.max(10, rows.length),
+			rule: rule(tty),
+			accent: accent(tty)
+		},
 		width: 1
 	}) : null, el(Box, {
 		flexDirection: "column",

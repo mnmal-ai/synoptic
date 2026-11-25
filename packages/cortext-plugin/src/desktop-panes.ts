@@ -1,6 +1,7 @@
 import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
 import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
+import { accent, BRAND, MARK_SVG, rule, statusTone } from './brand.js';
 import { groupedView } from './grouped.js';
 import {
   ago,
@@ -35,7 +36,6 @@ const TEXT_MAX = 4_000;
 const TOOL_TEXT_MAX = 160;
 const EVENTS_KEPT = 300;
 // The mnmal-ai mark, drawn at the header's top left where a surface draws Svg.
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><image width="200" height="200" href="data:image/png;base64,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"/></svg>`;
 const AUTO_REFRESH_MS = 60_000;
 
 // The tag declines rows an earlier version stored, which lacked createdAt and updatedAt.
@@ -398,9 +398,9 @@ function card(
     {
       key: `card-${t.id}`,
       borderStyle: 'round',
-      borderColor: on ? 'suggestion' : 'promptBorder',
+      borderColor: on ? BRAND.accent : rule(false),
       paddingX: 1,
-      hover: { borderColor: 'suggestion' }
+      hover: { borderColor: BRAND.accent }
     },
     el(
       Button,
@@ -413,7 +413,7 @@ function card(
         `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ''}`
       ),
       tags ? '\n' : '',
-      tags ? el(Text, { color: 'suggestion' }, tags) : ''
+      tags ? el(Text, { color: BRAND.accent }, tags) : ''
     )
   );
 }
@@ -494,8 +494,14 @@ function header(
   const Svg = (els as unknown as { Svg?: typeof Box }).Svg;
   const logo =
     Svg && !s.tty
-      ? el(Svg, { source: LOGO_SVG, alt: 'mnmal-ai', width: 28, height: 28 })
+      ? el(Svg, { source: MARK_SVG, alt: 'mnmal-ai', width: 22, height: 22 })
       : el(Text, { bold: true, color: 'claude' }, 'mnmal');
+  const brand = el(
+    Box,
+    { flexDirection: 'row', gap: 1, alignItems: 'center' },
+    logo,
+    el(Text, { bold: true }, 'Todos')
+  );
   const filtered =
     s.view.status !== 'any' || s.view.priority !== 'any' || s.view.search.trim() !== '';
   return el(
@@ -503,8 +509,8 @@ function header(
     { flexDirection: 'column', gap: 1 },
     el(
       Box,
-      { flexDirection: 'row', gap: 1, alignItems: 'center' },
-      logo,
+      { flexDirection: 'row', gap: 2, alignItems: 'center' },
+      brand,
       el(
         Box,
         { flexGrow: 1 },
@@ -533,18 +539,18 @@ function header(
       }),
       el(
         Box,
-        { flexDirection: 'column', alignItems: 'flex-end' },
+        { flexDirection: 'row', gap: 1, alignItems: 'center' },
+        el(
+          Text,
+          { color: 'subtle', tabular: true },
+          s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : 'Not refreshed yet'
+        ),
         el(Button, {
           key: 'todo-refresh',
           label: 'Refresh',
           hotkey: s.tty ? 'r' : undefined,
           onPress: () => void refreshTodos(p, $)
-        }),
-        el(
-          Text,
-          { color: 'subtle', tabular: true },
-          s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : 'Not refreshed yet'
-        )
+        })
       )
     ),
     el(
@@ -727,7 +733,7 @@ async function drawTodos(
             more?.targetDate ? fact('Target', more.targetDate.slice(0, 10)) : null
           ),
           tagLine(current)
-            ? labelled(els, 'Tags', el(Text, { color: 'suggestion' }, tagLine(current)))
+            ? labelled(els, 'Tags', el(Text, { color: accent(tty) }, tagLine(current)))
             : null,
           field('area', 'Area', current.area, undefined, 'Area'),
           current.status === 'blocked' || more?.blockedBy
@@ -771,7 +777,7 @@ async function drawTodos(
         flexShrink: 0,
         width,
         borderStyle: 'round',
-        borderColor: 'promptBorder',
+        borderColor: rule(tty),
         paddingX: 2,
         paddingY: 1
       },
@@ -830,7 +836,7 @@ async function drawTodos(
     const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
       status: lane.key,
       title: lane.title,
-      tone: lane.tone,
+      tone: statusTone(lane.key, tty),
       cards: inLane.map((t) => ({
         id: t.id,
         title: `#${t.shortId}  ${t.title}`,
@@ -848,7 +854,11 @@ async function drawTodos(
           (h(Client, {
             key: 'todo-board',
             module: './board.mjs',
-            props: { lanes: laneData, picked: opened ? pick : null },
+            props: {
+              lanes: laneData,
+              picked: opened ? pick : null,
+              colors: { accent: accent(tty), rule: rule(tty), tags: accent(tty) }
+            },
             height: 2 + tallest * 5,
             flexGrow: 1
           }) as RenderElement)
@@ -865,7 +875,11 @@ async function drawTodos(
                   flexShrink: 1,
                   gap: 1
                 },
-                el(Text, { bold: true, color: lane.tone }, `${lane.title} (${inLane.length})`),
+                el(
+                  Text,
+                  { bold: true, color: statusTone(lane.key, tty) },
+                  `${lane.title} (${inLane.length})`
+                ),
                 ...inLane.map((t) =>
                   card(
                     els,
@@ -915,15 +929,11 @@ async function drawTodos(
                     id: t.id,
                     num: `#${t.shortId}`,
                     title: allProjects ? `${t.title}  · ${t.project ?? 'cross-cutting'}` : t.title,
-                    tone:
-                      t.status === 'blocked'
-                        ? 'error'
-                        : t.priority === 'high'
-                          ? 'warning'
-                          : 'subtle',
+                    tone: statusTone(t.status, tty),
                     strong: t.priority === 'high' || t.status === 'blocked'
                   })),
-                  picked: pick
+                  picked: pick,
+                  tty
                 },
                 height: Math.max(1, rows.length)
               }) as RenderElement
@@ -935,7 +945,7 @@ async function drawTodos(
           (h(Client, {
             key: 'todo-splitter',
             module: './splitter.mjs',
-            props: { rows: Math.max(10, rows.length) },
+            props: { rows: Math.max(10, rows.length), rule: rule(tty), accent: accent(tty) },
             width: 1
           }) as RenderElement)
         : null,

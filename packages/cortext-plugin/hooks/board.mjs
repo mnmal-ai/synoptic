@@ -1,4 +1,9 @@
 //#region src/board.ts
+const FALLBACK = {
+	accent: "suggestion",
+	rule: "promptBorder",
+	tags: "suggestion"
+};
 const CARD_ROWS = 5;
 const HEAD_ROWS = 2;
 const GAP = 2;
@@ -75,6 +80,7 @@ const Board = (props, surface) => {
 	const n = Math.max(1, lanes.length);
 	const width = Math.max(8, Math.floor((surface.columns - GAP * (n - 1)) / n));
 	const dragging = st.drag?.moved ? st.drag : void 0;
+	const ink = props.colors ?? FALLBACK;
 	const cardEl = (c) => {
 		const lifted = dragging?.id === c.id;
 		const lit = c.id === props.picked || c.id === st.hover;
@@ -83,18 +89,20 @@ const Board = (props, surface) => {
 			flexDirection: "column",
 			width,
 			height: 5,
-			borderStyle: "round",
-			borderColor: lifted ? "subtle" : lit ? "suggestion" : "promptBorder",
+			borderStyle: lifted ? "single" : "round",
+			borderColor: lifted ? ink.rule : lit ? ink.accent : ink.rule,
+			borderDimColor: lifted,
 			paddingX: 1
 		}, h(Text, {
 			bold: c.strong,
 			dimColor: lifted,
 			wrap: "truncate-end"
-		}, c.title), h(Text, {
+		}, lifted ? `↔ ${c.title}` : c.title), h(Text, {
 			color: "subtle",
 			wrap: "truncate-end"
 		}, c.meta), h(Text, {
-			color: "suggestion",
+			color: ink.tags,
+			dimColor: lifted,
 			wrap: "truncate-end"
 		}, c.tags || " "));
 	};
@@ -109,10 +117,9 @@ const Board = (props, surface) => {
 			width
 		}, h(Text, {
 			bold: true,
-			color: lane.tone,
-			underline: target,
+			color: target ? ink.accent : lane.tone,
 			wrap: "truncate-end"
-		}, `${lane.title} ${lane.cards.length}${target ? "  · drop here" : ""}`), h(Text, {}, " "), ...lane.cards.length === 0 ? [h(Text, { color: "subtle" }, target ? "" : "Empty")] : lane.cards.map(cardEl));
+		}, `${target ? "▸ " : ""}${lane.title} ${lane.cards.length}${target ? "  · drop here" : ""}`), h(Text, {}, " "), ...lane.cards.length === 0 ? [h(Text, { color: target ? ink.accent : "subtle" }, target ? "Drop to move here" : "Empty")] : lane.cards.map(cardEl));
 	}));
 };
 

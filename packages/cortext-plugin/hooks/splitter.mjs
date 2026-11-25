@@ -30,7 +30,7 @@ const Splitter = (props, surface) => {
 	}
 	const dragging = surface.state?.last !== void 0;
 	const rows = Math.max(1, Math.min(200, props.rows));
-	const line = h(Text, { color: dragging ? "suggestion" : "promptBorder" }, Array(rows).fill("│").join("\n"));
+	const line = h(Text, { color: dragging ? props.accent ?? "suggestion" : props.rule ?? "promptBorder" }, Array(rows).fill("│").join("\n"));
 	return h(Box, {
 		flexDirection: "column",
 		width: 1

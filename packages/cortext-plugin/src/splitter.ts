@@ -6,7 +6,10 @@ import type { ClientModule, ClientPointerEvent } from 'claude-code';
 
 type State = { last?: number };
 
-const Splitter: ClientModule<{ rows: number }, State> = (props, surface) => {
+const Splitter: ClientModule<{ rows: number; rule?: string; accent?: string }, State> = (
+  props,
+  surface
+) => {
   const { Box, Text } = surface.elements;
   if (surface.state === undefined) {
     surface.setState({});
@@ -35,7 +38,7 @@ const Splitter: ClientModule<{ rows: number }, State> = (props, surface) => {
   // biome-ignore lint/correctness/noUndeclaredVariables: `h` is the engine's global JSX factory
   const line = h(
     Text,
-    { color: dragging ? 'suggestion' : 'promptBorder' },
+    { color: dragging ? (props.accent ?? 'suggestion') : (props.rule ?? 'promptBorder') },
     Array(rows).fill('│').join('\n')
   );
   // biome-ignore lint/correctness/noUndeclaredVariables: as above
