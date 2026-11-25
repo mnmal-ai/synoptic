@@ -12,7 +12,6 @@ import { cut } from './pane-text.js';
 // name says person or agent. A mail is a bubble too, its direction on the envelope icon.
 
 const PREVIEW_MAX = 180;
-const AVATAR = 20;
 
 type Els = ReturnType<EngineInterface['ui']['resolve']>;
 type Tag = Parameters<typeof el>[0];
