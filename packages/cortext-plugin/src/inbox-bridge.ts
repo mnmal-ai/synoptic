@@ -9,6 +9,7 @@ import {
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
 import { newPanes, registerPanes, shareReply, shareToolCall, startPanes } from './desktop-panes.js';
+import { mailCallLine, mailReceivedLine } from './pane-text.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -68,6 +69,8 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
+  // The row above is the model's; this dim line is the person's: who wrote, when, about what.
+  if (!m.fromSelf) $.ui.log(mailReceivedLine(m));
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
@@ -185,9 +188,17 @@ export const register: Register = (on) => {
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e); // a subagent's tools run inside the main thread's Agent call
     await shareToolCall(panes, $, e.tool, e as unknown as Record<string, unknown>);
+    const mailLine = mailCallLine(
+      e.tool,
+      e as unknown as Record<string, unknown>,
+      await $.clock.now()
+    );
     b.toolsInFlight++;
     try {
-      return await next(e);
+      const ran = await next(e);
+      // Only a call that went through: a refused or failed send sent nothing.
+      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) $.ui.log(mailLine);
+      return ran;
     } finally {
       b.toolsInFlight--;
     }

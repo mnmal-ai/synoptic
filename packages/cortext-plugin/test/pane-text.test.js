@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { controlKids, cut, hostOf, remoteTurnText, toolSummary } from '../src/pane-text.ts';
+import {
+  controlKids,
+  cut,
+  hostOf,
+  mailCallLine,
+  mailReceivedLine,
+  remoteTurnText,
+  toolSummary
+} from '../src/pane-text.ts';
 
 describe('toolSummary', () => {
   it("uses the tool's own description and never its command", () => {
@@ -43,5 +51,43 @@ describe('hostOf', () => {
   it('takes the lowercase host of a kid, domain dropped', () => {
     expect(hostOf('peer@Host-A.local')).toBe('host-a');
     expect(hostOf('nohost')).toBe('unknown');
+  });
+});
+
+describe('mail lines', () => {
+  const at = new Date(2026, 10, 25, 18, 5).getTime();
+  it('names number, sender, time and subject for received mail', () => {
+    const line = mailReceivedLine({
+      shortId: 1465,
+      from: 'peer@host',
+      subject: 'Re: gate green\nsecond line',
+      createdAt: new Date(at).toISOString()
+    });
+    expect(line).toBe('Mail received #1465 · from peer@host · 18:05 · Re: gate green second line');
+  });
+  it('reads a send from an act sketch and from a mutate frame', () => {
+    expect(
+      mailCallLine(
+        'mcp__substrate__act',
+        { sketch: 'send AgentMessage to=peer@host subject="hi there" body="x"' },
+        at
+      )
+    ).toBe('Mail sent · to peer@host · 18:05 · hi there');
+    expect(
+      mailCallLine(
+        'mcp__substrate__mutate',
+        {
+          payload: { 'cortext/sendAgentMessage': { params: { to: ['a@h', 'b@h'], subject: 's' } } }
+        },
+        at
+      )
+    ).toBe('Mail sent · to a@h, b@h · 18:05 · s');
+  });
+  it('reads ack and read, and ignores other calls', () => {
+    expect(mailCallLine('mcp__substrate__act', { sketch: 'ack AgentMessage #12,#13' }, at)).toBe(
+      'Mail acked · #12,#13 · 18:05'
+    );
+    expect(mailCallLine('mcp__substrate__act', { sketch: 'close Todo #12' }, at)).toBeUndefined();
+    expect(mailCallLine('Bash', { command: 'ls' }, at)).toBeUndefined();
   });
 });

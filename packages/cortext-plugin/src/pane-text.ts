@@ -48,3 +48,68 @@ export function hostOf(kid: string): string {
       .split('.')[0] || 'unknown'
   );
 }
+
+/** `HH:MM` in the host's local time. */
+export function clockTime(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** The dim transcript line for mail that arrived: number, sender, time, subject. */
+export function mailReceivedLine(
+  m: { shortId: number; from: string; subject: string; createdAt: string; urgent?: boolean },
+  _now?: number
+): string {
+  const at = Date.parse(m.createdAt);
+  const when = Number.isNaN(at) ? '' : ` · ${clockTime(at)}`;
+  return `Mail received #${m.shortId}${m.urgent ? ' (urgent)' : ''} · from ${oneLine(m.from)}${when} · ${cut(oneLine(m.subject), 90)}`;
+}
+
+/**
+ * The dim transcript line for a mailbox call this session made through the substrate MCP
+ * server, or undefined when the call is not one. Reads the `act` sketch or the `mutate` frame.
+ */
+export function mailCallLine(
+  tool: string,
+  input: Record<string, unknown>,
+  now: number
+): string | undefined {
+  const at = clockTime(now);
+  if (/__act$/.test(tool) && typeof input.sketch === 'string') {
+    const sketch = input.sketch.trim();
+    const send = /^send\s+AgentMessage\b/i.test(sketch);
+    if (send) {
+      const to = /\bto=("[^"]*"|\S+)/.exec(sketch)?.[1]?.replace(/"/g, '') ?? 'someone';
+      const subject = /\bsubject="([^"]*)"/.exec(sketch)?.[1] ?? '';
+      return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ''}`;
+    }
+    const closed = /^(ack|read)\s+AgentMessage\s+([#\d,\s]+)/i.exec(sketch);
+    if (closed) {
+      const verb = closed[1]?.toLowerCase() === 'ack' ? 'acked' : 'marked read';
+      return `Mail ${verb} · ${closed[2]?.trim()} · ${at}`;
+    }
+    return undefined;
+  }
+  if (/__mutate$/.test(tool) && input.payload && typeof input.payload === 'object') {
+    for (const [key, frame] of Object.entries(input.payload as Record<string, unknown>)) {
+      const params = (frame as { params?: Record<string, unknown> } | null)?.params ?? {};
+      if (key.endsWith('/sendAgentMessage')) {
+        const to = Array.isArray(params.to) ? params.to.join(', ') : String(params.to ?? 'someone');
+        const subject = typeof params.subject === 'string' ? params.subject : '';
+        return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ''}`;
+      }
+      if (key.endsWith('/ackAgentMessage')) return `Mail acked · ${at}`;
+      if (key.endsWith('/markAgentMessageRead')) return `Mail marked read · ${at}`;
+    }
+  }
+  return undefined;
+}
+
+function oneLine(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.charCodeAt(0);
+    out += c < 32 || c === 127 || (c >= 128 && c <= 159) || c === 8232 || c === 8233 ? ' ' : ch;
+  }
+  return out.trim();
+}

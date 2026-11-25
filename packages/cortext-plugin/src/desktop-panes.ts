@@ -1,6 +1,6 @@
 import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
-import type { FeedEvent, FeedRow, PaneTodo, TodoDraft } from '../types';
+import type { FeedEvent, FeedRow, PaneTodo, TodoDetail, TodoDraft } from '../types';
 import { controlKids, cut, hostOf, remoteTurnText, toolSummary } from './pane-text.js';
 
 // Two panes and one opt-in, all through the session's own substrate MCP server,
@@ -25,6 +25,8 @@ const todos = atom({ plugin: 'cortext', key: 'paneTodos' }, []);
 const todoScope = atom({ plugin: 'cortext', key: 'paneTodoScope' }, 'project');
 const editing = atom({ plugin: 'cortext', key: 'paneEditing' }, null);
 const paneNote = atom({ plugin: 'cortext', key: 'paneNote' }, '');
+const selected = atom({ plugin: 'cortext', key: 'paneSelected' }, null);
+const detail = atom({ plugin: 'cortext', key: 'paneDetail' }, null);
 const feeds = atom({ plugin: 'cortext', key: 'paneFeeds' }, []);
 const watched = atom({ plugin: 'cortext', key: 'paneWatched' }, null);
 const events = atom({ plugin: 'cortext', key: 'paneEvents' }, []);
@@ -48,8 +50,13 @@ export type Panes = {
 
 /** One element: `h` with its result narrowed to what a Box child and a render hook take. */
 function el(...args: Parameters<typeof h>): RenderElement {
+  const [tag, props, ...children] = args;
+  // An undefined prop is left out: a surface checks props against an allowlist of set values.
+  const set = props
+    ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== undefined))
+    : props;
   // biome-ignore lint/correctness/noUndeclaredVariables: `h` is the engine's global JSX factory in a hooks module
-  return h(...args) as RenderElement;
+  return h(tag, set, ...children) as RenderElement;
 }
 
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
@@ -175,6 +182,8 @@ async function closeTodo(p: Panes, $: EngineInterface, t: PaneTodo): Promise<voi
     // `close` is the store's own word: closed, resolution completed, archived. Undo: reopen the row.
     await sub(p, $, 'act', { sketch: `close Todo #${t.shortId}` });
     await note($, `Closed #${t.shortId}.`);
+    await update($, selected, () => null);
+    await update($, detail, () => null);
     await loadTodos(p, $);
   } catch (err) {
     await note($, `Could not close #${t.shortId}: ${(err as Error).message}`);
@@ -198,120 +207,76 @@ async function saveTodo(p: Panes, $: EngineInterface, draft: TodoDraft): Promise
   }
 }
 
+async function selectTodo(p: Panes, $: EngineInterface, t: PaneTodo): Promise<void> {
+  await update($, selected, () => t.id);
+  await update($, editing, () => null);
+  try {
+    const rows = await query<TodoDetail>(p, $, 'Todo', {
+      params: { where: { id: { eq: t.id } }, limit: 1 },
+      fields: {
+        id: true,
+        notes: true,
+        body: true,
+        blockedBy: true,
+        revisitWhen: true,
+        targetDate: true,
+        _metadata: { createdAt: true, updatedAt: true, createdBy: true }
+      }
+    });
+    await update($, detail, () => rows[0] ?? null);
+  } catch (err) {
+    await note($, `Could not load #${t.shortId}: ${(err as Error).message}`);
+  }
+}
+
+function startEdit($: EngineInterface, t: PaneTodo): void {
+  void update($, editing, () => ({
+    id: t.id,
+    shortId: t.shortId,
+    title: t.title,
+    area: t.area,
+    priority: t.priority,
+    status: t.status
+  }));
+}
+
 async function drawTodos(
   p: Panes,
   $: EngineInterface,
   e: Parameters<EngineInterface['ui']['resolve']>[0]
 ) {
-  const { Box, Text, Button, Input, Select } = $.ui.resolve(e);
+  const els = $.ui.resolve(e);
+  const { Box, Text, Button, Input, Select } = els;
+  const Markdown = (els as unknown as { Markdown?: typeof Text }).Markdown;
   const list = await read($, todos);
   const scope = await read($, todoScope);
   const draft = await read($, editing);
   const said = await read($, paneNote);
+  const pick = await read($, selected);
+  const more = await read($, detail);
+  const current = list.find((t) => t.id === pick);
+  const now = await $.clock.now();
 
-  const row = (t: PaneTodo): RenderElement =>
-    draft?.id === t.id
-      ? el(
-          Box,
-          {
-            key: `edit-${t.id}`,
-            flexDirection: 'column',
-            borderStyle: 'round',
-            paddingX: 1,
-            gap: 1
-          },
-          el(Text, { bold: true }, `#${t.shortId}`),
-          el(Input, {
-            key: `title-${t.id}`,
-            label: 'Title',
-            value: draft.title,
-            autoFocus: true,
-            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, title: v } : d)),
-            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-          }),
-          el(Input, {
-            key: `area-${t.id}`,
-            label: 'Area',
-            value: draft.area,
-            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, area: v } : d)),
-            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-          }),
-          el(Select, {
-            key: `pri-${t.id}`,
-            label: 'Priority',
-            value: draft.priority,
-            options: PRIORITIES.map((v) => ({ value: v })),
-            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, priority: v } : d))
-          }),
-          el(Select, {
-            key: `status-${t.id}`,
-            label: 'Status',
-            value: draft.status,
-            options: STATUSES.map((v) => ({ value: v })),
-            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, status: v } : d))
-          }),
-          el(
-            Box,
-            { flexDirection: 'row', gap: 1 },
-            el(Button, {
-              key: `save-${t.id}`,
-              label: 'Save',
-              onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-            }),
-            el(Button, {
-              key: `cancel-${t.id}`,
-              label: 'Cancel',
-              onPress: () => void update($, editing, () => null)
-            })
-          )
-        )
-      : el(
-          Box,
-          { key: `row-${t.id}`, flexDirection: 'row', gap: 1 },
-          el(
-            Box,
-            { flexGrow: 1 },
-            el(
-              Text,
-              { wrap: 'truncate-end' },
-              el(Text, { dimColor: true }, `#${t.shortId} `),
-              el(Text, { bold: t.priority === 'high' }, `${t.priority.padEnd(6)} `),
-              t.status === 'open' ? '' : el(Text, { dimColor: true }, `[${t.status}] `),
-              t.title,
-              scope === 'all'
-                ? el(Text, { dimColor: true }, `  ${t.project ?? 'cross-cutting'}`)
-                : ''
-            )
-          ),
-          el(Button, {
-            key: `edit-btn-${t.id}`,
-            label: 'Edit',
-            onPress: () =>
-              void update($, editing, () => ({
-                id: t.id,
-                shortId: t.shortId,
-                title: t.title,
-                area: t.area,
-                priority: t.priority,
-                status: t.status
-              }))
-          }),
-          el(Button, {
-            key: `close-btn-${t.id}`,
-            label: 'Close',
-            onPress: () => void closeTodo(p, $, t)
-          })
-        );
+  const marker = (t: PaneTodo): string =>
+    t.status === 'blocked'
+      ? 'blocked'
+      : t.priority === 'high'
+        ? 'high'
+        : t.priority === 'medium'
+          ? 'med'
+          : 'low';
+  const tone = (t: PaneTodo): string | undefined =>
+    t.status === 'blocked' ? 'red' : t.priority === 'high' ? 'yellow' : undefined;
 
-  return el(
+  // Left: the list, one row per todo, the picked one filled.
+  const master = el(
     Box,
-    { flexDirection: 'column', gap: 1 },
+    { flexDirection: 'column', width: '40%', gap: 1, paddingX: 1 },
     el(
       Box,
       { flexDirection: 'row', gap: 1 },
       el(Select, {
         key: 'todo-scope',
-        label: 'Show',
         value: scope,
         options: [
           { value: 'project', label: `${p.project} + cross-cutting` },
@@ -326,14 +291,161 @@ async function drawTodos(
     ),
     el(Input, {
       key: 'todo-new',
-      placeholder: `New todo in ${p.project}`,
+      placeholder: 'New todo',
       submitLabel: 'add',
       value: '',
       onSubmit: (v: string) => void createTodo(p, $, v)
     }),
+    el(Text, { dimColor: true, size: 'caption' }, `${list.length} open`),
+    ...list.map((t) =>
+      el(
+        Box,
+        {
+          key: `row-${t.id}`,
+          backgroundColor: t.id === pick ? 'blue' : undefined,
+          paddingX: 1
+        },
+        el(
+          Button,
+          { key: `pick-${t.id}`, label: t.title, onPress: () => void selectTodo(p, $, t) },
+          el(
+            Text,
+            { color: tone(t), dimColor: tone(t) === undefined, size: 'caption' },
+            `${marker(t)} `
+          ),
+          el(Text, { bold: t.id === pick, wrap: 'truncate-end' }, t.title)
+        )
+      )
+    )
+  );
+
+  const field = (label: string, value: string | null | undefined) =>
+    value
+      ? el(
+          Box,
+          { flexDirection: 'column' },
+          el(Text, { dimColor: true, size: 'caption' }, label),
+          el(Text, {}, value)
+        )
+      : null;
+  const prose = (text: string) => (Markdown ? el(Markdown, { text }) : el(Text, {}, text));
+  const when = (iso: string | undefined) => (iso ? ago(iso, now) : undefined);
+
+  // Right: everything about the picked todo, or the editor for it.
+  const view = !current
+    ? el(Text, { dimColor: true }, list.length ? 'Pick a todo on the left.' : 'No open todos.')
+    : draft?.id === current.id
+      ? el(
+          Box,
+          { flexDirection: 'column', gap: 1 },
+          el(Text, { size: 'heading', weight: 'semibold' }, `Edit #${current.shortId}`),
+          el(Input, {
+            key: `title-${current.id}`,
+            label: 'Title',
+            value: draft.title,
+            autoFocus: true,
+            rows: 2,
+            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, title: v } : d)),
+            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+          }),
+          el(Input, {
+            key: `area-${current.id}`,
+            label: 'Area',
+            value: draft.area,
+            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, area: v } : d)),
+            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+          }),
+          el(Select, {
+            key: `pri-${current.id}`,
+            label: 'Priority',
+            value: draft.priority,
+            options: PRIORITIES.map((v) => ({ value: v })),
+            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, priority: v } : d))
+          }),
+          el(Select, {
+            key: `status-${current.id}`,
+            label: 'Status',
+            value: draft.status,
+            options: STATUSES.map((v) => ({ value: v })),
+            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, status: v } : d))
+          }),
+          el(
+            Box,
+            { flexDirection: 'row', gap: 1 },
+            el(Button, {
+              key: `save-${current.id}`,
+              label: 'Save',
+              onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+            }),
+            el(Button, {
+              key: `cancel-${current.id}`,
+              label: 'Cancel',
+              onPress: () => void update($, editing, () => null)
+            })
+          )
+        )
+      : el(
+          Box,
+          { flexDirection: 'column', gap: 1 },
+          el(
+            Text,
+            { dimColor: true, size: 'caption' },
+            `#${current.shortId} · ${current.project ?? 'cross-cutting'} · ${current.area}`
+          ),
+          el(Text, { size: 'title', weight: 'bold' }, current.title),
+          el(
+            Box,
+            { flexDirection: 'row', gap: 2 },
+            field('Priority', current.priority),
+            field('Status', current.status),
+            field('Created', when(more?._metadata?.createdAt)),
+            field('Updated', when(more?._metadata?.updatedAt))
+          ),
+          field('Blocked by', more?.blockedBy),
+          field('Revisit when', more?.revisitWhen),
+          field('Target date', more?.targetDate?.slice(0, 10)),
+          more?.notes
+            ? el(
+                Box,
+                { flexDirection: 'column' },
+                el(Text, { dimColor: true, size: 'caption' }, 'Notes'),
+                prose(more.notes)
+              )
+            : null,
+          more?.body
+            ? el(
+                Box,
+                { flexDirection: 'column' },
+                el(Text, { dimColor: true, size: 'caption' }, 'Description'),
+                prose(more.body)
+              )
+            : null,
+          el(
+            Box,
+            { flexDirection: 'row', gap: 1 },
+            el(Button, {
+              key: `edit-${current.id}`,
+              label: 'Edit',
+              onPress: () => startEdit($, current)
+            }),
+            el(Button, {
+              key: `close-${current.id}`,
+              label: 'Close',
+              onPress: () => void closeTodo(p, $, current)
+            })
+          )
+        );
+
+  return el(
+    Box,
+    { flexDirection: 'column', gap: 1 },
     said ? el(Text, { dimColor: true }, said) : null,
-    el(Text, { dimColor: true }, `${list.length} open`),
-    ...list.map(row)
+    el(
+      Box,
+      { flexDirection: 'row', gap: 2 },
+      master,
+      el(Box, { flexDirection: 'column', flexGrow: 1, borderStyle: 'round', padding: 1 }, view)
+    )
   );
 }
 

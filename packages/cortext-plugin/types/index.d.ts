@@ -36,6 +36,15 @@ export type TodoDraft = {
   priority: string;
   status: string;
 };
+export type TodoDetail = {
+  id: string;
+  notes?: string | null;
+  body?: string | null;
+  blockedBy?: string | null;
+  revisitWhen?: string | null;
+  targetDate?: string | null;
+  _metadata?: { createdAt?: string; updatedAt?: string };
+};
 export type FeedRow = {
   id: string;
   instance: string;
@@ -62,6 +71,8 @@ declare module 'claude-code' {
       paneTodoScope: 'project' | 'all';
       paneEditing: TodoDraft | null;
       paneNote: string;
+      paneSelected: string | null;
+      paneDetail: TodoDetail | null;
       paneFeeds: FeedRow[];
       paneWatched: string | null;
       paneEvents: FeedEvent[];

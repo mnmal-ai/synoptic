@@ -159,6 +159,53 @@ function hostOf(kid) {
 	if (at < 0) return "unknown";
 	return kid.slice(at + 1).toLowerCase().split(".")[0] || "unknown";
 }
+/** `HH:MM` in the host's local time. */
+function clockTime(ms) {
+	const d = new Date(ms);
+	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+/** The dim transcript line for mail that arrived: number, sender, time, subject. */
+function mailReceivedLine(m, _now) {
+	const at = Date.parse(m.createdAt);
+	const when = Number.isNaN(at) ? "" : ` · ${clockTime(at)}`;
+	return `Mail received #${m.shortId}${m.urgent ? " (urgent)" : ""} · from ${oneLine(m.from)}${when} · ${cut(oneLine(m.subject), 90)}`;
+}
+/**
+* The dim transcript line for a mailbox call this session made through the substrate MCP
+* server, or undefined when the call is not one. Reads the `act` sketch or the `mutate` frame.
+*/
+function mailCallLine(tool, input, now) {
+	const at = clockTime(now);
+	if (/__act$/.test(tool) && typeof input.sketch === "string") {
+		const sketch = input.sketch.trim();
+		if (/^send\s+AgentMessage\b/i.test(sketch)) {
+			const to = /\bto=("[^"]*"|\S+)/.exec(sketch)?.[1]?.replace(/"/g, "") ?? "someone";
+			const subject = /\bsubject="([^"]*)"/.exec(sketch)?.[1] ?? "";
+			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
+		}
+		const closed = /^(ack|read)\s+AgentMessage\s+([#\d,\s]+)/i.exec(sketch);
+		if (closed) return `Mail ${closed[1]?.toLowerCase() === "ack" ? "acked" : "marked read"} · ${closed[2]?.trim()} · ${at}`;
+		return;
+	}
+	if (/__mutate$/.test(tool) && input.payload && typeof input.payload === "object") for (const [key, frame] of Object.entries(input.payload)) {
+		const params = frame?.params ?? {};
+		if (key.endsWith("/sendAgentMessage")) {
+			const to = Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone");
+			const subject = typeof params.subject === "string" ? params.subject : "";
+			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
+		}
+		if (key.endsWith("/ackAgentMessage")) return `Mail acked · ${at}`;
+		if (key.endsWith("/markAgentMessageRead")) return `Mail marked read · ${at}`;
+	}
+}
+function oneLine(text) {
+	let out = "";
+	for (const ch of text) {
+		const c = ch.charCodeAt(0);
+		out += c < 32 || c === 127 || c >= 128 && c <= 159 || c === 8232 || c === 8233 ? " " : ch;
+	}
+	return out.trim();
+}
 
 //#endregion
 //#region src/desktop-panes.ts
@@ -195,6 +242,14 @@ const paneNote = atom({
 	plugin: "cortext",
 	key: "paneNote"
 }, "");
+const selected = atom({
+	plugin: "cortext",
+	key: "paneSelected"
+}, null);
+const detail = atom({
+	plugin: "cortext",
+	key: "paneDetail"
+}, null);
 const feeds = atom({
 	plugin: "cortext",
 	key: "paneFeeds"
@@ -225,7 +280,9 @@ const CONTROL = {
 };
 /** One element: `h` with its result narrowed to what a Box child and a render hook take. */
 function el(...args) {
-	return h(...args);
+	const [tag, props, ...children] = args;
+	const set = props ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== void 0)) : props;
+	return h(tag, set, ...children);
 }
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
 async function sub(p, $, tool, args) {
@@ -324,6 +381,8 @@ async function closeTodo(p, $, t) {
 	try {
 		await sub(p, $, "act", { sketch: `close Todo #${t.shortId}` });
 		await note($, `Closed #${t.shortId}.`);
+		await update($, selected, () => null);
+		await update($, detail, () => null);
 		await loadTodos(p, $);
 	} catch (err) {
 		await note($, `Could not close #${t.shortId}: ${err.message}`);
@@ -345,95 +404,68 @@ async function saveTodo(p, $, draft) {
 		await note($, `Could not save #${draft.shortId}: ${err.message}`);
 	}
 }
+async function selectTodo(p, $, t) {
+	await update($, selected, () => t.id);
+	await update($, editing, () => null);
+	try {
+		const rows = await query(p, $, "Todo", {
+			params: {
+				where: { id: { eq: t.id } },
+				limit: 1
+			},
+			fields: {
+				id: true,
+				notes: true,
+				body: true,
+				blockedBy: true,
+				revisitWhen: true,
+				targetDate: true,
+				_metadata: {
+					createdAt: true,
+					updatedAt: true,
+					createdBy: true
+				}
+			}
+		});
+		await update($, detail, () => rows[0] ?? null);
+	} catch (err) {
+		await note($, `Could not load #${t.shortId}: ${err.message}`);
+	}
+}
+function startEdit($, t) {
+	update($, editing, () => ({
+		id: t.id,
+		shortId: t.shortId,
+		title: t.title,
+		area: t.area,
+		priority: t.priority,
+		status: t.status
+	}));
+}
 async function drawTodos(p, $, e) {
-	const { Box, Text, Button, Input, Select } = $.ui.resolve(e);
+	const els = $.ui.resolve(e);
+	const { Box, Text, Button, Input, Select } = els;
+	const Markdown = els.Markdown;
 	const list = await read($, todos);
 	const scope = await read($, todoScope);
 	const draft = await read($, editing);
 	const said = await read($, paneNote);
-	const row = (t) => draft?.id === t.id ? el(Box, {
-		key: `edit-${t.id}`,
+	const pick = await read($, selected);
+	const more = await read($, detail);
+	const current = list.find((t) => t.id === pick);
+	const now = await $.clock.now();
+	const marker = (t) => t.status === "blocked" ? "blocked" : t.priority === "high" ? "high" : t.priority === "medium" ? "med" : "low";
+	const tone = (t) => t.status === "blocked" ? "red" : t.priority === "high" ? "yellow" : void 0;
+	const master = el(Box, {
 		flexDirection: "column",
-		borderStyle: "round",
-		paddingX: 1,
-		gap: 1
-	}, el(Text, { bold: true }, `#${t.shortId}`), el(Input, {
-		key: `title-${t.id}`,
-		label: "Title",
-		value: draft.title,
-		autoFocus: true,
-		onInput: (v) => void update($, editing, (d) => d ? {
-			...d,
-			title: v
-		} : d),
-		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Input, {
-		key: `area-${t.id}`,
-		label: "Area",
-		value: draft.area,
-		onInput: (v) => void update($, editing, (d) => d ? {
-			...d,
-			area: v
-		} : d),
-		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Select, {
-		key: `pri-${t.id}`,
-		label: "Priority",
-		value: draft.priority,
-		options: PRIORITIES.map((v) => ({ value: v })),
-		onSelect: (v) => void update($, editing, (d) => d ? {
-			...d,
-			priority: v
-		} : d)
-	}), el(Select, {
-		key: `status-${t.id}`,
-		label: "Status",
-		value: draft.status,
-		options: STATUSES.map((v) => ({ value: v })),
-		onSelect: (v) => void update($, editing, (d) => d ? {
-			...d,
-			status: v
-		} : d)
-	}), el(Box, {
-		flexDirection: "row",
-		gap: 1
-	}, el(Button, {
-		key: `save-${t.id}`,
-		label: "Save",
-		onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Button, {
-		key: `cancel-${t.id}`,
-		label: "Cancel",
-		onPress: () => void update($, editing, () => null)
-	}))) : el(Box, {
-		key: `row-${t.id}`,
-		flexDirection: "row",
-		gap: 1
-	}, el(Box, { flexGrow: 1 }, el(Text, { wrap: "truncate-end" }, el(Text, { dimColor: true }, `#${t.shortId} `), el(Text, { bold: t.priority === "high" }, `${t.priority.padEnd(6)} `), t.status === "open" ? "" : el(Text, { dimColor: true }, `[${t.status}] `), t.title, scope === "all" ? el(Text, { dimColor: true }, `  ${t.project ?? "cross-cutting"}`) : "")), el(Button, {
-		key: `edit-btn-${t.id}`,
-		label: "Edit",
-		onPress: () => void update($, editing, () => ({
-			id: t.id,
-			shortId: t.shortId,
-			title: t.title,
-			area: t.area,
-			priority: t.priority,
-			status: t.status
-		}))
-	}), el(Button, {
-		key: `close-btn-${t.id}`,
-		label: "Close",
-		onPress: () => void closeTodo(p, $, t)
-	}));
-	return el(Box, {
-		flexDirection: "column",
-		gap: 1
+		width: "40%",
+		gap: 1,
+		paddingX: 1
 	}, el(Box, {
 		flexDirection: "row",
 		gap: 1
 	}, el(Select, {
 		key: "todo-scope",
-		label: "Show",
 		value: scope,
 		options: [{
 			value: "project",
@@ -449,11 +481,132 @@ async function drawTodos(p, $, e) {
 		onPress: () => void refreshTodos(p, $)
 	})), el(Input, {
 		key: "todo-new",
-		placeholder: `New todo in ${p.project}`,
+		placeholder: "New todo",
 		submitLabel: "add",
 		value: "",
 		onSubmit: (v) => void createTodo(p, $, v)
-	}), said ? el(Text, { dimColor: true }, said) : null, el(Text, { dimColor: true }, `${list.length} open`), ...list.map(row));
+	}), el(Text, {
+		dimColor: true,
+		size: "caption"
+	}, `${list.length} open`), ...list.map((t) => el(Box, {
+		key: `row-${t.id}`,
+		backgroundColor: t.id === pick ? "blue" : void 0,
+		paddingX: 1
+	}, el(Button, {
+		key: `pick-${t.id}`,
+		label: t.title,
+		onPress: () => void selectTodo(p, $, t)
+	}, el(Text, {
+		color: tone(t),
+		dimColor: tone(t) === void 0,
+		size: "caption"
+	}, `${marker(t)} `), el(Text, {
+		bold: t.id === pick,
+		wrap: "truncate-end"
+	}, t.title)))));
+	const field = (label, value) => value ? el(Box, { flexDirection: "column" }, el(Text, {
+		dimColor: true,
+		size: "caption"
+	}, label), el(Text, {}, value)) : null;
+	const prose = (text) => Markdown ? el(Markdown, { text }) : el(Text, {}, text);
+	const when = (iso) => iso ? ago(iso, now) : void 0;
+	const view = !current ? el(Text, { dimColor: true }, list.length ? "Pick a todo on the left." : "No open todos.") : draft?.id === current.id ? el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Text, {
+		size: "heading",
+		weight: "semibold"
+	}, `Edit #${current.shortId}`), el(Input, {
+		key: `title-${current.id}`,
+		label: "Title",
+		value: draft.title,
+		autoFocus: true,
+		rows: 2,
+		onInput: (v) => void update($, editing, (d) => d ? {
+			...d,
+			title: v
+		} : d),
+		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+	}), el(Input, {
+		key: `area-${current.id}`,
+		label: "Area",
+		value: draft.area,
+		onInput: (v) => void update($, editing, (d) => d ? {
+			...d,
+			area: v
+		} : d),
+		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+	}), el(Select, {
+		key: `pri-${current.id}`,
+		label: "Priority",
+		value: draft.priority,
+		options: PRIORITIES.map((v) => ({ value: v })),
+		onSelect: (v) => void update($, editing, (d) => d ? {
+			...d,
+			priority: v
+		} : d)
+	}), el(Select, {
+		key: `status-${current.id}`,
+		label: "Status",
+		value: draft.status,
+		options: STATUSES.map((v) => ({ value: v })),
+		onSelect: (v) => void update($, editing, (d) => d ? {
+			...d,
+			status: v
+		} : d)
+	}), el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, el(Button, {
+		key: `save-${current.id}`,
+		label: "Save",
+		onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+	}), el(Button, {
+		key: `cancel-${current.id}`,
+		label: "Cancel",
+		onPress: () => void update($, editing, () => null)
+	}))) : el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Text, {
+		dimColor: true,
+		size: "caption"
+	}, `#${current.shortId} · ${current.project ?? "cross-cutting"} · ${current.area}`), el(Text, {
+		size: "title",
+		weight: "bold"
+	}, current.title), el(Box, {
+		flexDirection: "row",
+		gap: 2
+	}, field("Priority", current.priority), field("Status", current.status), field("Created", when(more?._metadata?.createdAt)), field("Updated", when(more?._metadata?.updatedAt))), field("Blocked by", more?.blockedBy), field("Revisit when", more?.revisitWhen), field("Target date", more?.targetDate?.slice(0, 10)), more?.notes ? el(Box, { flexDirection: "column" }, el(Text, {
+		dimColor: true,
+		size: "caption"
+	}, "Notes"), prose(more.notes)) : null, more?.body ? el(Box, { flexDirection: "column" }, el(Text, {
+		dimColor: true,
+		size: "caption"
+	}, "Description"), prose(more.body)) : null, el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, el(Button, {
+		key: `edit-${current.id}`,
+		label: "Edit",
+		onPress: () => startEdit($, current)
+	}), el(Button, {
+		key: `close-${current.id}`,
+		label: "Close",
+		onPress: () => void closeTodo(p, $, current)
+	})));
+	return el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, said ? el(Text, { dimColor: true }, said) : null, el(Box, {
+		flexDirection: "row",
+		gap: 2
+	}, master, el(Box, {
+		flexDirection: "column",
+		flexGrow: 1,
+		borderStyle: "round",
+		padding: 1
+	}, view)));
 }
 function enqueue(p, job) {
 	p.writes = p.writes.then(job).catch(() => {});
@@ -855,6 +1008,7 @@ async function deliver(b, $, m) {
 			text: renderPushRow(m, b.ns)
 		}]
 	} });
+	if (!m.fromSelf) $.ui.log(mailReceivedLine(m));
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
@@ -961,9 +1115,12 @@ const register = (on) => {
 	on("tool.call", async ($, e, next) => {
 		if (e.agentId !== void 0) return next(e);
 		await shareToolCall(panes, $, e.tool, e);
+		const mailLine = mailCallLine(e.tool, e, await $.clock.now());
 		b.toolsInFlight++;
 		try {
-			return await next(e);
+			const ran = await next(e);
+			if (mailLine && !ran.deny && !ran.isError) $.ui.log(mailLine);
+			return ran;
 		} finally {
 			b.toolsInFlight--;
 		}
