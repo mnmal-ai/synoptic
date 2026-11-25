@@ -1019,6 +1019,12 @@ const splitPct = atom({
 	plugin: "cortext",
 	key: "paneSplit"
 }, 34);
+const listTop = atom({
+	plugin: "cortext",
+	key: "paneListTop"
+}, 0);
+const LIST_ROW_LINES = 3;
+const LIST_HEAD_ROWS = 8;
 const layout = atom({
 	plugin: "cortext",
 	key: "paneLayout"
@@ -1226,6 +1232,7 @@ async function setView(p, $, patch) {
 		...v,
 		...patch
 	}));
+	await update($, listTop, () => 0);
 	await keepPick(p, $);
 }
 async function selectTodo(p, $, t) {
@@ -1612,6 +1619,11 @@ async function drawTodos(p, $, e) {
 		paddingX: 2,
 		paddingY: 1
 	}, detailView(back));
+	const bodyRows = e.props?.scroll?.bodyRows;
+	const shown = Math.max(3, Math.floor(((bodyRows ?? 48) - LIST_HEAD_ROWS) / LIST_ROW_LINES));
+	p.listShown = shown;
+	p.listMax = Math.max(0, rows.length - shown);
+	const top = Math.min(p.listMax, Math.max(0, await read($, listTop)));
 	let body;
 	if (mode === "grouped") {
 		const view = groupedView({
@@ -1716,7 +1728,7 @@ async function drawTodos(p, $, e) {
 		key: "todo-list",
 		module: "./list.mjs",
 		props: {
-			rows: rows.map((t) => ({
+			rows: rows.slice(top, top + shown).map((t) => ({
 				id: t.id,
 				num: `#${t.shortId}`,
 				title: t.title,
@@ -1736,12 +1748,15 @@ async function drawTodos(p, $, e) {
 			picked: pick,
 			tty
 		},
-		height: Math.max(1, Math.min(rows.length, 120) * 4 + (rows.length > 120 ? 1 : 0))
-	})] : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), Client ? h(Client, {
+		height: Math.max(1, Math.min(shown, rows.length - top) * LIST_ROW_LINES)
+	}), rows.length > shown ? el(Text, {
+		color: "subtle",
+		tabular: true
+	}, `${top + 1}–${Math.min(rows.length, top + shown)} of ${rows.length} · scroll the list for more`) : null] : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), Client ? h(Client, {
 		key: "todo-splitter",
 		module: "./splitter.mjs",
 		props: {
-			rows: Math.max(10, rows.length * 4),
+			rows: Math.max(10, shown * LIST_ROW_LINES),
 			rule: rule(tty),
 			accent: accent(tty)
 		},
@@ -2060,7 +2075,9 @@ function newPanes() {
 		poll: void 0,
 		turnPoll: void 0,
 		todoPoll: void 0,
-		cols: 120
+		cols: 120,
+		listShown: 0,
+		listMax: 0
 	};
 }
 /** Called from the bridge's main-thread tool.call hook: the tool's name and summary, never its output. */
@@ -2167,6 +2184,17 @@ function registerPanes(on, p) {
 				await note($, `Moved #${t.shortId} to ${humanize(status)}.`);
 			}
 		}
+		if (data?.type === "step" && typeof data.by === "number") {
+			const view = viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
+			const picked = await read($, selected);
+			const at = view.findIndex((r) => r.id === picked);
+			const i = Math.min(view.length - 1, Math.max(0, at + Math.sign(data.by)));
+			const t = view[i];
+			if (t) {
+				await selectTodo(p, $, t);
+				await update($, listTop, (top) => i < top ? i : i >= top + p.listShown ? i - p.listShown + 1 : top);
+			}
+		}
 		if (data?.type === "split" && typeof data.delta === "number" && p.cols > 0) {
 			const step = data.delta * 100 / p.cols;
 			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round(v + step))));
@@ -2186,6 +2214,15 @@ function registerPanes(on, p) {
 		component: "Pane",
 		requestId: TODOS_PANE
 	}, async ($, e) => drawTodos(p, $, e));
+	on("ui.scroll", { requestId: TODOS_PANE }, async ($, e, next) => {
+		const at = e.pointer;
+		if (!at || await read($, layout) !== "list" || p.cols <= 0) return next(e);
+		const listCols = p.cols * await read($, splitPct) / 100;
+		if (at.column < 0 || at.column >= listCols || at.row < 6) return next(e);
+		const step = Math.sign(e.by) * Math.max(1, Math.round(Math.abs(e.by) / LIST_ROW_LINES));
+		await update($, listTop, (top) => Math.min(p.listMax, Math.max(0, top + step)));
+		return {};
+	});
 	on("ui.render", {
 		component: "Pane",
 		requestId: SESSION_PANE

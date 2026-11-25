@@ -74,6 +74,7 @@ declare module 'claude-code' {
       paneVocab: { status: readonly string[]; priority: readonly string[] };
       paneRefreshedAt: number;
       paneSplit: number;
+      paneListTop: number;
       paneTodoView: {
         sort: 'priority' | 'created' | 'updated' | 'status' | 'title';
         status: string;

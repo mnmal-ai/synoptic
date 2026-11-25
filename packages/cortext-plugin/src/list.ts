@@ -4,7 +4,7 @@ import { wrapLines } from './pane-text.js';
 // The Todos list, drawn whole by this surface module: each row is its title on up to two
 // lines and a quiet line of facts (priority, status, area), the whole row lit under the
 // pointer and the picked row filled. A click posts `{ type: 'pick', id }`;
-// up and down arrows post the neighbour while the list has the focus (a click gives it).
+// up and down arrows post `{ type: 'step', by }` while the list has the focus (a click gives it).
 
 export type ListRow = {
   id: string;
@@ -16,8 +16,8 @@ export type ListRow = {
 export type ListProps = { rows: ListRow[]; picked: string | null; tty?: boolean };
 type State = { hover?: number };
 
-/** Each row is two title lines, a facts line and a gap. */
-export const ROW_LINES = 4;
+/** Each row is two title lines and a facts line; the facts line's quiet text parts the rows. */
+export const ROW_LINES = 3;
 /** The most rows drawn at once. */
 export const MAX_ROWS = 120;
 
@@ -47,15 +47,11 @@ const List: ClientModule<ListProps, State> = (props, surface) => {
       }
     });
     surface.onKey((k: ClientKeyEvent) => {
-      const cur = latest.get(surface);
-      if (!cur || cur.rows.length === 0) return;
       const key = k.key.toLowerCase();
-      const i = cur.rows.findIndex((r) => r.id === cur.picked);
-      const step =
+      const by =
         key === 'down' || key === 'arrowdown' ? 1 : key === 'up' || key === 'arrowup' ? -1 : 0;
-      if (step === 0) return;
-      const next = cur.rows[Math.min(cur.rows.length - 1, Math.max(0, i + step))];
-      if (next) surface.post({ type: 'pick', id: next.id });
+      // The list draws only a window of rows, so the pane picks the neighbour from all of them.
+      if (by !== 0) surface.post({ type: 'step', by });
     });
   }
   const hover = surface.state?.hover;
@@ -91,7 +87,6 @@ const List: ClientModule<ListProps, State> = (props, surface) => {
           key: `r-${r.id}`,
           flexDirection: 'column',
           paddingX: 1,
-          marginBottom: 1,
           ...(fill ? { backgroundColor: fill } : {})
         },
         t(

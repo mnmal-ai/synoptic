@@ -54,6 +54,11 @@ const vocab = atom({ plugin: 'cortext', key: 'paneVocab' }, FALLBACK_VOCAB);
 const refreshedAt = atom({ plugin: 'cortext', key: 'paneRefreshedAt' }, 0);
 // The list's share of the pane, in percent; the splitter moves it.
 const splitPct = atom({ plugin: 'cortext', key: 'paneSplit' }, 34);
+// The first list row the list view shows; the wheel over the list moves it, not the pane.
+const listTop = atom({ plugin: 'cortext', key: 'paneListTop' }, 0);
+// Lines a list row takes (list.ts ROW_LINES), and the rows above the list (header and gaps).
+const LIST_ROW_LINES = 3;
+const LIST_HEAD_ROWS = 8;
 const layout = atom({ plugin: 'cortext', key: 'paneLayout' }, 'list');
 // Grouped view: the statuses folded away (closed starts folded) and the row whose picker is open.
 const folds = atom({ plugin: 'cortext', key: 'paneFolds' }, ['closed']);
@@ -93,6 +98,8 @@ export type Panes = {
   turnPoll: { cancel: () => void } | undefined;
   todoPoll: { cancel: () => void } | undefined;
   cols: number; // the Todos pane's body width, as its last draw reported
+  listShown: number; // list rows the last draw showed at once
+  listMax: number; // the highest first row the list may start at
 };
 
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
@@ -246,6 +253,8 @@ async function refreshTodos(p: Panes, $: EngineInterface): Promise<void> {
 
 async function setView(p: Panes, $: EngineInterface, patch: Partial<TodoView>): Promise<void> {
   await update($, todoView, (v) => ({ ...v, ...patch }));
+  // A new sort or filter starts the list at its top.
+  await update($, listTop, () => 0);
   await keepPick(p, $);
 }
 
@@ -779,6 +788,14 @@ async function drawTodos(
       detailView(back)
     );
 
+  // The list shows as many rows as the pane has room for and scrolls them itself, so the
+  // detail beside it stays put (see the ui.scroll hook).
+  const bodyRows = (e as { props?: { scroll?: { bodyRows?: number } } }).props?.scroll?.bodyRows;
+  const shown = Math.max(3, Math.floor(((bodyRows ?? 48) - LIST_HEAD_ROWS) / LIST_ROW_LINES));
+  p.listShown = shown;
+  p.listMax = Math.max(0, rows.length - shown);
+  const top = Math.min(p.listMax, Math.max(0, await read($, listTop)));
+
   let body: RenderElement;
   if (mode === 'grouped') {
     const view = groupedView({
@@ -926,7 +943,7 @@ async function drawTodos(
                 key: 'todo-list',
                 module: './list.mjs',
                 props: {
-                  rows: rows.map((t) => ({
+                  rows: rows.slice(top, top + shown).map((t) => ({
                     id: t.id,
                     num: `#${t.shortId}`,
                     title: t.title,
@@ -942,9 +959,15 @@ async function drawTodos(
                   picked: pick,
                   tty
                 },
-                // Four lines a row: two of title, one of facts, one of space (list.ts ROW_LINES), at most 120 rows (MAX_ROWS).
-                height: Math.max(1, Math.min(rows.length, 120) * 4 + (rows.length > 120 ? 1 : 0))
-              }) as RenderElement
+                height: Math.max(1, Math.min(shown, rows.length - top) * LIST_ROW_LINES)
+              }) as RenderElement,
+              rows.length > shown
+                ? el(
+                    Text,
+                    { color: 'subtle', tabular: true },
+                    `${top + 1}–${Math.min(rows.length, top + shown)} of ${rows.length} · scroll the list for more`
+                  )
+                : null
             ]
           : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t))))
       ),
@@ -953,7 +976,11 @@ async function drawTodos(
           (h(Client, {
             key: 'todo-splitter',
             module: './splitter.mjs',
-            props: { rows: Math.max(10, rows.length * 4), rule: rule(tty), accent: accent(tty) },
+            props: {
+              rows: Math.max(10, shown * LIST_ROW_LINES),
+              rule: rule(tty),
+              accent: accent(tty)
+            },
             width: 1
           }) as RenderElement)
         : null,
@@ -1312,7 +1339,9 @@ export function newPanes(): Panes {
     poll: undefined,
     turnPoll: undefined,
     todoPoll: undefined,
-    cols: 120
+    cols: 120,
+    listShown: 0,
+    listMax: 0
   };
 }
 
@@ -1425,7 +1454,13 @@ export function registerPanes(on: On, p: Panes): void {
 
   // The splitter posts column moves; the board posts a card's open and a card's move to a lane.
   on('ui.message', async ($, e, next) => {
-    const data = e.data as { type?: string; delta?: number; id?: string; status?: string } | null;
+    const data = e.data as {
+      type?: string;
+      delta?: number;
+      by?: number;
+      id?: string;
+      status?: string;
+    } | null;
     if (
       (data?.type === 'open' || data?.type === 'move' || data?.type === 'pick') &&
       typeof data.id === 'string'
@@ -1447,6 +1482,20 @@ export function registerPanes(on: On, p: Panes): void {
         await update($, todos, (rows) => rows.map((r) => (r.id === t.id ? { ...r, status } : r)));
         await saveField(p, $, t, { status });
         await note($, `Moved #${t.shortId} to ${humanize(status)}.`);
+      }
+    }
+    if (data?.type === 'step' && typeof data.by === 'number') {
+      // An arrow in the list: the neighbour in the whole view, and the window follows it.
+      const view = viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
+      const picked = await read($, selected);
+      const at = view.findIndex((r) => r.id === picked);
+      const i = Math.min(view.length - 1, Math.max(0, at + Math.sign(data.by)));
+      const t = view[i];
+      if (t) {
+        await selectTodo(p, $, t);
+        await update($, listTop, (top) =>
+          i < top ? i : i >= top + p.listShown ? i - p.listShown + 1 : top
+        );
       }
     }
     if (data?.type === 'split' && typeof data.delta === 'number' && p.cols > 0) {
@@ -1471,6 +1520,16 @@ export function registerPanes(on: On, p: Panes): void {
   });
 
   on('ui.render', { component: 'Pane', requestId: TODOS_PANE }, async ($, e) => drawTodos(p, $, e));
+  // The wheel over the list moves the list's own window; anywhere else it scrolls the pane.
+  on('ui.scroll', { requestId: TODOS_PANE }, async ($, e, next) => {
+    const at = e.pointer;
+    if (!at || (await read($, layout)) !== 'list' || p.cols <= 0) return next(e);
+    const listCols = (p.cols * (await read($, splitPct))) / 100;
+    if (at.column < 0 || at.column >= listCols || at.row < LIST_HEAD_ROWS - 2) return next(e);
+    const step = Math.sign(e.by) * Math.max(1, Math.round(Math.abs(e.by) / LIST_ROW_LINES));
+    await update($, listTop, (top) => Math.min(p.listMax, Math.max(0, top + step)));
+    return {};
+  });
   on('ui.render', { component: 'Pane', requestId: SESSION_PANE }, async ($, e) =>
     drawSession(p, $, e)
   );

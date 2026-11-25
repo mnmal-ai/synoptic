@@ -33,8 +33,8 @@ function wrapLines(text, width, max) {
 
 //#endregion
 //#region src/list.ts
-/** Each row is two title lines, a facts line and a gap. */
-const ROW_LINES = 4;
+/** Each row is two title lines and a facts line; the facts line's quiet text parts the rows. */
+const ROW_LINES = 3;
 /** The most rows drawn at once. */
 const MAX_ROWS = 120;
 const PICKED_FILL = "#0a9fdc2e";
@@ -47,8 +47,8 @@ const List = (props, surface) => {
 		surface.setState({});
 		surface.onPointer((ev) => {
 			const rows = latest.get(surface)?.rows ?? [];
-			const i = Math.floor(ev.y / 4);
-			const at = ev.y >= 0 && i < rows.length && ev.y % 4 < 3 ? i : void 0;
+			const i = Math.floor(ev.y / 3);
+			const at = ev.y >= 0 && i < rows.length && ev.y % 3 < 2 ? i : void 0;
 			if (ev.type === "up" && ev.button === "left" && at !== void 0) {
 				const row = rows[at];
 				if (row) surface.post({
@@ -59,16 +59,11 @@ const List = (props, surface) => {
 			else if (ev.type === "leave") surface.setState({});
 		});
 		surface.onKey((k) => {
-			const cur = latest.get(surface);
-			if (!cur || cur.rows.length === 0) return;
 			const key = k.key.toLowerCase();
-			const i = cur.rows.findIndex((r) => r.id === cur.picked);
-			const step = key === "down" || key === "arrowdown" ? 1 : key === "up" || key === "arrowup" ? -1 : 0;
-			if (step === 0) return;
-			const next = cur.rows[Math.min(cur.rows.length - 1, Math.max(0, i + step))];
-			if (next) surface.post({
-				type: "pick",
-				id: next.id
+			const by = key === "down" || key === "arrowdown" ? 1 : key === "up" || key === "arrowup" ? -1 : 0;
+			if (by !== 0) surface.post({
+				type: "step",
+				by
 			});
 		});
 	}
@@ -102,7 +97,6 @@ const List = (props, surface) => {
 			key: `r-${r.id}`,
 			flexDirection: "column",
 			paddingX: 1,
-			marginBottom: 1,
 			...fill ? { backgroundColor: fill } : {}
 		}, t(Text, title, t(Text, on(!picked, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " "), t(Text, {
 			...mark,

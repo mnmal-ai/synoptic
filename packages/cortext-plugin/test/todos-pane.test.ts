@@ -182,6 +182,28 @@ test('all projects: 170 rows from 8 projects draw on every surface', async ($, o
   }
 });
 
+test('the list shows a window of rows; arrowing past its end moves the window', async ($, on) => {
+  const many = Array.from({ length: 40 }, (_, i) => ({
+    id: `w${i}`,
+    shortId: 3000 + i,
+    title: `Row ${i}`,
+    area: 'x',
+    status: 'open',
+    priority: 'medium',
+    project: 'horizon',
+    _metadata: { createdAt: '2026-11-20T00:00:00Z' }
+  }));
+  substrate(on, [], many);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
+  const count = await ui.find({ type: 'Text', text: /^1–\d+ of 40 · scroll the list for more$/ });
+  expect(count).toBeDefined();
+  const shown = Number(/^1–(\d+)/.exec(count?.text ?? '')?.[1]);
+  for (let i = 0; i < shown + 2; i++) await ui.key({ key: 'down', in: 'todo-list' });
+  expect(await ui.find({ type: 'Text', text: /^4–\d+ of 40/ })).toBeDefined();
+  await ui.unmount();
+});
+
 test('dragging the splitter widens the list', async ($, on) => {
   substrate(on, []);
   await $.command.run({ command: 'cortext-todos', args: '' });
