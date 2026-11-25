@@ -1709,7 +1709,7 @@ async function drawTodos(p, $, e) {
 		}), "42%")) : lanes;
 	} else body = el(Box, { flexDirection: "row" }, el(Box, {
 		flexDirection: "column",
-		width: `${split}%`,
+		width: `${Number.isFinite(split) ? Math.round(split) : 34}%`,
 		flexShrink: 0,
 		paddingRight: 1
 	}, empty, ...Client ? [h(Client, {
@@ -2159,7 +2159,7 @@ function registerPanes(on, p) {
 		}
 		if (data?.type === "split" && typeof data.delta === "number" && p.cols > 0) {
 			const step = data.delta * 100 / p.cols;
-			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round((v + step) * 10) / 10)));
+			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round(v + step))));
 		}
 		return next(e);
 	});

@@ -191,6 +191,11 @@ test('dragging the splitter widens the list', async ($, on) => {
   await ui.pointer({ in: 'todo-splitter', type: 'up', x: 12, y: 2, button: 'left' });
   // 12 of 120 columns is 10 points: the list goes from 34% to 44%.
   expect(JSON.stringify(await ui.drawn())).toContain('"width":"44%"');
+  // 5 columns is 4.2 points: the pane still draws, with a whole-number width.
+  await ui.pointer({ in: 'todo-splitter', type: 'down', x: 0, y: 2, button: 'left' });
+  await ui.pointer({ in: 'todo-splitter', type: 'move', x: 5, y: 2, button: 'left' });
+  await ui.pointer({ in: 'todo-splitter', type: 'up', x: 5, y: 2, button: 'left' });
+  expect(JSON.stringify(await ui.drawn())).toContain('"width":"48%"');
   await ui.unmount();
 });
 

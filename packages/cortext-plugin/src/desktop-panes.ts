@@ -911,7 +911,13 @@ async function drawTodos(
       { flexDirection: 'row' },
       el(
         Box,
-        { flexDirection: 'column', width: `${split}%`, flexShrink: 0, paddingRight: 1 },
+        {
+          flexDirection: 'column',
+          // A value stored by an earlier version may carry a fraction.
+          width: `${Number.isFinite(split) ? Math.round(split) : 34}%`,
+          flexShrink: 0,
+          paddingRight: 1
+        },
         empty,
         ...(Client
           ? [
@@ -1439,7 +1445,8 @@ export function registerPanes(on: On, p: Panes): void {
     if (data?.type === 'split' && typeof data.delta === 'number' && p.cols > 0) {
       const step = (data.delta * 100) / p.cols;
       await update($, splitPct, (v) =>
-        Math.min(75, Math.max(15, Math.round((v + step) * 10) / 10))
+        // Whole points only: the desktop app refuses a width such as "38.2%".
+        Math.min(75, Math.max(15, Math.round(v + step)))
       );
     }
     return next(e);
