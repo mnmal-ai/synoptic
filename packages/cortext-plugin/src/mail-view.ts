@@ -77,13 +77,13 @@ export type MessageSpec = {
   name: string;
   /** The host under the name, without the `@`. */
   host?: string;
-  /** A dim line at the bubble's foot: the time, `remote turn`. Mail puts its time in its own line. */
+  /** The small line at the bubble's bottom right: the time, `remote turn`. */
   meta?: string;
 };
 
 const AVATAR_PX = 28;
 // The avatar column, in cells: room for a short name to wrap to two lines under the icon.
-const AVATAR_COLS = 12;
+const AVATAR_COLS = 10;
 
 /**
  * One message as a group-chat bubble: a round avatar beside it with the name and host under the
@@ -118,8 +118,10 @@ export function messageRow(
           height: AVATAR_PX
         })
       : el(Text, { color: tone }, m.author === 'agent' ? '[agent]' : '[person]'),
-    el(Text, { bold: true, wrap: 'wrap', maxLines: 2 }, m.name),
-    m.host ? el(Text, { dimColor: true, wrap: 'truncate-end' }, `@${m.host}`) : null
+    el(Text, { size: 'caption', weight: 'medium', wrap: 'wrap', maxLines: 2 }, m.name),
+    m.host
+      ? el(Text, { size: 'caption', dimColor: true, wrap: 'truncate-end' }, `@${m.host}`)
+      : null
   );
   const bubble = el(
     Box,
@@ -133,19 +135,26 @@ export function messageRow(
       paddingY: l.tty ? 0 : 1
     },
     ...body,
-    m.meta ? el(Text, { dimColor: true }, m.meta) : null
+    // The time sits at the bubble's bottom right, as a chat app stamps it.
+    m.meta
+      ? el(
+          Box,
+          { flexDirection: 'row', justifyContent: 'flex-end' },
+          el(Text, { size: 'caption', dimColor: true }, m.meta)
+        )
+      : null
   );
   const point = l.Svg
     ? el(l.Svg, { source: tail(hex, m.side), alt: 'Speech bubble tail', width: 12, height: 12 })
     : null;
-  // The bubble sits level with the top of its avatar and keeps a margin on the far side, so
+  // The bubble, its tail and its avatar line up at the bottom; it keeps a margin on the far side, so
   // yours and theirs never line up edge to edge.
   return el(
     Box,
     {
       key: m.key,
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'flex-end',
       justifyContent: ours ? 'flex-end' : 'flex-start',
       paddingLeft: ours ? (l.tty ? 4 : 8) : 0,
       paddingRight: ours ? 0 : l.tty ? 4 : 8
@@ -213,7 +222,7 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
     { flexDirection: 'column' },
     el(
       Box,
-      { flexDirection: 'row', gap: 1, alignItems: 'center' },
+      { flexDirection: 'row', gap: 1, alignItems: 'center', justifyContent: 'flex-end' },
       mark(
         els,
         l,
@@ -227,7 +236,7 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
       el(
         Text,
         { dimColor: true, wrap: 'truncate-end' },
-        [route, m.when, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
+        [route, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
       )
     ),
     el(Text, { bold: true }, m.subject || '(no subject)'),
@@ -253,7 +262,7 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
 
 /**
  * A mail as one message: the sending agent's avatar, name and host beside it, the mail in the
- * bubble with its time on the Sent or Received line.
+ * bubble, its time at the bubble's bottom right.
  */
 export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElement {
   const sender = m.dir === 'in' ? m.peer : (m.from ?? '');
@@ -266,7 +275,8 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
       side: m.side ?? (m.dir === 'out' ? 'ours' : 'theirs'),
       author: 'agent',
       name: who.name,
-      host: who.host
+      host: who.host,
+      meta: m.when
     },
     mailAttachment(els, surface, m)
   );

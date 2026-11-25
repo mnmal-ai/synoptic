@@ -747,7 +747,7 @@ function tail(hex, side) {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="${side === "ours" ? "M0 0 C0 8 4 12 12 12 L0 12 Z" : "M12 0 C12 8 8 12 0 12 L12 12 Z"}" fill="${hex}" fill-opacity="${(Number.parseInt(FILL_ALPHA, 16) / 255).toFixed(3)}"/></svg>`;
 }
 const AVATAR_PX = 28;
-const AVATAR_COLS = 12;
+const AVATAR_COLS = 10;
 /**
 * One message as a group-chat bubble: a round avatar beside it with the name and host under the
 * icon, the bubble with a tail toward the avatar. Yours sit right in the accent, theirs left in
@@ -771,10 +771,12 @@ function messageRow(els, surface, m, ...content) {
 		width: AVATAR_PX,
 		height: AVATAR_PX
 	}) : el(Text, { color: tone }, m.author === "agent" ? "[agent]" : "[person]"), el(Text, {
-		bold: true,
+		size: "caption",
+		weight: "medium",
 		wrap: "wrap",
 		maxLines: 2
 	}, m.name), m.host ? el(Text, {
+		size: "caption",
 		dimColor: true,
 		wrap: "truncate-end"
 	}, `@${m.host}`) : null);
@@ -786,7 +788,13 @@ function messageRow(els, surface, m, ...content) {
 		borderColor: l.tty ? tone : void 0,
 		paddingX: 1,
 		paddingY: l.tty ? 0 : 1
-	}, ...body, m.meta ? el(Text, { dimColor: true }, m.meta) : null);
+	}, ...body, m.meta ? el(Box, {
+		flexDirection: "row",
+		justifyContent: "flex-end"
+	}, el(Text, {
+		size: "caption",
+		dimColor: true
+	}, m.meta)) : null);
 	const point = l.Svg ? el(l.Svg, {
 		source: tail(hex, m.side),
 		alt: "Speech bubble tail",
@@ -796,7 +804,7 @@ function messageRow(els, surface, m, ...content) {
 	return el(Box, {
 		key: m.key,
 		flexDirection: "row",
-		alignItems: "flex-start",
+		alignItems: "flex-end",
 		justifyContent: ours ? "flex-end" : "flex-start",
 		paddingLeft: ours ? l.tty ? 4 : 8 : 0,
 		paddingRight: ours ? 0 : l.tty ? 4 : 8
@@ -833,18 +841,15 @@ function mailAttachment(els, surface, m) {
 	return el(Box, { flexDirection: "column" }, el(Box, {
 		flexDirection: "row",
 		gap: 1,
-		alignItems: "center"
+		alignItems: "center",
+		justifyContent: "flex-end"
 	}, mark(els, l, m.dir === "in" ? "mail-down" : "mail-up", BRAND.accent, accent, m.dir === "in" ? "Received mail" : "Sent mail", m.dir === "in" ? "↓" : "↑"), el(Text, {
 		bold: true,
 		color: accent
 	}, label), el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
-	}, [
-		route,
-		m.when,
-		m.isReply ? "reply" : ""
-	].filter(Boolean).join(" · "))), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
+	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · "))), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
 		key: `${m.key}-body`,
 		text: body
 	}) : el(Text, {}, body) : el(Text, {
@@ -857,7 +862,7 @@ function mailAttachment(els, surface, m) {
 }
 /**
 * A mail as one message: the sending agent's avatar, name and host beside it, the mail in the
-* bubble with its time on the Sent or Received line.
+* bubble, its time at the bubble's bottom right.
 */
 function mailCard(els, surface, m) {
 	const sender = m.dir === "in" ? m.peer : m.from ?? "";
@@ -870,7 +875,8 @@ function mailCard(els, surface, m) {
 		side: m.side ?? (m.dir === "out" ? "ours" : "theirs"),
 		author: "agent",
 		name: who.name,
-		host: who.host
+		host: who.host,
+		meta: m.when
 	}, mailAttachment(els, surface, m));
 }
 /** A prompt a person typed: yours on the right, theirs on the left. */
