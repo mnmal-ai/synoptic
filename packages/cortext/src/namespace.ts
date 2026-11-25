@@ -178,8 +178,8 @@ export const HOST_INSTALL_CHECK_STATES = ['ok', 'warn', 'unknown'] as const;
 
 export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
 
-/** SessionFeedEvent.kind: a user prompt, an assistant reply, or one tool call. */
-export const SESSION_FEED_EVENT_KINDS = ['prompt', 'reply', 'tool'] as const;
+/** SessionFeedEvent.kind: a user prompt, an assistant reply, one tool call, or a mail received or sent. */
+export const SESSION_FEED_EVENT_KINDS = ['prompt', 'reply', 'tool', 'mail-in', 'mail-out'] as const;
 
 /** SessionTurn.status: waiting, started as a turn, or turned away by the shared session. */
 export const SESSION_TURN_STATUSES = ['queued', 'taken', 'refused'] as const;

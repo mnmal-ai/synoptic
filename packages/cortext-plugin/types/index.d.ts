@@ -50,7 +50,7 @@ export type FeedRow = {
 };
 export type FeedEvent = {
   step: number;
-  kind: 'prompt' | 'reply' | 'tool';
+  kind: 'prompt' | 'reply' | 'tool' | 'mail-in' | 'mail-out';
   text: string;
   tool?: string | null;
 };
@@ -62,8 +62,8 @@ declare module 'claude-code' {
       inboxCursor: string;
       /** SYNOPTIC_INBOX_PROMPT_CHECK as the session found it, before any watcher set it; null = unset. */
       inboxPromptCheckOrig: string | null;
-      /** Mail cards in the transcript shown open, by shortId. */
-      mailOpen: number[];
+      /** Mail cards shown open: `in-<shortId>`, `out-<tool_use_id>`, `feed-<feed>-<step>`. */
+      mailOpen: Shaped<string[]>;
       paneTodos: Shaped<PaneTodo[]>;
       paneTodoScope: 'project' | 'all';
       paneDrafts: Record<string, string>;

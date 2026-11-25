@@ -8,9 +8,17 @@ import {
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
-import { newPanes, registerPanes, shareReply, shareToolCall, startPanes } from './desktop-panes.js';
+import {
+  newPanes,
+  type Panes,
+  registerPanes,
+  shareMail,
+  shareReply,
+  shareToolCall,
+  startPanes
+} from './desktop-panes.js';
 import { registerMailCard } from './mail-card.js';
-import { mailCallLine } from './pane-text.js';
+import { mailCallLine, parseMailSend } from './pane-text.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -64,13 +72,14 @@ async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   $.prompt.submit({ text: urgentNotice(m, { interrupted }) }).catch(() => {}); // as in wake()
 }
 
-async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<void> {
+async function deliver(b: Bridge, p: Panes, $: EngineInterface, m: InboxMessage): Promise<void> {
   const { value: ids = [] } = await $.state.get(DELIVERED);
   if (ids.includes(m.id)) return;
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
   // registerMailCard draws that row for the person as a card they can open.
+  if (!m.fromSelf) await shareMail(p, $, 'in', m.from, m.subject, m.body ?? '');
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
@@ -107,7 +116,7 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 export const register: Register = (on) => {
   const panes = newPanes();
   registerPanes(on, panes);
-  registerMailCard(on);
+  registerMailCard(on, panes);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,
@@ -146,7 +155,7 @@ export const register: Register = (on) => {
             continue;
           }
           for (const ev of split(piece.text) as WatchEvent[]) {
-            if (ev.type === 'message') await deliver(b, $, ev);
+            if (ev.type === 'message') await deliver(b, panes, $, ev);
             else if (ev.type === 'handled') b.late = b.late.filter((x) => x.id !== ev.id);
             else if (ev.type !== 'status')
               continue; // an unknown line changes nothing
@@ -198,7 +207,11 @@ export const register: Register = (on) => {
     try {
       const ran = await next(e);
       // Only a call that went through: a refused or failed send sent nothing.
-      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) $.ui.log(mailLine);
+      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) {
+        $.ui.log(mailLine);
+        const sent = parseMailSend(e.tool, e);
+        if (sent) await shareMail(panes, $, 'out', sent.to, sent.subject, sent.body);
+      }
       return ran;
     } finally {
       b.toolsInFlight--;

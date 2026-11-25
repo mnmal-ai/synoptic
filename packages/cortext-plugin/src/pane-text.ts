@@ -230,6 +230,8 @@ export type MailRow = {
   subject: string;
   isReply: boolean;
   body: string;
+  /** The sender's `session:<8 hex>`, as it claimed it; the key does not prove it. */
+  instance: string | undefined;
 };
 
 /** Reads a pushed mail row's text; undefined when the text is not one. */
@@ -255,6 +257,51 @@ export function parseMailRow(text: string): MailRow | undefined {
     date: head[3] ?? '',
     subject: oneLine(isReply ? title.slice(0, -' (reply)'.length) : title),
     isReply,
-    body: body.join('\n')
+    body: body.join('\n'),
+    instance: /\binstance (session:[0-9a-f]{8})\b/i.exec(text)?.[1]
   };
+}
+
+/** A mail this session sends: who to, the subject and the body, read from the tool's input. */
+export type MailSend = { to: string; subject: string; body: string };
+
+/** The send in a substrate `act` sketch or `mutate` frame; undefined when the call sends none. */
+export function parseMailSend(tool: string, input: unknown): MailSend | undefined {
+  const i = (input ?? {}) as Record<string, unknown>;
+  if (/__act$/.test(tool) && typeof i.sketch === 'string') {
+    const sketch = i.sketch.trim();
+    if (!/^send\s+AgentMessage\b/i.test(sketch)) return undefined;
+    const arg = (k: string): string => {
+      const m = new RegExp(`\\b${k}=("((?:[^"\\\\]|\\\\.)*)"|\\S+)`).exec(sketch);
+      if (!m) return '';
+      return m[2] !== undefined ? m[2].replace(/\\n/g, '\n').replace(/\\(.)/g, '$1') : (m[1] ?? '');
+    };
+    return { to: arg('to') || 'someone', subject: arg('subject'), body: arg('body') };
+  }
+  if (/__mutate$/.test(tool) && i.payload && typeof i.payload === 'object') {
+    for (const [key, frame] of Object.entries(i.payload as Record<string, unknown>)) {
+      if (!key.endsWith('/sendAgentMessage')) continue;
+      const f = Array.isArray(frame) ? frame[0] : frame;
+      const params = (f as { params?: Record<string, unknown> } | null)?.params ?? {};
+      return {
+        to: Array.isArray(params.to) ? params.to.join(', ') : String(params.to ?? 'someone'),
+        subject: typeof params.subject === 'string' ? params.subject : '',
+        body: typeof params.body === 'string' ? params.body : ''
+      };
+    }
+  }
+  return undefined;
+}
+
+/** A mail feed event's text: subject, a blank line, then the body. */
+export function mailFeedText(subject: string, body: string): string {
+  return body ? `${subject}\n\n${body}` : subject;
+}
+
+/** Reads a mail feed event's text back into its subject and body. */
+export function splitMailFeedText(text: string): { subject: string; body: string } {
+  const at = text.indexOf('\n\n');
+  return at < 0
+    ? { subject: text, body: '' }
+    : { subject: text.slice(0, at), body: text.slice(at + 2) };
 }

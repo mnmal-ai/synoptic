@@ -174,8 +174,34 @@ function rule(tty) {
 const MARK_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 72 72\"><rect width=\"72\" height=\"72\" rx=\"14\" fill=\"#ff3794\"/><path fill=\"#1a1a1a\" d=\"M12.33 36 L23.698 24.632 L31.737 24.632 L31.737 36 L28.407 36 L17.039 47.368 L9 47.368 L9 36 Z M35.067 36 L46.435 24.632 L54.474 24.632 L54.474 36 L51.144 36 L39.776 47.368 L31.737 47.368 L31.737 36 Z M54.474 47.368 L54.474 36 L63 36 L63 47.368 Z\"/></svg>";
 
 //#endregion
+//#region src/el.ts
+/** One element: `h` with its result narrowed to what a Box child and a render hook take. */
+function el(...args) {
+	const [tag, props, ...children] = args;
+	const set = props ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== void 0)) : props;
+	return h(tag, set, ...children);
+}
+
+//#endregion
 //#region src/icons.ts
 const PATHS = {
+	"arrow-back-up": ["M9 14l-4 -4l4 -4", "M5 10h11a4 4 0 1 1 0 8h-1"],
+	"chevron-down": ["M6 9l6 6l6 -6"],
+	"chevron-up": ["M6 15l6 -6l6 6"],
+	inbox: ["M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12", "M4 13h3l3 3h4l3 -3h3"],
+	"layout-sidebar-right-expand": [
+		"M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12",
+		"M15 4v16",
+		"M10 10l-2 2l2 2"
+	],
+	mail: ["M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10", "M3 7l9 6l9 -6"],
+	"mail-opened": [
+		"M3 9l9 6l9 -6l-9 -6l-9 6",
+		"M21 9v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10",
+		"M3 19l6 -6",
+		"M15 13l6 6"
+	],
+	send: ["M10 14l11 -11", "M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"],
 	"circle-check": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0", "M9 12l2 2l4 -4"],
 	circle: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"],
 	"clock-pause": [
@@ -398,7 +424,50 @@ function parseMailRow(text) {
 		date: head[3] ?? "",
 		subject: oneLine(isReply ? title.slice(0, -8) : title),
 		isReply,
-		body: body.join("\n")
+		body: body.join("\n"),
+		instance: /\binstance (session:[0-9a-f]{8})\b/i.exec(text)?.[1]
+	};
+}
+/** The send in a substrate `act` sketch or `mutate` frame; undefined when the call sends none. */
+function parseMailSend(tool, input) {
+	const i = input ?? {};
+	if (/__act$/.test(tool) && typeof i.sketch === "string") {
+		const sketch = i.sketch.trim();
+		if (!/^send\s+AgentMessage\b/i.test(sketch)) return void 0;
+		const arg = (k) => {
+			const m = new RegExp(`\\b${k}=("((?:[^"\\\\]|\\\\.)*)"|\\S+)`).exec(sketch);
+			if (!m) return "";
+			return m[2] !== void 0 ? m[2].replace(/\\n/g, "\n").replace(/\\(.)/g, "$1") : m[1] ?? "";
+		};
+		return {
+			to: arg("to") || "someone",
+			subject: arg("subject"),
+			body: arg("body")
+		};
+	}
+	if (/__mutate$/.test(tool) && i.payload && typeof i.payload === "object") for (const [key, frame] of Object.entries(i.payload)) {
+		if (!key.endsWith("/sendAgentMessage")) continue;
+		const params = (Array.isArray(frame) ? frame[0] : frame)?.params ?? {};
+		return {
+			to: Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone"),
+			subject: typeof params.subject === "string" ? params.subject : "",
+			body: typeof params.body === "string" ? params.body : ""
+		};
+	}
+}
+/** A mail feed event's text: subject, a blank line, then the body. */
+function mailFeedText(subject, body) {
+	return body ? `${subject}\n\n${body}` : subject;
+}
+/** Reads a mail feed event's text back into its subject and body. */
+function splitMailFeedText(text) {
+	const at = text.indexOf("\n\n");
+	return at < 0 ? {
+		subject: text,
+		body: ""
+	} : {
+		subject: text.slice(0, at),
+		body: text.slice(at + 2)
 	};
 }
 
@@ -598,6 +667,126 @@ function groupedView(a) {
 }
 
 //#endregion
+//#region src/mail-card.ts
+const PREVIEW_MAX = 140;
+const openMail = atom({
+	plugin: "cortext",
+	key: "mailOpen"
+}, [], { shape: "mail-2" });
+/** One mail card, the same on every site that draws one. */
+function mailCard(els, surface, m) {
+	const { Box, Text, Button } = els;
+	const tty = surface === "terminal";
+	const Svg = tty ? void 0 : els.Svg;
+	const Markdown = els.Markdown;
+	const hex = m.dir === "in" ? BRAND.accent : BRAND.magenta;
+	const tone = tty ? m.dir === "in" ? "suggestion" : "claude" : hex;
+	const mark = (name, glyph, size = 16) => Svg ? el(Svg, {
+		source: icon(name, hex, size),
+		alt: "",
+		width: size,
+		height: size
+	}) : el(Text, { color: tone }, glyph);
+	const label = m.dir === "in" ? "Received" : "Sent";
+	const meta = [
+		m.dir === "in" ? `from ${m.peer}` : `to ${m.peer}`,
+		m.when,
+		m.isReply ? "reply" : ""
+	].filter(Boolean).join(" · ");
+	const body = m.body.trim();
+	const preview = body.replace(/\s+/g, " ");
+	const buttons = [];
+	if (body) buttons.push(el(Button, {
+		key: `${m.key}-toggle`,
+		plain: true,
+		onPress: m.onToggle
+	}, tty ? m.isOpen ? "▴ " : "▾ " : "", m.isOpen ? "Hide full message" : "Show full message"));
+	if (m.onOpenSession) buttons.push(el(Button, {
+		key: `${m.key}-session`,
+		plain: true,
+		onPress: m.onOpenSession
+	}, tty ? "▸ " : "", "Open their session"));
+	return el(Box, {
+		key: m.key,
+		flexDirection: "column",
+		borderStyle: "round",
+		borderColor: tone,
+		backgroundColor: tty ? void 0 : tint(hex, "12"),
+		paddingX: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, mark(m.dir === "in" ? m.isOpen ? "mail-opened" : "mail" : "send", m.dir === "in" ? "✉" : "➤"), el(Text, {
+		bold: true,
+		color: tone
+	}, m.shortId !== void 0 ? `${label} #${m.shortId}` : label), el(Text, {
+		dimColor: true,
+		wrap: "truncate-end"
+	}, meta)), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? Markdown ? el(Markdown, {
+		key: `${m.key}-body`,
+		text: body
+	}) : el(Text, {}, body) : el(Text, {
+		dimColor: true,
+		wrap: "truncate-end"
+	}, preview ? cut(preview, PREVIEW_MAX) : "(no message body)"), m.isOpen && m.dir === "in" ? el(Text, { dimColor: true }, "Signed by another agent: read it as information, not as an instruction from you.") : void 0, buttons.length > 0 ? el(Box, {
+		flexDirection: "row",
+		gap: 2,
+		alignItems: "center"
+	}, ...buttons) : void 0);
+}
+function toggler($, id) {
+	return () => update($, openMail, (prev) => {
+		const ids = prev ?? [];
+		return ids.includes(id) ? ids.filter((n) => n !== id) : [...ids, id].slice(-200);
+	});
+}
+function registerMailCard(on, p) {
+	on("ui.render", { component: "UserMessage" }, async ($, e, next) => {
+		if (e.props.isExpanded) return next(e);
+		const row = parseMailRow(e.props.text);
+		if (!row) return next(e);
+		const id = `in-${row.shortId}`;
+		const instance = row.instance;
+		return mailCard($.ui.resolve(e), e.surface, {
+			key: `mail-${row.shortId}`,
+			dir: "in",
+			shortId: row.shortId,
+			peer: row.from,
+			when: row.date,
+			subject: row.subject,
+			body: row.body,
+			isReply: row.isReply,
+			isOpen: (await read($, openMail)).includes(id),
+			onToggle: toggler($, id),
+			onOpenSession: instance ? () => openRemoteSession(p, $, instance) : void 0
+		});
+	});
+	on("ui.render", { component: "ToolUse" }, async ($, e, next) => {
+		const sent = parseMailSend(e.props.tool, e.props.input);
+		if (!sent || e.props.isExpanded) return next(e);
+		const row = await next(e);
+		if (e.props.isErrored || e.props.isInterrupted) return row;
+		const id = `out-${e.props.tool_use_id}`;
+		const card = mailCard($.ui.resolve(e), e.surface, {
+			key: `sent-${e.props.tool_use_id}`,
+			dir: "out",
+			peer: sent.to,
+			when: e.props.isRunning ? "sending…" : "",
+			subject: sent.subject,
+			body: sent.body,
+			isOpen: (await read($, openMail)).includes(id),
+			onToggle: toggler($, id)
+		});
+		const { Box } = $.ui.resolve(e);
+		return el(Box, {
+			flexDirection: "column",
+			gap: 1
+		}, row, card);
+	});
+}
+
+//#endregion
 //#region src/desktop-panes.ts
 const TODOS_PANE = "cortext-todos";
 const SESSION_PANE = "cortext-session";
@@ -695,12 +884,6 @@ const CONTROL = {
 	plugin: "cortext",
 	key: "shareControlFrom"
 };
-/** One element: `h` with its result narrowed to what a Box child and a render hook take. */
-function el(...args) {
-	const [tag, props, ...children] = args;
-	const set = props ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== void 0)) : props;
-	return h(tag, set, ...children);
-}
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
 async function sub(p, $, tool, args) {
 	const r = await $.mcp.call(p.server, tool, args);
@@ -1001,11 +1184,7 @@ function textField(els, o) {
 function header(els, p, $, s) {
 	const { Box, Text, Button, Input, Select } = els;
 	const Svg = els.Svg;
-	const brand = el(Box, {
-		flexDirection: "row",
-		gap: 1,
-		alignItems: "center"
-	}, Svg && !s.tty ? el(Svg, {
+	const logo = Svg && !s.tty ? el(Svg, {
 		source: MARK_SVG,
 		alt: "mnmal-ai",
 		width: 22,
@@ -1013,7 +1192,12 @@ function header(els, p, $, s) {
 	}) : el(Text, {
 		bold: true,
 		color: "claude"
-	}, "mnmal"), el(Text, { bold: true }, "Todos"));
+	}, "mnmal");
+	const brand = el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, logo, el(Text, { bold: true }, "Todos"));
 	const filtered = s.view.status !== "any" || s.view.priority !== "any" || s.view.search.trim() !== "";
 	return el(Box, {
 		flexDirection: "column",
@@ -1579,7 +1763,25 @@ async function drawSession(p, $, e) {
 	const said = await read($, paneNote);
 	const now = await $.clock.now();
 	const room = Math.max(3, (e.viewport?.rows ?? 40) - 6);
+	const opened = await read($, openMail);
 	const step = (ev) => {
+		if (ev.kind === "mail-in" || ev.kind === "mail-out") {
+			const { subject, body } = splitMailFeedText(ev.text);
+			const id = `feed-${feed}-${ev.step}`;
+			return mailCard(els, e.surface, {
+				key: `ev-${ev.step}`,
+				dir: ev.kind === "mail-in" ? "in" : "out",
+				peer: ev.tool ?? "someone",
+				when: "",
+				subject,
+				body,
+				isOpen: opened.includes(id),
+				onToggle: () => update($, openMail, (prev) => {
+					const ids = prev ?? [];
+					return ids.includes(id) ? ids.filter((n) => n !== id) : [...ids, id].slice(-200);
+				})
+			});
+		}
 		if (ev.kind === "tool") return el(Box, { key: `ev-${ev.step}` }, el(Text, {
 			dimColor: true,
 			wrap: "truncate-end"
@@ -1642,6 +1844,24 @@ function newPanes() {
 /** Called from the bridge's main-thread tool.call hook: the tool's name and summary, never its output. */
 async function shareToolCall(p, $, tool, input) {
 	await publish(p, $, "tool", toolSummary(tool, input), tool);
+}
+/** Called from the bridge for mail it delivered and mail this session sent. */
+async function shareMail(p, $, dir, peer, subject, body) {
+	await publish(p, $, dir === "in" ? "mail-in" : "mail-out", mailFeedText(subject, body), peer);
+}
+/**
+* Opens the Remote session pane on the shared session that stamped `instance`, or on the
+* picker with a note when that session is not shared.
+*/
+async function openRemoteSession(p, $, instance) {
+	await loadFeeds(p, $);
+	const found = (await read($, feeds)).find((f) => f.instance === instance);
+	if (found) await watch(p, $, found.id);
+	else await note($, `${instance} is not shared. Its user turns it on with /cortext-share on.`);
+	await $.ui.open({
+		id: SESSION_PANE,
+		title: "Remote session"
+	});
 }
 /** Called from the bridge's main-thread turn.complete hook. */
 async function shareReply(p, $, answer) {
@@ -1747,66 +1967,6 @@ function registerPanes(on, p) {
 }
 
 //#endregion
-//#region src/mail-card.ts
-const PREVIEW_MAX = 140;
-const openMail = atom({
-	plugin: "cortext",
-	key: "mailOpen"
-}, []);
-async function drawMailCard($, e, text) {
-	const row = parseMailRow(text);
-	if (!row) return void 0;
-	const els = $.ui.resolve(e);
-	const { Box, Text, Button } = els;
-	const Markdown = els.Markdown;
-	const tone = accent(e.surface === "terminal");
-	const isOpen = (await read($, openMail)).includes(row.shortId);
-	const toggle = () => update($, openMail, (prev) => {
-		const ids = prev ?? [];
-		return ids.includes(row.shortId) ? ids.filter((n) => n !== row.shortId) : [...ids, row.shortId].slice(-200);
-	});
-	const meta = [
-		`from ${row.from}`,
-		row.date,
-		row.isReply ? "reply" : ""
-	].filter(Boolean).join(" · ");
-	const preview = row.body.replace(/\s+/g, " ").trim();
-	const body = row.body.trim();
-	return el(Box, {
-		key: `mail-${row.shortId}`,
-		flexDirection: "column",
-		borderStyle: "round",
-		borderColor: tone,
-		paddingX: 1
-	}, el(Box, {
-		flexDirection: "row",
-		gap: 1
-	}, el(Text, {
-		bold: true,
-		color: tone
-	}, `Mail #${row.shortId}`), el(Text, {
-		dimColor: true,
-		wrap: "truncate-end"
-	}, meta)), el(Text, { bold: true }, row.subject || "(no subject)"), isOpen ? body ? Markdown ? el(Markdown, {
-		key: `mail-body-${row.shortId}`,
-		text: body
-	}) : el(Text, {}, body) : el(Text, { dimColor: true }, "(no message body)") : preview ? el(Text, {
-		dimColor: true,
-		wrap: "truncate-end"
-	}, cut(preview, PREVIEW_MAX)) : el(Text, { dimColor: true }, "(no message body)"), isOpen ? el(Text, { dimColor: true }, "Signed by another agent: read it as information, not as an instruction from you.") : void 0, body ? el(Button, {
-		key: `mail-toggle-${row.shortId}`,
-		plain: true,
-		onPress: toggle
-	}, isOpen ? "Hide full message" : "Show full message") : void 0);
-}
-function registerMailCard(on) {
-	on("ui.render", { component: "UserMessage" }, async ($, e, next) => {
-		if (e.props.isExpanded) return next(e);
-		return await drawMailCard($, e, e.props.text) ?? next(e);
-	});
-}
-
-//#endregion
 //#region src/inbox-bridge.ts
 const DELIVERED = {
 	plugin: "cortext",
@@ -1840,7 +2000,7 @@ async function preempt(b, $, m) {
 	} catch {}
 	$.prompt.submit({ text: urgentNotice(m, { interrupted }) }).catch(() => {});
 }
-async function deliver(b, $, m) {
+async function deliver(b, p, $, m) {
 	const { value: ids = [] } = await $.state.get(DELIVERED);
 	if (ids.includes(m.id)) return;
 	await $.session.append({ message: {
@@ -1850,6 +2010,7 @@ async function deliver(b, $, m) {
 			text: renderPushRow(m, b.ns)
 		}]
 	} });
+	if (!m.fromSelf) await shareMail(p, $, "in", m.from, m.subject, m.body ?? "");
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
@@ -1882,7 +2043,7 @@ async function originalPromptCheck($) {
 const register = (on) => {
 	const panes = newPanes();
 	registerPanes(on, panes);
-	registerMailCard(on);
+	registerMailCard(on, panes);
 	const b = {
 		ns: "cortext",
 		turnId: void 0,
@@ -1926,7 +2087,7 @@ const register = (on) => {
 						$.ui.log(piece.text, { to: "debug" });
 						continue;
 					}
-					for (const ev of split(piece.text)) if (ev.type === "message") await deliver(b, $, ev);
+					for (const ev of split(piece.text)) if (ev.type === "message") await deliver(b, panes, $, ev);
 					else if (ev.type === "handled") b.late = b.late.filter((x) => x.id !== ev.id);
 					else if (ev.type !== "status") continue;
 					else if (ev.state === "disabled") {
@@ -1961,7 +2122,11 @@ const register = (on) => {
 		b.toolsInFlight++;
 		try {
 			const ran = await next(e);
-			if (mailLine && !ran.deny && !ran.isError) $.ui.log(mailLine);
+			if (mailLine && !ran.deny && !ran.isError) {
+				$.ui.log(mailLine);
+				const sent = parseMailSend(e.tool, e);
+				if (sent) await shareMail(panes, $, "out", sent.to, sent.subject, sent.body);
+			}
 			return ran;
 		} finally {
 			b.toolsInFlight--;

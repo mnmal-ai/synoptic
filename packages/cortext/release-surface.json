@@ -1275,6 +1275,8 @@
         "required": true,
         "type": "string",
         "enum": [
+          "mail-in",
+          "mail-out",
           "prompt",
           "reply",
           "tool"
@@ -1843,7 +1845,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "409311a1"
+      "dtsDigest": "d0d16c55"
     }
   },
   "surfaceFormat": 2

@@ -2,7 +2,9 @@ import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
 import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
 import { accent, BRAND, MARK_SVG, rule, statusTone } from './brand.js';
+import { el } from './el.js';
 import { groupedView } from './grouped.js';
+import { mailCard, openMail } from './mail-card.js';
 import {
   ago,
   clockTime,
@@ -12,7 +14,9 @@ import {
   hostOf,
   humanize,
   laneRows,
+  mailFeedText,
   remoteTurnText,
+  splitMailFeedText,
   type TodoSort,
   type TodoView,
   toolSummary,
@@ -88,17 +92,6 @@ export type Panes = {
   todoPoll: { cancel: () => void } | undefined;
   cols: number; // the Todos pane's body width, as its last draw reported
 };
-
-/** One element: `h` with its result narrowed to what a Box child and a render hook take. */
-export function el(...args: Parameters<typeof h>): RenderElement {
-  const [tag, props, ...children] = args;
-  // An undefined prop is left out: a surface checks props against an allowlist of set values.
-  const set = props
-    ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== undefined))
-    : props;
-  // biome-ignore lint/correctness/noUndeclaredVariables: `h` is the engine's global JSX factory in a hooks module
-  return h(tag, set, ...children) as RenderElement;
-}
 
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
 async function sub(p: Panes, $: EngineInterface, tool: string, args: Record<string, unknown>) {
@@ -1189,7 +1182,26 @@ async function drawSession(
   const now = await $.clock.now();
   const room = Math.max(3, ((e as { viewport?: { rows?: number } }).viewport?.rows ?? 40) - 6);
 
+  const opened = await read($, openMail);
   const step = (ev: FeedEvent): RenderElement => {
+    if (ev.kind === 'mail-in' || ev.kind === 'mail-out') {
+      const { subject, body } = splitMailFeedText(ev.text);
+      const id = `feed-${feed}-${ev.step}`;
+      return mailCard(els, e.surface, {
+        key: `ev-${ev.step}`,
+        dir: ev.kind === 'mail-in' ? 'in' : 'out',
+        peer: ev.tool ?? 'someone',
+        when: '',
+        subject,
+        body,
+        isOpen: opened.includes(id),
+        onToggle: () =>
+          update($, openMail, (prev) => {
+            const ids = prev ?? [];
+            return ids.includes(id) ? ids.filter((n) => n !== id) : [...ids, id].slice(-200);
+          })
+      });
+    }
     if (ev.kind === 'tool') {
       return el(
         Box,
@@ -1279,6 +1291,34 @@ export async function shareToolCall(
   input: Record<string, unknown>
 ): Promise<void> {
   await publish(p, $, 'tool', toolSummary(tool, input), tool);
+}
+
+/** Called from the bridge for mail it delivered and mail this session sent. */
+export async function shareMail(
+  p: Panes,
+  $: EngineInterface,
+  dir: 'in' | 'out',
+  peer: string,
+  subject: string,
+  body: string
+): Promise<void> {
+  await publish(p, $, dir === 'in' ? 'mail-in' : 'mail-out', mailFeedText(subject, body), peer);
+}
+
+/**
+ * Opens the Remote session pane on the shared session that stamped `instance`, or on the
+ * picker with a note when that session is not shared.
+ */
+export async function openRemoteSession(
+  p: Panes,
+  $: EngineInterface,
+  instance: string
+): Promise<void> {
+  await loadFeeds(p, $);
+  const found = (await read($, feeds)).find((f) => f.instance === instance);
+  if (found) await watch(p, $, found.id);
+  else await note($, `${instance} is not shared. Its user turns it on with /cortext-share on.`);
+  await $.ui.open({ id: SESSION_PANE, title: 'Remote session' });
 }
 
 /** Called from the bridge's main-thread turn.complete hook. */

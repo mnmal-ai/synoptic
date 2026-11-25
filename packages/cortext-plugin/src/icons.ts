@@ -2,6 +2,32 @@
 // Copyright (c) 2020-2026 Paweł Kuna. The path data is copied as published; see THIRD_PARTY_LICENSES.txt.
 
 const PATHS: Record<string, readonly string[]> = {
+  'arrow-back-up': ['M9 14l-4 -4l4 -4', 'M5 10h11a4 4 0 1 1 0 8h-1'],
+  'chevron-down': ['M6 9l6 6l6 -6'],
+  'chevron-up': ['M6 15l6 -6l6 6'],
+  inbox: [
+    'M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12',
+    'M4 13h3l3 3h4l3 -3h3'
+  ],
+  'layout-sidebar-right-expand': [
+    'M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12',
+    'M15 4v16',
+    'M10 10l-2 2l2 2'
+  ],
+  mail: [
+    'M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10',
+    'M3 7l9 6l9 -6'
+  ],
+  'mail-opened': [
+    'M3 9l9 6l9 -6l-9 -6l-9 6',
+    'M21 9v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10',
+    'M3 19l6 -6',
+    'M15 13l6 6'
+  ],
+  send: [
+    'M10 14l11 -11',
+    'M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5'
+  ],
   'circle-check': ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M9 12l2 2l4 -4'],
   circle: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0'],
   'clock-pause': ['M20.942 13.018a9 9 0 1 0 -7.909 7.922', 'M12 7v5l2 2', 'M17 17v5', 'M21 17v5'],

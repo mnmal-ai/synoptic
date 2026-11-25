@@ -85,7 +85,13 @@ describe('cortext/SessionFeed', () => {
   it('is registered beside its events', () => {
     expect(CLAUDE_TYPE_NAMES).toContain('SessionFeed');
     expect(CLAUDE_TYPE_NAMES).toContain('SessionFeedEvent');
-    expect([...SESSION_FEED_EVENT_KINDS]).toEqual(['prompt', 'reply', 'tool']);
+    expect([...SESSION_FEED_EVENT_KINDS]).toEqual([
+      'prompt',
+      'reply',
+      'tool',
+      'mail-in',
+      'mail-out'
+    ]);
   });
 
   it('declares instance unique among live rows', () => {

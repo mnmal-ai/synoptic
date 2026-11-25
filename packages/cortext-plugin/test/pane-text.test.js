@@ -6,9 +6,12 @@ import {
   cut,
   hostOf,
   mailCallLine,
+  mailFeedText,
   mailReceivedLine,
   parseMailRow,
+  parseMailSend,
   remoteTurnText,
+  splitMailFeedText,
   toolSummary,
   viewTodos
 } from '../src/pane-text.ts';
@@ -170,8 +173,14 @@ describe('parseMailRow', () => {
       date: '2026-11-25',
       subject: 'Gate green',
       isReply: true,
-      body: 'line one\n\nline three'
+      body: 'line one\n\nline three',
+      instance: undefined
     });
+  });
+  it('reads the instance the sender stamped', () => {
+    expect(parseMailRow(renderPushRow({ ...m, instance: 'session:1a2b3c4d' }))?.instance).toBe(
+      'session:1a2b3c4d'
+    );
   });
   it('reads a row with no body', () => {
     const row = parseMailRow(renderPushRow({ ...m, body: null, inReplyTo: null }));
@@ -180,5 +189,40 @@ describe('parseMailRow', () => {
   });
   it('is undefined for any other text', () => {
     expect(parseMailRow('hello')).toBeUndefined();
+  });
+});
+
+describe('parseMailSend', () => {
+  it('reads an act sketch, quotes and escapes included', () => {
+    expect(
+      parseMailSend('mcp__substrate__act', {
+        sketch:
+          'send AgentMessage to=peer@host subject="Gate \\"green\\"" body="one\\ntwo" instance=session:1a2b3c4d'
+      })
+    ).toEqual({ to: 'peer@host', subject: 'Gate "green"', body: 'one\ntwo' });
+  });
+  it('reads a mutate frame, single or batched', () => {
+    const params = { to: ['a@h', 'b@h'], subject: 's', body: 'b' };
+    expect(
+      parseMailSend('mcp__substrate__mutate', {
+        payload: { 'cortext/sendAgentMessage': { params } }
+      })
+    ).toEqual({ to: 'a@h, b@h', subject: 's', body: 'b' });
+    expect(
+      parseMailSend('mcp__substrate__mutate', {
+        payload: { 'cortext/sendAgentMessage': [{ params }] }
+      })
+    ).toEqual({ to: 'a@h, b@h', subject: 's', body: 'b' });
+  });
+  it('is undefined for any other call', () => {
+    expect(parseMailSend('mcp__substrate__act', { sketch: 'close Todo #12' })).toBeUndefined();
+    expect(parseMailSend('Bash', { command: 'ls' })).toBeUndefined();
+  });
+  it('round-trips the feed text', () => {
+    expect(splitMailFeedText(mailFeedText('s', 'a\n\nb'))).toEqual({
+      subject: 's',
+      body: 'a\n\nb'
+    });
+    expect(splitMailFeedText(mailFeedText('s', ''))).toEqual({ subject: 's', body: '' });
   });
 });
