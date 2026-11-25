@@ -113,3 +113,52 @@ function oneLine(text: string): string {
   }
   return out.trim();
 }
+
+export type TodoSort = 'priority' | 'created' | 'updated' | 'status' | 'title';
+export type TodoView = { sort: TodoSort; status: string; priority: string; search: string };
+type Sortable = {
+  shortId: number;
+  title: string;
+  status: string;
+  priority: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const STATUS_RANK: Record<string, number> = { blocked: 0, in_progress: 1, open: 2, deferred: 3 };
+
+/** The list as the pane shows it: filtered by status, priority and a title search, then sorted. */
+export function viewTodos<T extends Sortable>(rows: readonly T[], view: TodoView): T[] {
+  const needle = view.search.trim().toLowerCase();
+  const kept = rows.filter(
+    (t) =>
+      (view.status === 'any' || t.status === view.status) &&
+      (view.priority === 'any' || t.priority === view.priority) &&
+      (needle === '' || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle))
+  );
+  const time = (iso?: string): number => (iso ? Date.parse(iso) || 0 : 0);
+  const byPriority = (a: T, b: T): number =>
+    (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
+  const newest = (a: T, b: T): number => b.shortId - a.shortId;
+  const order: Record<TodoSort, (a: T, b: T) => number> = {
+    priority: (a, b) => byPriority(a, b) || newest(a, b),
+    created: (a, b) => time(b.createdAt) - time(a.createdAt) || newest(a, b),
+    updated: (a, b) => time(b.updatedAt) - time(a.updatedAt) || newest(a, b),
+    status: (a, b) =>
+      (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) ||
+      byPriority(a, b) ||
+      newest(a, b),
+    title: (a, b) => a.title.localeCompare(b.title)
+  };
+  return [...kept].sort(order[view.sort]);
+}
+
+/** "3m ago", "5h ago", "2d ago". */
+export function ago(iso: string, now: number): string {
+  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  if (s < 90) return `${s}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  if (s < 129600) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}

@@ -1,7 +1,17 @@
 import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
-import type { FeedEvent, FeedRow, PaneTodo, TodoDetail, TodoDraft } from '../types';
-import { controlKids, cut, hostOf, remoteTurnText, toolSummary } from './pane-text.js';
+import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
+import {
+  ago,
+  controlKids,
+  cut,
+  hostOf,
+  remoteTurnText,
+  type TodoSort,
+  type TodoView,
+  toolSummary,
+  viewTodos
+} from './pane-text.js';
 
 // Two panes and one opt-in, all through the session's own substrate MCP server,
 // so every write is signed by this repo's key:
@@ -23,7 +33,17 @@ const STATUSES = ['open', 'in_progress', 'blocked', 'deferred'] as const;
 
 const todos = atom({ plugin: 'cortext', key: 'paneTodos' }, []);
 const todoScope = atom({ plugin: 'cortext', key: 'paneTodoScope' }, 'project');
-const editing = atom({ plugin: 'cortext', key: 'paneEditing' }, null);
+const editField = atom({ plugin: 'cortext', key: 'paneField' }, null);
+const fieldDraft = atom({ plugin: 'cortext', key: 'paneFieldDraft' }, '');
+const todoView = atom(
+  { plugin: 'cortext', key: 'paneTodoView' },
+  {
+    sort: 'priority',
+    status: 'any',
+    priority: 'any',
+    search: ''
+  }
+);
 const paneNote = atom({ plugin: 'cortext', key: 'paneNote' }, '');
 const selected = atom({ plugin: 'cortext', key: 'paneSelected' }, null);
 const detail = atom({ plugin: 'cortext', key: 'paneDetail' }, null);
@@ -106,11 +126,21 @@ async function note($: EngineInterface, text: string): Promise<void> {
 
 // --- Todos ---------------------------------------------------------------
 
+type Field = 'title' | 'area' | 'notes' | 'body' | 'blockedBy' | 'revisitWhen';
+
+const SORTS: { value: TodoSort; label: string }[] = [
+  { value: 'priority', label: 'Priority' },
+  { value: 'updated', label: 'Recently updated' },
+  { value: 'created', label: 'Recently created' },
+  { value: 'status', label: 'Status' },
+  { value: 'title', label: 'Title' }
+];
+
 async function loadTodos(p: Panes, $: EngineInterface): Promise<void> {
   const scope = await read($, todoScope);
   const and: object[] = [
     { archived: { eq: false } },
-    { status: { in: ['open', 'in_progress', 'blocked'] } }
+    { status: { in: ['open', 'in_progress', 'blocked', 'deferred'] } }
   ];
   if (scope === 'project') {
     and.push({ OR: [{ project: { eq: p.project } }, { project: { eq: null } }] });
@@ -131,32 +161,80 @@ async function loadTodos(p: Panes, $: EngineInterface): Promise<void> {
             area: true,
             status: true,
             priority: true,
-            project: true
+            project: true,
+            _metadata: { createdAt: true, updatedAt: true }
           }
         }
       }
     });
     const got = body.data?.[key];
     if (!Array.isArray(got)) throw new Error(`${key} did not come back`);
-    rows.push(...(got as PaneTodo[]));
+    for (const r of got as (PaneTodo & {
+      _metadata?: { createdAt?: string; updatedAt?: string };
+    })[]) {
+      rows.push({ ...r, createdAt: r._metadata?.createdAt, updatedAt: r._metadata?.updatedAt });
+    }
     const pg = (
       body as { _pagination?: Record<string, { hasMore?: boolean; nextCursor?: string }> }
     )._pagination?.[key];
     if (!pg?.hasMore || !pg.nextCursor) break;
     cursor = pg.nextCursor;
   }
-  const rank = (t: PaneTodo): number =>
-    PRIORITIES.indexOf(t.priority as (typeof PRIORITIES)[number]);
-  rows.sort((a, b) => rank(a) - rank(b) || b.shortId - a.shortId);
   await update($, todos, () => rows);
+}
+
+/** The rows the list shows now, in its order. */
+async function shown($: EngineInterface): Promise<PaneTodo[]> {
+  return viewTodos(await read($, todos), await read($, todoView));
+}
+
+/** Keeps a pick that is still listed; otherwise picks the first row, as a settings sidebar does. */
+async function keepPick(p: Panes, $: EngineInterface): Promise<void> {
+  const rows = await shown($);
+  const pick = await read($, selected);
+  if (rows.some((t) => t.id === pick)) return;
+  const first = rows[0];
+  if (first) await selectTodo(p, $, first);
+  else {
+    await update($, selected, () => null);
+    await update($, detail, () => null);
+  }
 }
 
 async function refreshTodos(p: Panes, $: EngineInterface): Promise<void> {
   try {
     await loadTodos(p, $);
+    await keepPick(p, $);
     await note($, '');
   } catch (err) {
     await note($, `Could not load todos: ${(err as Error).message}`);
+  }
+}
+
+async function setView(p: Panes, $: EngineInterface, patch: Partial<TodoView>): Promise<void> {
+  await update($, todoView, (v) => ({ ...v, ...patch }));
+  await keepPick(p, $);
+}
+
+async function selectTodo(p: Panes, $: EngineInterface, t: PaneTodo): Promise<void> {
+  await update($, selected, () => t.id);
+  await update($, editField, () => null);
+  try {
+    const rows = await query<TodoDetail>(p, $, 'Todo', {
+      params: { where: { id: { eq: t.id } }, limit: 1 },
+      fields: {
+        id: true,
+        notes: true,
+        body: true,
+        blockedBy: true,
+        revisitWhen: true,
+        targetDate: true,
+        _metadata: { createdAt: true, updatedAt: true }
+      }
+    });
+    await update($, detail, () => rows[0] ?? null);
+  } catch (err) {
+    await note($, `Could not load #${t.shortId}: ${(err as Error).message}`);
   }
 }
 
@@ -170,8 +248,10 @@ async function createTodo(p: Panes, $: EngineInterface, title: string): Promise<
       priority: 'medium',
       project: p.project
     });
-    await note($, `Created a todo (${row.id.slice(0, 8)}).`);
     await loadTodos(p, $);
+    const made = (await read($, todos)).find((t) => t.id === row.id);
+    if (made) await selectTodo(p, $, made);
+    await note($, '');
   } catch (err) {
     await note($, `Could not create the todo: ${(err as Error).message}`);
   }
@@ -181,63 +261,107 @@ async function closeTodo(p: Panes, $: EngineInterface, t: PaneTodo): Promise<voi
   try {
     // `close` is the store's own word: closed, resolution completed, archived. Undo: reopen the row.
     await sub(p, $, 'act', { sketch: `close Todo #${t.shortId}` });
-    await note($, `Closed #${t.shortId}.`);
-    await update($, selected, () => null);
-    await update($, detail, () => null);
+    // Pick the row that takes its place, so the detail never goes blank.
+    const rows = await shown($);
+    const at = rows.findIndex((r) => r.id === t.id);
     await loadTodos(p, $);
+    const after = await shown($);
+    const next = after[Math.min(Math.max(at, 0), after.length - 1)];
+    if (next) await selectTodo(p, $, next);
+    else await keepPick(p, $);
+    await note($, `Closed #${t.shortId}.`);
   } catch (err) {
     await note($, `Could not close #${t.shortId}: ${(err as Error).message}`);
   }
 }
 
-async function saveTodo(p: Panes, $: EngineInterface, draft: TodoDraft): Promise<void> {
+/** Saves one field, or the priority or status, of the picked todo. */
+async function saveField(
+  p: Panes,
+  $: EngineInterface,
+  t: PaneTodo,
+  patch: Partial<Record<Field | 'priority' | 'status', string | null>>
+): Promise<void> {
   try {
-    await mutate(p, $, 'updateTodo', {
-      id: draft.id,
-      title: cut(draft.title, 300),
-      area: cut(draft.area, 60) || 'general',
-      priority: draft.priority,
-      status: draft.status
-    });
-    await update($, editing, () => null);
-    await note($, `Saved #${draft.shortId}.`);
+    const clean = Object.fromEntries(
+      Object.entries(patch).map(([k, v]) => [
+        k,
+        typeof v === 'string' && v.trim() === '' ? null : v
+      ])
+    );
+    if (clean.title === null) clean.title = t.title; // a todo always has a title
+    if (clean.area === null) clean.area = 'general';
+    await mutate(p, $, 'updateTodo', { id: t.id, ...clean });
+    await update($, editField, () => null);
     await loadTodos(p, $);
+    const fresh = (await read($, todos)).find((r) => r.id === t.id);
+    if (fresh) await selectTodo(p, $, fresh);
+    await note($, '');
   } catch (err) {
-    await note($, `Could not save #${draft.shortId}: ${(err as Error).message}`);
+    await note($, `Could not save #${t.shortId}: ${(err as Error).message}`);
   }
 }
 
-async function selectTodo(p: Panes, $: EngineInterface, t: PaneTodo): Promise<void> {
-  await update($, selected, () => t.id);
-  await update($, editing, () => null);
-  try {
-    const rows = await query<TodoDetail>(p, $, 'Todo', {
-      params: { where: { id: { eq: t.id } }, limit: 1 },
-      fields: {
-        id: true,
-        notes: true,
-        body: true,
-        blockedBy: true,
-        revisitWhen: true,
-        targetDate: true,
-        _metadata: { createdAt: true, updatedAt: true, createdBy: true }
-      }
+type Els = ReturnType<EngineInterface['ui']['resolve']>;
+
+/**
+ * A compact control. On a desktop: an icon button whose name shows as a tooltip under the pointer.
+ * On a terminal, which has no pointer hover: the name itself, with its hotkey.
+ */
+function iconButton(
+  els: Els,
+  tty: boolean,
+  b: {
+    key: string;
+    icon: string;
+    name: string;
+    hotkey?: string;
+    primary?: boolean;
+    onPress: () => void;
+  }
+): RenderElement {
+  const { Box, Text, Button } = els;
+  if (tty) {
+    return el(Button, {
+      key: b.key,
+      label: b.name,
+      hotkey: b.hotkey,
+      variant: b.primary ? 'primary' : undefined,
+      onPress: b.onPress
     });
-    await update($, detail, () => rows[0] ?? null);
-  } catch (err) {
-    await note($, `Could not load #${t.shortId}: ${(err as Error).message}`);
   }
+  return el(
+    Box,
+    { key: `tip-${b.key}`, position: 'relative' },
+    el(
+      Button,
+      { key: b.key, label: b.name, hotkey: b.hotkey, plain: true, onPress: b.onPress },
+      b.icon
+    ),
+    el(
+      Box,
+      {
+        position: 'absolute',
+        top: 2,
+        left: 0,
+        display: 'none',
+        hover: { display: 'flex' },
+        backgroundColor: 'text',
+        paddingX: 1
+      },
+      el(
+        Text,
+        { color: 'inverseText', size: 'caption', wrap: 'truncate-end' },
+        b.hotkey ? `${b.name}  ${b.hotkey}` : b.name
+      )
+    )
+  );
 }
 
-function startEdit($: EngineInterface, t: PaneTodo): void {
-  void update($, editing, () => ({
-    id: t.id,
-    shortId: t.shortId,
-    title: t.title,
-    area: t.area,
-    priority: t.priority,
-    status: t.status
-  }));
+function priorityTone(t: PaneTodo): string {
+  if (t.status === 'blocked') return 'error';
+  if (t.priority === 'high') return 'warning';
+  return t.priority === 'medium' ? 'text' : 'subtle';
 }
 
 async function drawTodos(
@@ -248,38 +372,55 @@ async function drawTodos(
   const els = $.ui.resolve(e);
   const { Box, Text, Button, Input, Select } = els;
   const Markdown = (els as unknown as { Markdown?: typeof Text }).Markdown;
-  const list = await read($, todos);
+  const tty = e.surface === 'terminal';
+  const all = await read($, todos);
+  const view = await read($, todoView);
+  const rows = viewTodos(all, view);
   const scope = await read($, todoScope);
-  const draft = await read($, editing);
   const said = await read($, paneNote);
   const pick = await read($, selected);
   const more = await read($, detail);
-  const current = list.find((t) => t.id === pick);
+  const field = await read($, editField);
+  const draft = await read($, fieldDraft);
+  const current = rows.find((t) => t.id === pick) ?? all.find((t) => t.id === pick);
   const now = await $.clock.now();
+  const filtered = view.status !== 'any' || view.priority !== 'any' || view.search.trim() !== '';
 
-  const marker = (t: PaneTodo): string =>
-    t.status === 'blocked'
-      ? 'blocked'
-      : t.priority === 'high'
-        ? 'high'
-        : t.priority === 'medium'
-          ? 'med'
-          : 'low';
-  const tone = (t: PaneTodo): string | undefined =>
-    t.status === 'blocked' ? 'red' : t.priority === 'high' ? 'yellow' : undefined;
-
-  // Left: the list, one row per todo, the picked one filled.
+  // Left: search, sort, filters, then the list. The picked row is filled with the accent.
   const master = el(
     Box,
-    { flexDirection: 'column', width: '40%', gap: 1, paddingX: 1 },
+    { flexDirection: 'column', width: '38%', gap: 1 },
     el(
       Box,
       { flexDirection: 'row', gap: 1 },
+      el(
+        Box,
+        { flexGrow: 1 },
+        el(Input, {
+          key: 'todo-search',
+          placeholder: 'Search todos',
+          submitLabel: 'search',
+          value: view.search,
+          onInput: (v: string) => void setView(p, $, { search: v }),
+          onSubmit: (v: string) => void setView(p, $, { search: v })
+        })
+      ),
+      iconButton(els, tty, {
+        key: 'todo-refresh',
+        icon: '↻',
+        name: 'Refresh',
+        hotkey: 'r',
+        onPress: () => void refreshTodos(p, $)
+      })
+    ),
+    el(
+      Box,
+      { flexDirection: 'row', gap: 1, flexWrap: 'wrap' },
       el(Select, {
         key: 'todo-scope',
         value: scope,
         options: [
-          { value: 'project', label: `${p.project} + cross-cutting` },
+          { value: 'project', label: p.project },
           { value: 'all', label: 'All projects' }
         ],
         onSelect: (v: string) =>
@@ -287,164 +428,327 @@ async function drawTodos(
             refreshTodos(p, $)
           )
       }),
-      el(Button, { key: 'todo-refresh', label: 'Refresh', onPress: () => void refreshTodos(p, $) })
+      el(Select, {
+        key: 'todo-sort',
+        label: 'Sort',
+        value: view.sort,
+        options: SORTS,
+        onSelect: (v: string) => void setView(p, $, { sort: v as TodoSort })
+      }),
+      el(Select, {
+        key: 'todo-status',
+        label: 'Status',
+        value: view.status,
+        options: [
+          { value: 'any', label: 'Any' },
+          ...STATUSES.map((v) => ({ value: v, label: v.replace('_', ' ') }))
+        ],
+        onSelect: (v: string) => void setView(p, $, { status: v })
+      }),
+      el(Select, {
+        key: 'todo-priority',
+        label: 'Priority',
+        value: view.priority,
+        options: [{ value: 'any', label: 'Any' }, ...PRIORITIES.map((v) => ({ value: v }))],
+        onSelect: (v: string) => void setView(p, $, { priority: v })
+      })
     ),
     el(Input, {
       key: 'todo-new',
-      placeholder: 'New todo',
+      placeholder: `New todo in ${scope === 'all' ? p.project : p.project}`,
       submitLabel: 'add',
       value: '',
       onSubmit: (v: string) => void createTodo(p, $, v)
     }),
-    el(Text, { dimColor: true, size: 'caption' }, `${list.length} open`),
-    ...list.map((t) =>
+    el(
+      Box,
+      { flexDirection: 'row', gap: 1 },
       el(
+        Text,
+        { color: 'subtle', size: 'caption', tabular: true },
+        filtered ? `${rows.length} of ${all.length}` : `${all.length} open`
+      ),
+      filtered
+        ? el(Button, {
+            key: 'todo-clear',
+            label: 'Clear filters',
+            plain: true,
+            dimColor: true,
+            onPress: () => void setView(p, $, { status: 'any', priority: 'any', search: '' })
+          })
+        : null
+    ),
+    rows.length === 0
+      ? el(
+          Text,
+          { color: 'subtle' },
+          all.length === 0 ? 'Nothing open here.' : 'No todo matches these filters.'
+        )
+      : null,
+    ...rows.map((t) => {
+      const on = t.id === pick;
+      return el(
         Box,
         {
           key: `row-${t.id}`,
-          backgroundColor: t.id === pick ? 'blue' : undefined,
-          paddingX: 1
+          flexDirection: 'row',
+          gap: 1,
+          paddingX: 1,
+          backgroundColor: on ? 'suggestion' : undefined,
+          hover: on ? undefined : { backgroundColor: 'promptBorder' }
         },
         el(
           Button,
-          { key: `pick-${t.id}`, label: t.title, onPress: () => void selectTodo(p, $, t) },
+          {
+            key: `pick-${t.id}`,
+            label: `#${t.shortId} ${t.title}`,
+            plain: true,
+            onPress: () => void selectTodo(p, $, t)
+          },
           el(
             Text,
-            { color: tone(t), dimColor: tone(t) === undefined, size: 'caption' },
-            `${marker(t)} `
+            {
+              color: on ? 'inverseText' : priorityTone(t),
+              bold: t.priority === 'high' || t.status === 'blocked'
+            },
+            t.status === 'blocked'
+              ? '■ '
+              : t.priority === 'high'
+                ? '● '
+                : t.priority === 'medium'
+                  ? '○ '
+                  : '· '
           ),
-          el(Text, { bold: t.id === pick, wrap: 'truncate-end' }, t.title)
+          el(Text, { color: on ? 'inverseText' : 'text', bold: on, wrap: 'truncate-end' }, t.title)
         )
-      )
-    )
+      );
+    })
   );
 
-  const field = (label: string, value: string | null | undefined) =>
-    value
-      ? el(
-          Box,
-          { flexDirection: 'column' },
-          el(Text, { dimColor: true, size: 'caption' }, label),
-          el(Text, {}, value)
-        )
-      : null;
-  const prose = (text: string) => (Markdown ? el(Markdown, { text }) : el(Text, {}, text));
-  const when = (iso: string | undefined) => (iso ? ago(iso, now) : undefined);
+  const label = (text: string) => el(Text, { color: 'subtle', size: 'caption' }, text);
 
-  // Right: everything about the picked todo, or the editor for it.
-  const view = !current
-    ? el(Text, { dimColor: true }, list.length ? 'Pick a todo on the left.' : 'No open todos.')
-    : draft?.id === current.id
-      ? el(
+  // A field shown as its value; a press swaps in an editor, Enter saves, Escape-free cancel beside it.
+  const editable = (
+    t: PaneTodo,
+    name: Field,
+    title: string,
+    value: string | null | undefined,
+    opts: { rows?: number; prose?: boolean; empty: string }
+  ) => {
+    if (field === name) {
+      return el(
+        Box,
+        { key: `field-${name}`, flexDirection: 'column' },
+        label(title),
+        el(Input, {
+          key: `input-${name}-${t.id}`,
+          value: draft,
+          rows: opts.rows,
+          autoFocus: true,
+          submitLabel: 'save',
+          onInput: (v: string) => void update($, fieldDraft, () => v),
+          onSubmit: (v: string) => void saveField(p, $, t, { [name]: v })
+        }),
+        el(
           Box,
-          { flexDirection: 'column', gap: 1 },
-          el(Text, { size: 'heading', weight: 'semibold' }, `Edit #${current.shortId}`),
-          el(Input, {
-            key: `title-${current.id}`,
-            label: 'Title',
-            value: draft.title,
-            autoFocus: true,
-            rows: 2,
-            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, title: v } : d)),
-            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
+          { flexDirection: 'row', gap: 1 },
+          el(Button, {
+            key: `save-${name}`,
+            label: 'Save',
+            variant: 'primary',
+            onPress: () => void read($, fieldDraft).then((v) => saveField(p, $, t, { [name]: v }))
           }),
-          el(Input, {
-            key: `area-${current.id}`,
-            label: 'Area',
-            value: draft.area,
-            onInput: (v: string) => void update($, editing, (d) => (d ? { ...d, area: v } : d)),
-            onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-          }),
+          el(Button, {
+            key: `cancel-${name}`,
+            label: 'Cancel',
+            onPress: () => void update($, editField, () => null)
+          })
+        )
+      );
+    }
+    const start = () =>
+      void update($, fieldDraft, () => value ?? '').then(() => update($, editField, () => name));
+    return el(
+      Box,
+      { key: `field-${name}`, flexDirection: 'column' },
+      label(title),
+      el(
+        Box,
+        { key: `edit-${name}-${t.id}`, hover: { backgroundColor: 'promptBorder' } },
+        value
+          ? opts.prose && Markdown && !tty
+            ? el(
+                Box,
+                { flexDirection: 'column' },
+                el(Markdown, { text: value }),
+                el(Button, {
+                  key: `open-${name}`,
+                  label: `Edit ${title.toLowerCase()}`,
+                  plain: true,
+                  dimColor: true,
+                  onPress: start
+                })
+              )
+            : el(
+                Button,
+                {
+                  key: `open-${name}`,
+                  label: `Edit ${title.toLowerCase()}`,
+                  plain: true,
+                  onPress: start
+                },
+                el(Text, { color: 'text' }, value)
+              )
+          : el(Button, {
+              key: `open-${name}`,
+              label: opts.empty,
+              plain: true,
+              dimColor: true,
+              onPress: start
+            })
+      )
+    );
+  };
+
+  // Right: the picked todo, every field editable in place.
+  const page = !current
+    ? el(Text, { color: 'subtle' }, rows.length ? 'Pick a todo on the left.' : 'Nothing to show.')
+    : el(
+        Box,
+        { flexDirection: 'column', gap: 1 },
+        el(
+          Box,
+          { flexDirection: 'row', gap: 1 },
+          el(
+            Box,
+            { flexGrow: 1 },
+            el(
+              Text,
+              { color: 'subtle', size: 'caption', tabular: true },
+              `#${current.shortId} · ${current.project ?? 'cross-cutting'}`
+            )
+          ),
+          iconButton(els, tty, {
+            key: 'todo-close',
+            icon: '✓',
+            name: 'Close as done',
+            hotkey: 'x',
+            primary: true,
+            onPress: () => void closeTodo(p, $, current)
+          })
+        ),
+        field === 'title'
+          ? editable(current, 'title', 'Title', current.title, { rows: 2, empty: 'Add a title' })
+          : el(
+              Box,
+              { key: `edit-title-${current.id}`, hover: { backgroundColor: 'promptBorder' } },
+              el(
+                Button,
+                {
+                  key: 'open-title',
+                  label: 'Edit title',
+                  plain: true,
+                  onPress: () =>
+                    void update($, fieldDraft, () => current.title).then(() =>
+                      update($, editField, () => 'title')
+                    )
+                },
+                el(Text, { size: 'title', weight: 'semibold', color: 'text' }, current.title)
+              )
+            ),
+        el(
+          Box,
+          { flexDirection: 'row', gap: 2, flexWrap: 'wrap' },
           el(Select, {
             key: `pri-${current.id}`,
             label: 'Priority',
-            value: draft.priority,
+            value: current.priority,
             options: PRIORITIES.map((v) => ({ value: v })),
-            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, priority: v } : d))
+            onSelect: (v: string) => void saveField(p, $, current, { priority: v })
           }),
           el(Select, {
             key: `status-${current.id}`,
             label: 'Status',
-            value: draft.status,
-            options: STATUSES.map((v) => ({ value: v })),
-            onSelect: (v: string) => void update($, editing, (d) => (d ? { ...d, status: v } : d))
-          }),
-          el(
-            Box,
-            { flexDirection: 'row', gap: 1 },
-            el(Button, {
-              key: `save-${current.id}`,
-              label: 'Save',
-              onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-            }),
-            el(Button, {
-              key: `cancel-${current.id}`,
-              label: 'Cancel',
-              onPress: () => void update($, editing, () => null)
-            })
-          )
-        )
-      : el(
+            value: current.status,
+            options: STATUSES.map((v) => ({ value: v, label: v.replace('_', ' ') })),
+            onSelect: (v: string) => void saveField(p, $, current, { status: v })
+          })
+        ),
+        el(
           Box,
-          { flexDirection: 'column', gap: 1 },
-          el(
-            Text,
-            { dimColor: true, size: 'caption' },
-            `#${current.shortId} · ${current.project ?? 'cross-cutting'} · ${current.area}`
-          ),
-          el(Text, { size: 'title', weight: 'bold' }, current.title),
+          { flexDirection: 'row', gap: 3, flexWrap: 'wrap' },
+          editable(current, 'area', 'Area', current.area, { empty: 'Add an area' }),
           el(
             Box,
-            { flexDirection: 'row', gap: 2 },
-            field('Priority', current.priority),
-            field('Status', current.status),
-            field('Created', when(more?._metadata?.createdAt)),
-            field('Updated', when(more?._metadata?.updatedAt))
+            { flexDirection: 'column' },
+            label('Created'),
+            el(
+              Text,
+              { color: 'text', tabular: true },
+              current.createdAt ? ago(current.createdAt, now) : '—'
+            )
           ),
-          field('Blocked by', more?.blockedBy),
-          field('Revisit when', more?.revisitWhen),
-          field('Target date', more?.targetDate?.slice(0, 10)),
-          more?.notes
+          el(
+            Box,
+            { flexDirection: 'column' },
+            label('Updated'),
+            el(
+              Text,
+              { color: 'text', tabular: true },
+              current.updatedAt ? ago(current.updatedAt, now) : '—'
+            )
+          ),
+          more?.targetDate
             ? el(
                 Box,
                 { flexDirection: 'column' },
-                el(Text, { dimColor: true, size: 'caption' }, 'Notes'),
-                prose(more.notes)
+                label('Target'),
+                el(Text, { color: 'text', tabular: true }, more.targetDate.slice(0, 10))
               )
-            : null,
-          more?.body
-            ? el(
-                Box,
-                { flexDirection: 'column' },
-                el(Text, { dimColor: true, size: 'caption' }, 'Description'),
-                prose(more.body)
-              )
-            : null,
-          el(
-            Box,
-            { flexDirection: 'row', gap: 1 },
-            el(Button, {
-              key: `edit-${current.id}`,
-              label: 'Edit',
-              onPress: () => startEdit($, current)
-            }),
-            el(Button, {
-              key: `close-${current.id}`,
-              label: 'Close',
-              onPress: () => void closeTodo(p, $, current)
+            : null
+        ),
+        current.status === 'blocked' || more?.blockedBy
+          ? editable(current, 'blockedBy', 'Blocked by', more?.blockedBy, {
+              empty: 'Say what it waits on'
             })
-          )
-        );
+          : null,
+        current.status === 'deferred' || more?.revisitWhen
+          ? editable(current, 'revisitWhen', 'Revisit when', more?.revisitWhen, {
+              empty: 'Say when to look again'
+            })
+          : null,
+        editable(current, 'notes', 'Notes', more?.notes, {
+          rows: 4,
+          prose: true,
+          empty: 'Add notes'
+        }),
+        editable(current, 'body', 'Description', more?.body, {
+          rows: 8,
+          prose: true,
+          empty: 'Add a description'
+        })
+      );
 
   return el(
     Box,
     { flexDirection: 'column', gap: 1 },
-    said ? el(Text, { dimColor: true }, said) : null,
+    said ? el(Text, { color: said.startsWith('Could not') ? 'error' : 'subtle' }, said) : null,
     el(
       Box,
       { flexDirection: 'row', gap: 2 },
       master,
-      el(Box, { flexDirection: 'column', flexGrow: 1, borderStyle: 'round', padding: 1 }, view)
+      el(
+        Box,
+        {
+          flexDirection: 'column',
+          flexGrow: 1,
+          borderStyle: 'single',
+          borderColor: 'promptBorder',
+          paddingX: 2,
+          paddingY: 1
+        },
+        page
+      )
     )
   );
 }
@@ -659,13 +963,6 @@ async function watch(p: Panes, $: EngineInterface, feed: string): Promise<void> 
   await pollEvents(p, $);
   p.poll?.cancel();
   p.poll = $.clock.every(POLL_MS, () => void pollEvents(p, $));
-}
-
-function ago(iso: string, now: number): string {
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-  if (s < 90) return `${s}s ago`;
-  if (s < 5400) return `${Math.round(s / 60)}m ago`;
-  return `${Math.round(s / 3600)}h ago`;
 }
 
 async function drawSession(

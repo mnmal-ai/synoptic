@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ago,
   controlKids,
   cut,
   hostOf,
   mailCallLine,
   mailReceivedLine,
   remoteTurnText,
-  toolSummary
+  toolSummary,
+  viewTodos
 } from '../src/pane-text.ts';
 
 describe('toolSummary', () => {
@@ -89,5 +91,59 @@ describe('mail lines', () => {
     );
     expect(mailCallLine('mcp__substrate__act', { sketch: 'close Todo #12' }, at)).toBeUndefined();
     expect(mailCallLine('Bash', { command: 'ls' }, at)).toBeUndefined();
+  });
+});
+
+describe('viewTodos', () => {
+  const rows = [
+    {
+      shortId: 1,
+      title: 'Low one',
+      status: 'open',
+      priority: 'low',
+      createdAt: '2026-11-20T00:00:00Z',
+      updatedAt: '2026-11-24T00:00:00Z'
+    },
+    {
+      shortId: 2,
+      title: 'High one',
+      status: 'open',
+      priority: 'high',
+      createdAt: '2026-11-21T00:00:00Z',
+      updatedAt: '2026-11-22T00:00:00Z'
+    },
+    {
+      shortId: 3,
+      title: 'Stuck one',
+      status: 'blocked',
+      priority: 'medium',
+      createdAt: '2026-11-22T00:00:00Z',
+      updatedAt: '2026-11-23T00:00:00Z'
+    }
+  ];
+  const base = { sort: 'priority', status: 'any', priority: 'any', search: '' };
+  const ids = (view) => viewTodos(rows, { ...base, ...view }).map((t) => t.shortId);
+  it('sorts by priority, recency and status', () => {
+    expect(ids({})).toEqual([2, 3, 1]);
+    expect(ids({ sort: 'created' })).toEqual([3, 2, 1]);
+    expect(ids({ sort: 'updated' })).toEqual([1, 3, 2]);
+    expect(ids({ sort: 'status' })).toEqual([3, 2, 1]);
+    expect(ids({ sort: 'title' })).toEqual([2, 1, 3]);
+  });
+  it('filters by status, priority and a title or #id search', () => {
+    expect(ids({ status: 'blocked' })).toEqual([3]);
+    expect(ids({ priority: 'low' })).toEqual([1]);
+    expect(ids({ search: 'HIGH' })).toEqual([2]);
+    expect(ids({ search: '#3' })).toEqual([3]);
+  });
+});
+
+describe('ago', () => {
+  it('reads seconds, minutes, hours and days', () => {
+    const now = Date.parse('2026-11-25T12:00:00Z');
+    expect(ago('2026-11-25T11:59:30Z', now)).toBe('30s ago');
+    expect(ago('2026-11-25T11:00:00Z', now)).toBe('60m ago');
+    expect(ago('2026-11-25T06:00:00Z', now)).toBe('6h ago');
+    expect(ago('2026-11-20T12:00:00Z', now)).toBe('5d ago');
   });
 });

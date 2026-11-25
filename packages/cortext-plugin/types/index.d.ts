@@ -27,14 +27,8 @@ export type PaneTodo = {
   status: string;
   priority: string;
   project: string | null;
-};
-export type TodoDraft = {
-  id: string;
-  shortId: number;
-  title: string;
-  area: string;
-  priority: string;
-  status: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 export type TodoDetail = {
   id: string;
@@ -69,7 +63,14 @@ declare module 'claude-code' {
       inboxPromptCheckOrig: string | null;
       paneTodos: PaneTodo[];
       paneTodoScope: 'project' | 'all';
-      paneEditing: TodoDraft | null;
+      paneField: 'title' | 'area' | 'notes' | 'body' | 'blockedBy' | 'revisitWhen' | null;
+      paneFieldDraft: string;
+      paneTodoView: {
+        sort: 'priority' | 'created' | 'updated' | 'status' | 'title';
+        status: string;
+        priority: string;
+        search: string;
+      };
       paneNote: string;
       paneSelected: string | null;
       paneDetail: TodoDetail | null;

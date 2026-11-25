@@ -206,6 +206,41 @@ function oneLine(text) {
 	}
 	return out.trim();
 }
+const PRIORITY_RANK = {
+	high: 0,
+	medium: 1,
+	low: 2
+};
+const STATUS_RANK = {
+	blocked: 0,
+	in_progress: 1,
+	open: 2,
+	deferred: 3
+};
+/** The list as the pane shows it: filtered by status, priority and a title search, then sorted. */
+function viewTodos(rows, view) {
+	const needle = view.search.trim().toLowerCase();
+	const kept = rows.filter((t) => (view.status === "any" || t.status === view.status) && (view.priority === "any" || t.priority === view.priority) && (needle === "" || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle)));
+	const time = (iso) => iso ? Date.parse(iso) || 0 : 0;
+	const byPriority = (a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
+	const newest = (a, b) => b.shortId - a.shortId;
+	const order = {
+		priority: (a, b) => byPriority(a, b) || newest(a, b),
+		created: (a, b) => time(b.createdAt) - time(a.createdAt) || newest(a, b),
+		updated: (a, b) => time(b.updatedAt) - time(a.updatedAt) || newest(a, b),
+		status: (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || byPriority(a, b) || newest(a, b),
+		title: (a, b) => a.title.localeCompare(b.title)
+	};
+	return [...kept].sort(order[view.sort]);
+}
+/** "3m ago", "5h ago", "2d ago". */
+function ago(iso, now) {
+	const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1e3));
+	if (s < 90) return `${s}s ago`;
+	if (s < 5400) return `${Math.round(s / 60)}m ago`;
+	if (s < 129600) return `${Math.round(s / 3600)}h ago`;
+	return `${Math.round(s / 86400)}d ago`;
+}
 
 //#endregion
 //#region src/desktop-panes.ts
@@ -234,10 +269,23 @@ const todoScope = atom({
 	plugin: "cortext",
 	key: "paneTodoScope"
 }, "project");
-const editing = atom({
+const editField = atom({
 	plugin: "cortext",
-	key: "paneEditing"
+	key: "paneField"
 }, null);
+const fieldDraft = atom({
+	plugin: "cortext",
+	key: "paneFieldDraft"
+}, "");
+const todoView = atom({
+	plugin: "cortext",
+	key: "paneTodoView"
+}, {
+	sort: "priority",
+	status: "any",
+	priority: "any",
+	search: ""
+});
 const paneNote = atom({
 	plugin: "cortext",
 	key: "paneNote"
@@ -315,12 +363,35 @@ async function mutate(p, $, op, params) {
 async function note($, text) {
 	await update($, paneNote, () => text);
 }
+const SORTS = [
+	{
+		value: "priority",
+		label: "Priority"
+	},
+	{
+		value: "updated",
+		label: "Recently updated"
+	},
+	{
+		value: "created",
+		label: "Recently created"
+	},
+	{
+		value: "status",
+		label: "Status"
+	},
+	{
+		value: "title",
+		label: "Title"
+	}
+];
 async function loadTodos(p, $) {
 	const scope = await read($, todoScope);
 	const and = [{ archived: { eq: false } }, { status: { in: [
 		"open",
 		"in_progress",
-		"blocked"
+		"blocked",
+		"deferred"
 	] } }];
 	if (scope === "project") and.push({ OR: [{ project: { eq: p.project } }, { project: { eq: null } }] });
 	const rows = [];
@@ -340,73 +411,61 @@ async function loadTodos(p, $) {
 				area: true,
 				status: true,
 				priority: true,
-				project: true
+				project: true,
+				_metadata: {
+					createdAt: true,
+					updatedAt: true
+				}
 			}
 		} } });
 		const got = body.data?.[key];
 		if (!Array.isArray(got)) throw new Error(`${key} did not come back`);
-		rows.push(...got);
+		for (const r of got) rows.push({
+			...r,
+			createdAt: r._metadata?.createdAt,
+			updatedAt: r._metadata?.updatedAt
+		});
 		const pg = body._pagination?.[key];
 		if (!pg?.hasMore || !pg.nextCursor) break;
 		cursor = pg.nextCursor;
 	}
-	const rank = (t) => PRIORITIES.indexOf(t.priority);
-	rows.sort((a, b) => rank(a) - rank(b) || b.shortId - a.shortId);
 	await update($, todos, () => rows);
+}
+/** The rows the list shows now, in its order. */
+async function shown($) {
+	return viewTodos(await read($, todos), await read($, todoView));
+}
+/** Keeps a pick that is still listed; otherwise picks the first row, as a settings sidebar does. */
+async function keepPick(p, $) {
+	const rows = await shown($);
+	const pick = await read($, selected);
+	if (rows.some((t) => t.id === pick)) return;
+	const first = rows[0];
+	if (first) await selectTodo(p, $, first);
+	else {
+		await update($, selected, () => null);
+		await update($, detail, () => null);
+	}
 }
 async function refreshTodos(p, $) {
 	try {
 		await loadTodos(p, $);
+		await keepPick(p, $);
 		await note($, "");
 	} catch (err) {
 		await note($, `Could not load todos: ${err.message}`);
 	}
 }
-async function createTodo(p, $, title) {
-	const clean = cut(title, 300);
-	if (clean === "") return;
-	try {
-		await note($, `Created a todo (${(await mutate(p, $, "createTodo", {
-			title: clean,
-			area: "general",
-			priority: "medium",
-			project: p.project
-		})).id.slice(0, 8)}).`);
-		await loadTodos(p, $);
-	} catch (err) {
-		await note($, `Could not create the todo: ${err.message}`);
-	}
-}
-async function closeTodo(p, $, t) {
-	try {
-		await sub(p, $, "act", { sketch: `close Todo #${t.shortId}` });
-		await note($, `Closed #${t.shortId}.`);
-		await update($, selected, () => null);
-		await update($, detail, () => null);
-		await loadTodos(p, $);
-	} catch (err) {
-		await note($, `Could not close #${t.shortId}: ${err.message}`);
-	}
-}
-async function saveTodo(p, $, draft) {
-	try {
-		await mutate(p, $, "updateTodo", {
-			id: draft.id,
-			title: cut(draft.title, 300),
-			area: cut(draft.area, 60) || "general",
-			priority: draft.priority,
-			status: draft.status
-		});
-		await update($, editing, () => null);
-		await note($, `Saved #${draft.shortId}.`);
-		await loadTodos(p, $);
-	} catch (err) {
-		await note($, `Could not save #${draft.shortId}: ${err.message}`);
-	}
+async function setView(p, $, patch) {
+	await update($, todoView, (v) => ({
+		...v,
+		...patch
+	}));
+	await keepPick(p, $);
 }
 async function selectTodo(p, $, t) {
 	await update($, selected, () => t.id);
-	await update($, editing, () => null);
+	await update($, editField, () => null);
 	try {
 		const rows = await query(p, $, "Todo", {
 			params: {
@@ -422,8 +481,7 @@ async function selectTodo(p, $, t) {
 				targetDate: true,
 				_metadata: {
 					createdAt: true,
-					updatedAt: true,
-					createdBy: true
+					updatedAt: true
 				}
 			}
 		});
@@ -432,181 +490,365 @@ async function selectTodo(p, $, t) {
 		await note($, `Could not load #${t.shortId}: ${err.message}`);
 	}
 }
-function startEdit($, t) {
-	update($, editing, () => ({
-		id: t.id,
-		shortId: t.shortId,
-		title: t.title,
-		area: t.area,
-		priority: t.priority,
-		status: t.status
-	}));
+async function createTodo(p, $, title) {
+	const clean = cut(title, 300);
+	if (clean === "") return;
+	try {
+		const row = await mutate(p, $, "createTodo", {
+			title: clean,
+			area: "general",
+			priority: "medium",
+			project: p.project
+		});
+		await loadTodos(p, $);
+		const made = (await read($, todos)).find((t) => t.id === row.id);
+		if (made) await selectTodo(p, $, made);
+		await note($, "");
+	} catch (err) {
+		await note($, `Could not create the todo: ${err.message}`);
+	}
+}
+async function closeTodo(p, $, t) {
+	try {
+		await sub(p, $, "act", { sketch: `close Todo #${t.shortId}` });
+		const at = (await shown($)).findIndex((r) => r.id === t.id);
+		await loadTodos(p, $);
+		const after = await shown($);
+		const next = after[Math.min(Math.max(at, 0), after.length - 1)];
+		if (next) await selectTodo(p, $, next);
+		else await keepPick(p, $);
+		await note($, `Closed #${t.shortId}.`);
+	} catch (err) {
+		await note($, `Could not close #${t.shortId}: ${err.message}`);
+	}
+}
+/** Saves one field, or the priority or status, of the picked todo. */
+async function saveField(p, $, t, patch) {
+	try {
+		const clean = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, typeof v === "string" && v.trim() === "" ? null : v]));
+		if (clean.title === null) clean.title = t.title;
+		if (clean.area === null) clean.area = "general";
+		await mutate(p, $, "updateTodo", {
+			id: t.id,
+			...clean
+		});
+		await update($, editField, () => null);
+		await loadTodos(p, $);
+		const fresh = (await read($, todos)).find((r) => r.id === t.id);
+		if (fresh) await selectTodo(p, $, fresh);
+		await note($, "");
+	} catch (err) {
+		await note($, `Could not save #${t.shortId}: ${err.message}`);
+	}
+}
+/**
+* A compact control. On a desktop: an icon button whose name shows as a tooltip under the pointer.
+* On a terminal, which has no pointer hover: the name itself, with its hotkey.
+*/
+function iconButton(els, tty, b) {
+	const { Box, Text, Button } = els;
+	if (tty) return el(Button, {
+		key: b.key,
+		label: b.name,
+		hotkey: b.hotkey,
+		variant: b.primary ? "primary" : void 0,
+		onPress: b.onPress
+	});
+	return el(Box, {
+		key: `tip-${b.key}`,
+		position: "relative"
+	}, el(Button, {
+		key: b.key,
+		label: b.name,
+		hotkey: b.hotkey,
+		plain: true,
+		onPress: b.onPress
+	}, b.icon), el(Box, {
+		position: "absolute",
+		top: 2,
+		left: 0,
+		display: "none",
+		hover: { display: "flex" },
+		backgroundColor: "text",
+		paddingX: 1
+	}, el(Text, {
+		color: "inverseText",
+		size: "caption",
+		wrap: "truncate-end"
+	}, b.hotkey ? `${b.name}  ${b.hotkey}` : b.name)));
+}
+function priorityTone(t) {
+	if (t.status === "blocked") return "error";
+	if (t.priority === "high") return "warning";
+	return t.priority === "medium" ? "text" : "subtle";
 }
 async function drawTodos(p, $, e) {
 	const els = $.ui.resolve(e);
 	const { Box, Text, Button, Input, Select } = els;
 	const Markdown = els.Markdown;
-	const list = await read($, todos);
+	const tty = e.surface === "terminal";
+	const all = await read($, todos);
+	const view = await read($, todoView);
+	const rows = viewTodos(all, view);
 	const scope = await read($, todoScope);
-	const draft = await read($, editing);
 	const said = await read($, paneNote);
 	const pick = await read($, selected);
 	const more = await read($, detail);
-	const current = list.find((t) => t.id === pick);
+	const field = await read($, editField);
+	const draft = await read($, fieldDraft);
+	const current = rows.find((t) => t.id === pick) ?? all.find((t) => t.id === pick);
 	const now = await $.clock.now();
-	const marker = (t) => t.status === "blocked" ? "blocked" : t.priority === "high" ? "high" : t.priority === "medium" ? "med" : "low";
-	const tone = (t) => t.status === "blocked" ? "red" : t.priority === "high" ? "yellow" : void 0;
+	const filtered = view.status !== "any" || view.priority !== "any" || view.search.trim() !== "";
 	const master = el(Box, {
 		flexDirection: "column",
-		width: "40%",
-		gap: 1,
-		paddingX: 1
+		width: "38%",
+		gap: 1
 	}, el(Box, {
 		flexDirection: "row",
 		gap: 1
+	}, el(Box, { flexGrow: 1 }, el(Input, {
+		key: "todo-search",
+		placeholder: "Search todos",
+		submitLabel: "search",
+		value: view.search,
+		onInput: (v) => void setView(p, $, { search: v }),
+		onSubmit: (v) => void setView(p, $, { search: v })
+	})), iconButton(els, tty, {
+		key: "todo-refresh",
+		icon: "↻",
+		name: "Refresh",
+		hotkey: "r",
+		onPress: () => void refreshTodos(p, $)
+	})), el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		flexWrap: "wrap"
 	}, el(Select, {
 		key: "todo-scope",
 		value: scope,
 		options: [{
 			value: "project",
-			label: `${p.project} + cross-cutting`
+			label: p.project
 		}, {
 			value: "all",
 			label: "All projects"
 		}],
 		onSelect: (v) => void update($, todoScope, () => v === "all" ? "all" : "project").then(() => refreshTodos(p, $))
-	}), el(Button, {
-		key: "todo-refresh",
-		label: "Refresh",
-		onPress: () => void refreshTodos(p, $)
+	}), el(Select, {
+		key: "todo-sort",
+		label: "Sort",
+		value: view.sort,
+		options: SORTS,
+		onSelect: (v) => void setView(p, $, { sort: v })
+	}), el(Select, {
+		key: "todo-status",
+		label: "Status",
+		value: view.status,
+		options: [{
+			value: "any",
+			label: "Any"
+		}, ...STATUSES.map((v) => ({
+			value: v,
+			label: v.replace("_", " ")
+		}))],
+		onSelect: (v) => void setView(p, $, { status: v })
+	}), el(Select, {
+		key: "todo-priority",
+		label: "Priority",
+		value: view.priority,
+		options: [{
+			value: "any",
+			label: "Any"
+		}, ...PRIORITIES.map((v) => ({ value: v }))],
+		onSelect: (v) => void setView(p, $, { priority: v })
 	})), el(Input, {
 		key: "todo-new",
-		placeholder: "New todo",
+		placeholder: `New todo in ${scope === "all" ? p.project : p.project}`,
 		submitLabel: "add",
 		value: "",
 		onSubmit: (v) => void createTodo(p, $, v)
-	}), el(Text, {
-		dimColor: true,
-		size: "caption"
-	}, `${list.length} open`), ...list.map((t) => el(Box, {
-		key: `row-${t.id}`,
-		backgroundColor: t.id === pick ? "blue" : void 0,
-		paddingX: 1
-	}, el(Button, {
-		key: `pick-${t.id}`,
-		label: t.title,
-		onPress: () => void selectTodo(p, $, t)
-	}, el(Text, {
-		color: tone(t),
-		dimColor: tone(t) === void 0,
-		size: "caption"
-	}, `${marker(t)} `), el(Text, {
-		bold: t.id === pick,
-		wrap: "truncate-end"
-	}, t.title)))));
-	const field = (label, value) => value ? el(Box, { flexDirection: "column" }, el(Text, {
-		dimColor: true,
-		size: "caption"
-	}, label), el(Text, {}, value)) : null;
-	const prose = (text) => Markdown ? el(Markdown, { text }) : el(Text, {}, text);
-	const when = (iso) => iso ? ago(iso, now) : void 0;
-	const view = !current ? el(Text, { dimColor: true }, list.length ? "Pick a todo on the left." : "No open todos.") : draft?.id === current.id ? el(Box, {
-		flexDirection: "column",
-		gap: 1
-	}, el(Text, {
-		size: "heading",
-		weight: "semibold"
-	}, `Edit #${current.shortId}`), el(Input, {
-		key: `title-${current.id}`,
-		label: "Title",
-		value: draft.title,
-		autoFocus: true,
-		rows: 2,
-		onInput: (v) => void update($, editing, (d) => d ? {
-			...d,
-			title: v
-		} : d),
-		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Input, {
-		key: `area-${current.id}`,
-		label: "Area",
-		value: draft.area,
-		onInput: (v) => void update($, editing, (d) => d ? {
-			...d,
-			area: v
-		} : d),
-		onSubmit: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Select, {
-		key: `pri-${current.id}`,
-		label: "Priority",
-		value: draft.priority,
-		options: PRIORITIES.map((v) => ({ value: v })),
-		onSelect: (v) => void update($, editing, (d) => d ? {
-			...d,
-			priority: v
-		} : d)
-	}), el(Select, {
-		key: `status-${current.id}`,
-		label: "Status",
-		value: draft.status,
-		options: STATUSES.map((v) => ({ value: v })),
-		onSelect: (v) => void update($, editing, (d) => d ? {
-			...d,
-			status: v
-		} : d)
 	}), el(Box, {
 		flexDirection: "row",
 		gap: 1
-	}, el(Button, {
-		key: `save-${current.id}`,
-		label: "Save",
-		onPress: () => void read($, editing).then((d) => d && saveTodo(p, $, d))
-	}), el(Button, {
-		key: `cancel-${current.id}`,
-		label: "Cancel",
-		onPress: () => void update($, editing, () => null)
-	}))) : el(Box, {
+	}, el(Text, {
+		color: "subtle",
+		size: "caption",
+		tabular: true
+	}, filtered ? `${rows.length} of ${all.length}` : `${all.length} open`), filtered ? el(Button, {
+		key: "todo-clear",
+		label: "Clear filters",
+		plain: true,
+		dimColor: true,
+		onPress: () => void setView(p, $, {
+			status: "any",
+			priority: "any",
+			search: ""
+		})
+	}) : null), rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : null, ...rows.map((t) => {
+		const on = t.id === pick;
+		return el(Box, {
+			key: `row-${t.id}`,
+			flexDirection: "row",
+			gap: 1,
+			paddingX: 1,
+			backgroundColor: on ? "suggestion" : void 0,
+			hover: on ? void 0 : { backgroundColor: "promptBorder" }
+		}, el(Button, {
+			key: `pick-${t.id}`,
+			label: `#${t.shortId} ${t.title}`,
+			plain: true,
+			onPress: () => void selectTodo(p, $, t)
+		}, el(Text, {
+			color: on ? "inverseText" : priorityTone(t),
+			bold: t.priority === "high" || t.status === "blocked"
+		}, t.status === "blocked" ? "■ " : t.priority === "high" ? "● " : t.priority === "medium" ? "○ " : "· "), el(Text, {
+			color: on ? "inverseText" : "text",
+			bold: on,
+			wrap: "truncate-end"
+		}, t.title)));
+	}));
+	const label = (text) => el(Text, {
+		color: "subtle",
+		size: "caption"
+	}, text);
+	const editable = (t, name, title, value, opts) => {
+		if (field === name) return el(Box, {
+			key: `field-${name}`,
+			flexDirection: "column"
+		}, label(title), el(Input, {
+			key: `input-${name}-${t.id}`,
+			value: draft,
+			rows: opts.rows,
+			autoFocus: true,
+			submitLabel: "save",
+			onInput: (v) => void update($, fieldDraft, () => v),
+			onSubmit: (v) => void saveField(p, $, t, { [name]: v })
+		}), el(Box, {
+			flexDirection: "row",
+			gap: 1
+		}, el(Button, {
+			key: `save-${name}`,
+			label: "Save",
+			variant: "primary",
+			onPress: () => void read($, fieldDraft).then((v) => saveField(p, $, t, { [name]: v }))
+		}), el(Button, {
+			key: `cancel-${name}`,
+			label: "Cancel",
+			onPress: () => void update($, editField, () => null)
+		})));
+		const start = () => void update($, fieldDraft, () => value ?? "").then(() => update($, editField, () => name));
+		return el(Box, {
+			key: `field-${name}`,
+			flexDirection: "column"
+		}, label(title), el(Box, {
+			key: `edit-${name}-${t.id}`,
+			hover: { backgroundColor: "promptBorder" }
+		}, value ? opts.prose && Markdown && !tty ? el(Box, { flexDirection: "column" }, el(Markdown, { text: value }), el(Button, {
+			key: `open-${name}`,
+			label: `Edit ${title.toLowerCase()}`,
+			plain: true,
+			dimColor: true,
+			onPress: start
+		})) : el(Button, {
+			key: `open-${name}`,
+			label: `Edit ${title.toLowerCase()}`,
+			plain: true,
+			onPress: start
+		}, el(Text, { color: "text" }, value)) : el(Button, {
+			key: `open-${name}`,
+			label: opts.empty,
+			plain: true,
+			dimColor: true,
+			onPress: start
+		})));
+	};
+	const page = !current ? el(Text, { color: "subtle" }, rows.length ? "Pick a todo on the left." : "Nothing to show.") : el(Box, {
 		flexDirection: "column",
 		gap: 1
-	}, el(Text, {
-		dimColor: true,
-		size: "caption"
-	}, `#${current.shortId} · ${current.project ?? "cross-cutting"} · ${current.area}`), el(Text, {
-		size: "title",
-		weight: "bold"
-	}, current.title), el(Box, {
-		flexDirection: "row",
-		gap: 2
-	}, field("Priority", current.priority), field("Status", current.status), field("Created", when(more?._metadata?.createdAt)), field("Updated", when(more?._metadata?.updatedAt))), field("Blocked by", more?.blockedBy), field("Revisit when", more?.revisitWhen), field("Target date", more?.targetDate?.slice(0, 10)), more?.notes ? el(Box, { flexDirection: "column" }, el(Text, {
-		dimColor: true,
-		size: "caption"
-	}, "Notes"), prose(more.notes)) : null, more?.body ? el(Box, { flexDirection: "column" }, el(Text, {
-		dimColor: true,
-		size: "caption"
-	}, "Description"), prose(more.body)) : null, el(Box, {
+	}, el(Box, {
 		flexDirection: "row",
 		gap: 1
-	}, el(Button, {
-		key: `edit-${current.id}`,
-		label: "Edit",
-		onPress: () => startEdit($, current)
-	}), el(Button, {
-		key: `close-${current.id}`,
-		label: "Close",
+	}, el(Box, { flexGrow: 1 }, el(Text, {
+		color: "subtle",
+		size: "caption",
+		tabular: true
+	}, `#${current.shortId} · ${current.project ?? "cross-cutting"}`)), iconButton(els, tty, {
+		key: "todo-close",
+		icon: "✓",
+		name: "Close as done",
+		hotkey: "x",
+		primary: true,
 		onPress: () => void closeTodo(p, $, current)
-	})));
+	})), field === "title" ? editable(current, "title", "Title", current.title, {
+		rows: 2,
+		empty: "Add a title"
+	}) : el(Box, {
+		key: `edit-title-${current.id}`,
+		hover: { backgroundColor: "promptBorder" }
+	}, el(Button, {
+		key: "open-title",
+		label: "Edit title",
+		plain: true,
+		onPress: () => void update($, fieldDraft, () => current.title).then(() => update($, editField, () => "title"))
+	}, el(Text, {
+		size: "title",
+		weight: "semibold",
+		color: "text"
+	}, current.title))), el(Box, {
+		flexDirection: "row",
+		gap: 2,
+		flexWrap: "wrap"
+	}, el(Select, {
+		key: `pri-${current.id}`,
+		label: "Priority",
+		value: current.priority,
+		options: PRIORITIES.map((v) => ({ value: v })),
+		onSelect: (v) => void saveField(p, $, current, { priority: v })
+	}), el(Select, {
+		key: `status-${current.id}`,
+		label: "Status",
+		value: current.status,
+		options: STATUSES.map((v) => ({
+			value: v,
+			label: v.replace("_", " ")
+		})),
+		onSelect: (v) => void saveField(p, $, current, { status: v })
+	})), el(Box, {
+		flexDirection: "row",
+		gap: 3,
+		flexWrap: "wrap"
+	}, editable(current, "area", "Area", current.area, { empty: "Add an area" }), el(Box, { flexDirection: "column" }, label("Created"), el(Text, {
+		color: "text",
+		tabular: true
+	}, current.createdAt ? ago(current.createdAt, now) : "—")), el(Box, { flexDirection: "column" }, label("Updated"), el(Text, {
+		color: "text",
+		tabular: true
+	}, current.updatedAt ? ago(current.updatedAt, now) : "—")), more?.targetDate ? el(Box, { flexDirection: "column" }, label("Target"), el(Text, {
+		color: "text",
+		tabular: true
+	}, more.targetDate.slice(0, 10))) : null), current.status === "blocked" || more?.blockedBy ? editable(current, "blockedBy", "Blocked by", more?.blockedBy, { empty: "Say what it waits on" }) : null, current.status === "deferred" || more?.revisitWhen ? editable(current, "revisitWhen", "Revisit when", more?.revisitWhen, { empty: "Say when to look again" }) : null, editable(current, "notes", "Notes", more?.notes, {
+		rows: 4,
+		prose: true,
+		empty: "Add notes"
+	}), editable(current, "body", "Description", more?.body, {
+		rows: 8,
+		prose: true,
+		empty: "Add a description"
+	}));
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1
-	}, said ? el(Text, { dimColor: true }, said) : null, el(Box, {
+	}, said ? el(Text, { color: said.startsWith("Could not") ? "error" : "subtle" }, said) : null, el(Box, {
 		flexDirection: "row",
 		gap: 2
 	}, master, el(Box, {
 		flexDirection: "column",
 		flexGrow: 1,
-		borderStyle: "round",
-		padding: 1
-	}, view)));
+		borderStyle: "single",
+		borderColor: "promptBorder",
+		paddingX: 2,
+		paddingY: 1
+	}, page)));
 }
 function enqueue(p, job) {
 	p.writes = p.writes.then(job).catch(() => {});
@@ -814,12 +1056,6 @@ async function watch(p, $, feed) {
 	await pollEvents(p, $);
 	p.poll?.cancel();
 	p.poll = $.clock.every(POLL_MS, () => void pollEvents(p, $));
-}
-function ago(iso, now) {
-	const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1e3));
-	if (s < 90) return `${s}s ago`;
-	if (s < 5400) return `${Math.round(s / 60)}m ago`;
-	return `${Math.round(s / 3600)}h ago`;
 }
 async function drawSession(p, $, e) {
 	const els = $.ui.resolve(e);
