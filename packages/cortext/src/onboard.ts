@@ -30,6 +30,7 @@ import {
   HOST_INSTALL_CHECK_STATES,
   HOST_INSTALL_FRAGMENT_STATES,
   SESSION_FEED_EVENT_KINDS,
+  SESSION_TURN_STATUSES,
   TASK_STATUS_VOCAB,
   TODO_STATUS_ALIASES
 } from './namespace.js';
@@ -448,6 +449,21 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           project: 'repo basename; null = cross-cutting'
         },
         writeWhen: ['Never by hand: the plugin writes it while its feed is sharing']
+      },
+      SessionTurn: {
+        purpose:
+          "A prompt a viewer asks a shared session to run as a turn. The shared session runs it only if its user allowed the writer's kid (checked against _metadata.createdBy)",
+        fields: {
+          id: 'auto-generated',
+          feed: 'UUID crossRef to the SessionFeed, cascade on delete',
+          text: 'the prompt to run (not indexed)',
+          status: `${vocabUnion(SESSION_TURN_STATUSES)} (default queued)`,
+          reason: 'why the shared session turned it away (not indexed, nullable)',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: [
+          "From a viewer's Remote session pane; the shared session flips status to taken or refused"
+        ]
       }
     },
     mutations: buildMutations(),

@@ -1423,6 +1423,63 @@
         "type": "list<string>"
       }
     },
+    "SessionTurn": {
+      "feed": {
+        "kind": "crossRef",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "target": "SessionFeed"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "reason": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "status": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "queued",
+          "refused",
+          "taken"
+        ]
+      },
+      "text": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      }
+    },
     "Skill": {
       "active": {
         "kind": "scalar",
@@ -1764,6 +1821,7 @@
         ".:ReleaseClass",
         ".:ReleaseSurface",
         ".:SESSION_FEED_EVENT_KINDS",
+        ".:SESSION_TURN_STATUSES",
         ".:SurfaceChange",
         ".:SurfaceField",
         ".:TASK_STATUS_VOCAB",
@@ -1785,7 +1843,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "fb58f746"
+      "dtsDigest": "409311a1"
     }
   },
   "surfaceFormat": 2

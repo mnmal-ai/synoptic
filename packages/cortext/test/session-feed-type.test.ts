@@ -12,7 +12,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildClaudeNamespace,
   CLAUDE_TYPE_NAMES,
-  SESSION_FEED_EVENT_KINDS
+  SESSION_FEED_EVENT_KINDS,
+  SESSION_TURN_STATUSES
 } from '../src/index.js';
 import { buildClaudeForTest } from './_helpers.js';
 
@@ -170,5 +171,46 @@ describe('cortext/SessionFeedEvent', () => {
       { step: 2, kind: 'tool', tool: 'Bash', text: 'Run the relay tests' },
       { step: 3, kind: 'reply', text: 'The relay tests pass.' }
     ]);
+  });
+});
+
+describe('cortext/SessionTurn', () => {
+  it('defaults status to queued and refuses one outside the vocabulary', async () => {
+    expect(CLAUDE_TYPE_NAMES).toContain('SessionTurn');
+    expect([...SESSION_TURN_STATUSES]).toEqual(['queued', 'taken', 'refused']);
+    const server = await setup();
+    const feed = await createFeed(server, 'session:1a2b3c4d');
+    const made = await call(server, '/substrate/v1/mutate', {
+      [`${NS}/createSessionTurn`]: {
+        params: { feed, text: 'run the relay tests' },
+        fields: { status: true }
+      }
+    });
+    expect(made.errors).toBeUndefined();
+    expect(made.data[`${NS}/createSessionTurn`]).toEqual({ status: 'queued' });
+    const bad = await call(server, '/substrate/v1/mutate', {
+      [`${NS}/createSessionTurn`]: {
+        params: { feed, text: 'x', status: 'running' },
+        fields: { id: true }
+      }
+    });
+    expect(bad.errors?.[0]?.message ?? '').toMatch(/status/);
+  });
+
+  it('names its writer in _metadata, the field a shared session checks', async () => {
+    const server = await setup();
+    const feed = await createFeed(server, 'session:1a2b3c4d');
+    await call(server, '/substrate/v1/mutate', {
+      [`${NS}/createSessionTurn`]: { params: { feed, text: 'hi' }, fields: { id: true } }
+    });
+    const env = await call(server, '/substrate/v1/query', {
+      [`${NS}/SessionTurn`]: {
+        params: { where: { feed: { eq: feed }, status: { eq: 'queued' } } },
+        fields: { text: true, _metadata: { createdBy: true } }
+      }
+    });
+    expect(env.errors).toBeUndefined();
+    const rows = env.data[`${NS}/SessionTurn`] as { _metadata: { createdBy: { id: string } } }[];
+    expect(rows[0]?._metadata.createdBy.id).toBe('synoptic-opencode@host-a');
   });
 });

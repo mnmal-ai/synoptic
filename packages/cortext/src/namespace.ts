@@ -181,6 +181,9 @@ export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
 /** SessionFeedEvent.kind: a user prompt, an assistant reply, or one tool call. */
 export const SESSION_FEED_EVENT_KINDS = ['prompt', 'reply', 'tool'] as const;
 
+/** SessionTurn.status: waiting, started as a turn, or turned away by the shared session. */
+export const SESSION_TURN_STATUSES = ['queued', 'taken', 'refused'] as const;
+
 const CONCEPT_NAME_TTL_MS = 60_000;
 
 /** Long-form length past which `embed.source` appends the long form to the synopsis. */
@@ -1014,6 +1017,19 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           name: 'rows_session_feed_event_feed_step_unique'
         }
       ]
+    },
+    // A prompt a viewer asks a shared session to run as a turn. The shared
+    // session runs it only when its user allowed the writer's kid, checked
+    // against _metadata.createdBy, which the server sets from the signing key.
+    SessionTurn: {
+      fields: {
+        feed: field.crossRef(ns, 'SessionFeed', { onDelete: 'cascade' }),
+        text: field.string({ indexed: false }),
+        status: field.enum(SESSION_TURN_STATUSES, { default: 'queued' }),
+        // Why the shared session turned it away (nullable).
+        reason: field.string({ nullable: true, indexed: false }),
+        project: field.string({ nullable: true, indexed: true })
+      }
     }
     // ReviewSession + ReviewFinding live in the review plugin's review/* namespace.
   };
@@ -1101,7 +1117,8 @@ export const CLAUDE_TYPE_NAMES = [
   'Task',
   'ExecutionCheckpoint',
   'SessionFeed',
-  'SessionFeedEvent'
+  'SessionFeedEvent',
+  'SessionTurn'
 ] as const;
 
 /**
