@@ -375,7 +375,13 @@ async function sub(p, $, tool, args) {
 	const r = await $.mcp.call(p.server, tool, args);
 	const text = r.content.map((c) => c.type === "text" ? c.text : "").join("");
 	if (r.isError) throw new Error(cut(text || `${tool} failed`, 200));
-	const body = JSON.parse(text);
+	let parsed;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new Error(`${tool} answered ${text.length} characters that are not JSON: ${cut(text, 120)}`);
+	}
+	const body = parsed;
 	if (body.errors && body.errors.length > 0) {
 		const err = new Error(cut(body.errors[0]?.message ?? "refused", 200));
 		err.code = body.errors[0]?.code;
@@ -439,7 +445,7 @@ async function loadTodos(p, $) {
 		const body = await sub(p, $, "query", { payload: { [key]: {
 			params: {
 				where: { AND: and },
-				limit: 200,
+				limit: 100,
 				...cursor ? { cursor } : {}
 			},
 			fields: {

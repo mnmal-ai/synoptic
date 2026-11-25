@@ -53,7 +53,7 @@ const ROWS = [
 ];
 
 // biome-ignore lint/suspicious/noExplicitAny: the kit's `on` is typed per event; the fakes are not
-function substrate(on: any, writes: unknown[]) {
+function substrate(on: any, writes: unknown[], rows: unknown[] = ROWS) {
   on('command.register', () => ({ value: undefined }));
   on('ui.open', () => ({ value: { isPlaced: true } }));
   on('ui.log', () => ({ value: undefined }));
@@ -68,7 +68,7 @@ function substrate(on: any, writes: unknown[]) {
         const where = (frame as { params?: { where?: { id?: { eq?: string } } } }).params?.where;
         data = where?.id?.eq
           ? { [key]: [{ id: where.id.eq, notes: 'Some **notes**', body: null }] }
-          : { [key]: ROWS };
+          : { [key]: rows };
       } else if (e.tool === 'mutate') {
         writes.push(payload);
         data = { [key]: { id: 'a' } };
@@ -136,6 +136,31 @@ test('the board puts blocked todos under Needs you, shows tags, and a card opens
     await ui.press({ key: 'open-c' });
     expect(await ui.find({ type: 'Input', key: 'f-title-c' })).toBeDefined();
     await ui.press({ key: 'todo-back' });
+    await ui.press({ key: 'todo-layout' });
+    await ui.unmount();
+  }
+});
+
+test('all projects: 170 rows from 8 projects draw on every surface', async ($, on) => {
+  const many = Array.from({ length: 170 }, (_, i) => ({
+    id: `m${i}`,
+    shortId: 1000 + i,
+    title: `Todo number ${i} with a fairly long title that runs past the column`,
+    area: 'x',
+    status: ['open', 'in_progress', 'blocked', 'deferred'][i % 4],
+    priority: ['high', 'medium', 'low'][i % 3],
+    project: i % 9 === 0 ? undefined : `proj-${i % 8}`,
+    tags: i % 5 === 0 ? ['#362', 'session:dd3e721c', 'from:1364'] : i % 7 === 0 ? [] : undefined,
+    _metadata: { createdAt: '2026-11-20T00:00:00Z' }
+  }));
+  substrate(on, [], many);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    await ui.select({ key: 'todo-scope', value: 'all' });
+    expect(await ui.find({ type: 'Text', text: /^Could not/ })).toBeUndefined();
+    await ui.press({ key: 'todo-layout' });
+    expect(await ui.find({ type: 'Text', text: /^Could not/ })).toBeUndefined();
     await ui.press({ key: 'todo-layout' });
     await ui.unmount();
   }

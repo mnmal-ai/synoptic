@@ -91,7 +91,16 @@ async function sub(p: Panes, $: EngineInterface, tool: string, args: Record<stri
     .map((c) => (c.type === 'text' ? (c as { text: string }).text : ''))
     .join('');
   if (r.isError) throw new Error(cut(text || `${tool} failed`, 200));
-  const body = JSON.parse(text) as {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // A reply cut short (a size cap on the way) or a server answering in prose.
+    throw new Error(
+      `${tool} answered ${text.length} characters that are not JSON: ${cut(text, 120)}`
+    );
+  }
+  const body = parsed as {
     data?: Record<string, unknown>;
     errors?: { message: string; code?: string }[];
     ok?: boolean;
@@ -158,7 +167,7 @@ async function loadTodos(p: Panes, $: EngineInterface): Promise<void> {
     const body = await sub(p, $, 'query', {
       payload: {
         [key]: {
-          params: { where: { AND: and }, limit: 200, ...(cursor ? { cursor } : {}) },
+          params: { where: { AND: and }, limit: 100, ...(cursor ? { cursor } : {}) },
           fields: {
             id: true,
             shortId: true,
