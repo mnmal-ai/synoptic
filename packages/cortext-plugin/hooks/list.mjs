@@ -33,29 +33,23 @@ function wrapLines(text, width, max) {
 
 //#endregion
 //#region src/list.ts
-/** Each row is two title lines and a facts line; the facts line's quiet text parts the rows. */
+/** Each row is two title lines and a facts line. */
 const ROW_LINES = 3;
-/** The most rows drawn at once. */
-const MAX_ROWS = 120;
 const PICKED_FILL = "#0a9fdc2e";
 const HOVER_FILL = "#8593a81f";
 const latest = /* @__PURE__ */ new WeakMap();
-const List = (props, surface) => {
+const Row = (props, surface) => {
 	const { Box, Text } = surface.elements;
 	latest.set(surface, props);
 	if (surface.state === void 0) {
 		surface.setState({});
 		surface.onPointer((ev) => {
-			const rows = latest.get(surface)?.rows ?? [];
-			const i = Math.floor(ev.y / 3);
-			const at = ev.y >= 0 && i < rows.length && ev.y % 3 < 2 ? i : void 0;
-			if (ev.type === "up" && ev.button === "left" && at !== void 0) {
-				const row = rows[at];
-				if (row) surface.post({
-					type: "pick",
-					id: row.id
-				});
-			} else if (ev.type === "move" && surface.state?.hover !== at) surface.setState({ hover: at });
+			const id = latest.get(surface)?.row.id;
+			if (ev.type === "up" && ev.button === "left" && id) surface.post({
+				type: "pick",
+				id
+			});
+			else if ((ev.type === "move" || ev.type === "enter") && !surface.state?.hover) surface.setState({ hover: true });
 			else if (ev.type === "leave") surface.setState({});
 		});
 		surface.onKey((k) => {
@@ -67,44 +61,40 @@ const List = (props, surface) => {
 			});
 		});
 	}
-	const hover = surface.state?.hover;
+	const r = props.row;
+	const on = props.picked;
+	const lit = !on && surface.state?.hover === true;
 	const width = Math.max(8, surface.columns);
+	const flag = (v, k) => v ? { [k]: true } : {};
+	const mark = props.tty ? {
+		...flag(on, "inverse"),
+		...flag(lit, "underline")
+	} : {};
+	const fill = props.tty ? void 0 : on ? PICKED_FILL : lit ? HOVER_FILL : void 0;
+	const lead = `${r.num} `;
+	const [first = "", second = ""] = wrapLines(`${lead}${r.title}`, width - 2, 2);
 	const t = h;
-	const on = (v, k) => v ? { [k]: true } : {};
-	const shown = props.rows.slice(0, 120);
-	const rest = props.rows.length - shown.length;
-	return t(Box, { flexDirection: "column" }, ...shown.map((r, i) => {
-		const picked = r.id === props.picked;
-		const lit = !picked && i === hover;
-		const mark = props.tty ? {
-			...on(picked, "inverse"),
-			...on(lit, "underline")
-		} : {};
-		const fill = props.tty ? void 0 : picked ? PICKED_FILL : lit ? HOVER_FILL : void 0;
-		const lead = `${r.num} `;
-		const [first = "", second = ""] = wrapLines(`${lead}${r.title}`, width - 2, 2);
-		const facts = [];
-		for (const f of r.facts) {
-			const sep = facts.length ? " · " : "";
-			if (f.tone) facts.push(sep, t(Text, { color: f.tone }, f.text));
-			else facts.push(`${sep}${f.text}`);
-		}
-		const title = {
-			...mark,
-			...on(picked, "bold")
-		};
-		return t(Box, {
-			key: `r-${r.id}`,
-			flexDirection: "column",
-			paddingX: 1,
-			...fill ? { backgroundColor: fill } : {}
-		}, t(Text, title, t(Text, on(!picked, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " "), t(Text, {
-			...mark,
-			...on(!picked, "dimColor"),
-			wrap: "truncate-end"
-		}, ...facts));
-	}), ...rest > 0 ? [t(Text, { dimColor: true }, ` ${rest} more. Search or filter to narrow the list.`)] : []);
+	const facts = [];
+	for (const f of r.facts) {
+		const sep = facts.length ? " · " : "";
+		if (f.tone) facts.push(sep, t(Text, { color: f.tone }, f.text));
+		else facts.push(`${sep}${f.text}`);
+	}
+	const title = {
+		...mark,
+		...flag(on, "bold")
+	};
+	return t(Box, {
+		flexDirection: "column",
+		paddingX: 1,
+		height: 3,
+		...fill ? { backgroundColor: fill } : {}
+	}, t(Text, title, t(Text, flag(!on, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " "), t(Text, {
+		...mark,
+		...flag(!on, "dimColor"),
+		wrap: "truncate-end"
+	}, ...facts));
 };
 
 //#endregion
-export { MAX_ROWS, ROW_LINES, List as default };
+export { ROW_LINES, Row as default };

@@ -94,8 +94,8 @@ test('opens with the first row picked, its detail on the right, on every surface
     // Priority sort: high first, so "High one" (#2) is picked and its title fills the editor.
     expect(await ui.find({ type: 'Input', key: 'f-title-b' }), `title on ${surface}`).toBeDefined();
     // A surface with Client draws the list there; the others get one Button per row.
-    const listed = await ui.drawn({ in: 'todo-list' }).catch(() => undefined);
-    if (listed) expect(JSON.stringify(listed)).toContain('"key":"r-b"');
+    const listed = await ui.drawn({ in: 'row-b' }).catch(() => undefined);
+    if (listed) expect(JSON.stringify(listed)).toContain('#2');
     else
       expect(await ui.find({ type: 'Button', key: 'pick-b' }), `rows on ${surface}`).toBeDefined();
     expect(await ui.find({ type: 'Input', key: 'f-notes-b' })).toBeDefined();
@@ -182,7 +182,7 @@ test('all projects: 170 rows from 8 projects draw on every surface', async ($, o
   }
 });
 
-test('the list shows a window of rows; arrowing past its end moves the window', async ($, on) => {
+test('arrow keys in the list move the pick through every row', async ($, on) => {
   const many = Array.from({ length: 40 }, (_, i) => ({
     id: `w${i}`,
     shortId: 3000 + i,
@@ -196,11 +196,17 @@ test('the list shows a window of rows; arrowing past its end moves the window', 
   substrate(on, [], many);
   await $.command.run({ command: 'cortext-todos', args: '' });
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
-  const count = await ui.find({ type: 'Text', text: /^1–\d+ of 40 · scroll the list for more$/ });
-  expect(count).toBeDefined();
-  const shown = Number(/^1–(\d+)/.exec(count?.text ?? '')?.[1]);
-  for (let i = 0; i < shown + 2; i++) await ui.key({ key: 'down', in: 'todo-list' });
-  expect(await ui.find({ type: 'Text', text: /^4–\d+ of 40/ })).toBeDefined();
+  const start = await ui.find({ type: 'Text', text: /^#30\d\d · horizon$/ });
+  const shown = 12;
+  for (let i = 0; i < shown + 2; i++) {
+    // The picked row holds the keys; the detail's header names it.
+    const head = await ui.find({ type: 'Text', text: /^#30\d\d · horizon$/ });
+    const id = `w${Number(head?.text.slice(1, 5)) - 3000}`;
+    await ui.key({ key: 'down', in: `row-${id}` });
+  }
+  const end = await ui.find({ type: 'Text', text: /^#30\d\d · horizon$/ });
+  expect(end?.text).not.toBe(start?.text);
+  expect(await ui.find({ type: 'Text', text: /scroll the list/ })).toBeUndefined();
   await ui.unmount();
 });
 
