@@ -612,7 +612,11 @@ async function drawTodos(
 ) {
   const els = $.ui.resolve(e);
   const { Box, Text, Button, Select } = els;
-  const { Client } = els as unknown as { Client?: typeof Box };
+  // Only the terminal and the desktop app run surface modules; elsewhere the buttons stand in.
+  const Client =
+    e.surface === 'terminal' || e.surface === 'desktop'
+      ? (els as unknown as { Client?: typeof Box }).Client
+      : undefined;
   const tty = e.surface === 'terminal';
   const all = await read($, todos);
   const view = await read($, todoView);

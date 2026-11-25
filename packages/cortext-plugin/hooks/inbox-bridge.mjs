@@ -796,7 +796,7 @@ function header(els, p, $, s) {
 async function drawTodos(p, $, e) {
 	const els = $.ui.resolve(e);
 	const { Box, Text, Button, Select } = els;
-	const { Client } = els;
+	const Client = e.surface === "terminal" || e.surface === "desktop" ? els.Client : void 0;
 	const tty = e.surface === "terminal";
 	const all = await read($, todos);
 	const view = await read($, todoView);

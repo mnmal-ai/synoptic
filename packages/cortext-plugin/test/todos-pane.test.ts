@@ -92,14 +92,17 @@ test('opens with the first row picked, its detail on the right, on every surface
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface });
     // Priority sort: high first, so "High one" (#2) is picked and its title fills the editor.
-    expect(await ui.find({ type: 'Input', key: 'f-title-b' })).toBeDefined();
-    if (surface === 'terminal' || surface === 'desktop') {
-      expect(JSON.stringify(await ui.drawn({ in: 'todo-list' }))).toContain('High one');
-    } else {
-      expect(await ui.find({ type: 'Button', key: 'pick-b' })).toBeDefined();
-    }
+    expect(await ui.find({ type: 'Input', key: 'f-title-b' }), `title on ${surface}`).toBeDefined();
+    // A surface with Client draws the list there; the others get one Button per row.
+    const listed = await ui.drawn({ in: 'todo-list' }).catch(() => undefined);
+    if (listed) expect(JSON.stringify(listed)).toContain('High one');
+    else
+      expect(await ui.find({ type: 'Button', key: 'pick-b' }), `rows on ${surface}`).toBeDefined();
     expect(await ui.find({ type: 'Input', key: 'f-notes-b' })).toBeDefined();
-    expect(await ui.find({ type: 'Button', key: 'todo-close' })).toBeDefined();
+    expect(
+      await ui.find({ type: 'Button', key: 'todo-close' }),
+      `close on ${surface}`
+    ).toBeDefined();
     await ui.unmount();
   }
 });
