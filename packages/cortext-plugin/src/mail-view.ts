@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code';
 import { BRAND, tint } from './brand.js';
 import { el } from './el.js';
-import { icon } from './icons.js';
+import { avatar, icon } from './icons.js';
 import { cut } from './pane-text.js';
 
 // How agent mail and typed prompts look, on every site that draws them: no engine state, so the
@@ -73,15 +73,22 @@ export type MessageSpec = {
   key: string;
   side: Side;
   author: Author;
-  /** The bold name; for a kid pass `splitKid(kid).name` and its host in `meta`. */
+  /** Who wrote it, drawn under the avatar: for a kid, `splitKid(kid).name`. */
   name: string;
-  /** Dim words after the name: the host, a time, `remote turn`. */
+  /** The host under the name, without the `@`. */
+  host?: string;
+  /** A dim line at the bubble's foot: the time, `remote turn`. Mail puts its time in its own line. */
   meta?: string;
 };
 
+const AVATAR_PX = 28;
+// The avatar column, in cells: room for a short name to wrap to two lines under the icon.
+const AVATAR_COLS = 12;
+
 /**
- * One message as a chat bubble: yours on the right in the accent, theirs on the left in grey,
- * each with a tail toward its side. The bubble's first line is the author icon, name and meta.
+ * One message as a group-chat bubble: a round avatar beside it with the name and host under the
+ * icon, the bubble with a tail toward the avatar. Yours sit right in the accent, theirs left in
+ * grey, so the side says whose it is and the icon says person or agent.
  */
 export function messageRow(
   els: Els,
@@ -95,14 +102,24 @@ export function messageRow(
   const tone = l.tty ? SIDE_KEY[m.side] : hex;
   const ours = m.side === 'ours';
   const body = content.filter((c): c is RenderElement => c != null);
-  const header = el(
+  const who = el(
     Box,
-    { flexDirection: 'row', gap: 1, alignItems: 'center' },
-    m.author === 'agent'
-      ? mark(els, l, 'robot', hex, tone, 'Agent', '[agent]', 14)
-      : mark(els, l, 'user', hex, tone, 'Person', '[person]', 14),
-    el(Text, { bold: true }, m.name),
-    m.meta ? el(Text, { dimColor: true, wrap: 'truncate-end' }, m.meta) : null
+    {
+      flexDirection: 'column',
+      alignItems: 'center',
+      width: AVATAR_COLS,
+      flexShrink: 0
+    },
+    l.Svg
+      ? el(l.Svg, {
+          source: avatar(m.author === 'agent' ? 'robot' : 'user', hex, AVATAR_PX),
+          alt: m.author === 'agent' ? 'Agent' : 'Person',
+          width: AVATAR_PX,
+          height: AVATAR_PX
+        })
+      : el(Text, { color: tone }, m.author === 'agent' ? '[agent]' : '[person]'),
+    el(Text, { bold: true, wrap: 'wrap', maxLines: 2 }, m.name),
+    m.host ? el(Text, { dimColor: true, wrap: 'truncate-end' }, `@${m.host}`) : null
   );
   const bubble = el(
     Box,
@@ -115,24 +132,25 @@ export function messageRow(
       paddingX: 1,
       paddingY: l.tty ? 0 : 1
     },
-    header,
-    ...body
+    ...body,
+    m.meta ? el(Text, { dimColor: true }, m.meta) : null
   );
   const point = l.Svg
     ? el(l.Svg, { source: tail(hex, m.side), alt: 'Speech bubble tail', width: 12, height: 12 })
     : null;
-  // The bubble keeps a margin on the far side, so yours and theirs never line up edge to edge.
+  // The bubble sits level with the top of its avatar and keeps a margin on the far side, so
+  // yours and theirs never line up edge to edge.
   return el(
     Box,
     {
       key: m.key,
       flexDirection: 'row',
-      alignItems: 'flex-end',
+      alignItems: 'flex-start',
       justifyContent: ours ? 'flex-end' : 'flex-start',
       paddingLeft: ours ? (l.tty ? 4 : 8) : 0,
       paddingRight: ours ? 0 : l.tty ? 4 : 8
     },
-    ...(ours ? [bubble, point] : [point, bubble])
+    ...(ours ? [bubble, point, who] : [who, point, bubble])
   );
 }
 
@@ -166,7 +184,8 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
     m.dir === 'in'
       ? `Received${m.shortId !== undefined ? ` #${m.shortId}` : ''}`
       : `Sent${m.shortId !== undefined ? ` #${m.shortId}` : ''}`;
-  const route = m.dir === 'in' ? `from ${m.peer}` : `to ${m.peer}`;
+  // The avatar names the sender, so received mail's line says only when; sent says to whom.
+  const route = m.dir === 'in' ? '' : `to ${m.peer}`;
   const body = m.body.trim();
   const preview = body.replace(/\s+/g, ' ');
   const actions: RenderElement[] = [];
@@ -188,10 +207,10 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
       )
     );
   }
-  // Inside the bubble already, so no frame of its own: a rule above sets it apart from the name.
+  // Inside the bubble already, so no frame of its own.
   return el(
     Box,
-    { flexDirection: 'column', marginTop: l.tty ? 0 : 1 },
+    { flexDirection: 'column' },
     el(
       Box,
       { flexDirection: 'row', gap: 1, alignItems: 'center' },
@@ -208,7 +227,7 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
       el(
         Text,
         { dimColor: true, wrap: 'truncate-end' },
-        [route, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
+        [route, m.when, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
       )
     ),
     el(Text, { bold: true }, m.subject || '(no subject)'),
@@ -233,8 +252,8 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
 }
 
 /**
- * A mail as one message: the agent that sent it (robot avatar, name, host and time), then the
- * mail as an attachment under it.
+ * A mail as one message: the sending agent's avatar, name and host beside it, the mail in the
+ * bubble with its time on the Sent or Received line.
  */
 export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElement {
   const sender = m.dir === 'in' ? m.peer : (m.from ?? '');
@@ -247,7 +266,7 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
       side: m.side ?? (m.dir === 'out' ? 'ours' : 'theirs'),
       author: 'agent',
       name: who.name,
-      meta: [who.host ? `@${who.host}` : '', m.when].filter(Boolean).join(' · ')
+      host: who.host
     },
     mailAttachment(els, surface, m)
   );
@@ -275,7 +294,8 @@ export function promptCard(els: Els, surface: string, m: PromptCardSpec): Render
       side: m.who === 'me' ? 'ours' : 'theirs',
       author: 'person',
       name: m.who === 'me' ? 'You' : who.name || 'Their person',
-      meta: [m.who === 'them' && who.host ? `@${who.host}` : '', m.note].filter(Boolean).join(' · ')
+      host: m.who === 'them' ? who.host : '',
+      meta: m.note
     },
     el(els.Text, {}, m.text)
   );

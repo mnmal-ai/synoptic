@@ -95,3 +95,9 @@ export function icon(name: string, color: string, size = 16): string {
   const paths = (PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 }
+
+/** A round avatar: a filled circle in `color` with the Tabler icon in white, as a chat draws one. */
+export function avatar(name: string, color: string, size = 28): string {
+  const paths = (PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="${color}"/><g transform="translate(5.5 5.5) scale(0.54)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</g></svg>`;
+}

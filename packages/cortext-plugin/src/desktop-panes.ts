@@ -1211,7 +1211,7 @@ async function drawSession(
       // A step of the agent's, indented under its avatar column as the chat does.
       return el(
         Box,
-        { key: `ev-${ev.step}`, paddingLeft: 2 },
+        { key: `ev-${ev.step}`, paddingLeft: 14 },
         el(Text, { dimColor: true, wrap: 'truncate-end' }, `${ev.tool ?? 'tool'} · ${ev.text}`)
       );
     }
@@ -1222,7 +1222,7 @@ async function drawSession(
         key: `ev-${ev.step}`,
         who: turn && turn.from === p.kid ? 'me' : 'them',
         name: turn && turn.from !== p.kid ? turn.from : '',
-        note: turn ? 'remote turn' : picked?.host ? `@${picked.host}` : '',
+        note: turn ? 'remote turn' : '',
         text: turn ? turn.text : ev.text
       });
     }
@@ -1234,7 +1234,7 @@ async function drawSession(
         side: 'theirs',
         author: 'agent',
         name: 'Their agent',
-        meta: picked?.host ? `@${picked.host}` : ''
+        host: picked?.host ?? ''
       },
       Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text)
     );

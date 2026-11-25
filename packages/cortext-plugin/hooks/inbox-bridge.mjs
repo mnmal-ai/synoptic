@@ -274,6 +274,10 @@ const PATHS = {
 function icon(name, color, size = 16) {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${(PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join("")}</svg>`;
 }
+/** A round avatar: a filled circle in `color` with the Tabler icon in white, as a chat draws one. */
+function avatar(name, color, size = 28) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="${color}"/><g transform="translate(5.5 5.5) scale(0.54)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${(PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join("")}</g></svg>`;
+}
 
 //#endregion
 //#region src/pane-text.ts
@@ -742,9 +746,12 @@ const FILL_ALPHA = "24";
 function tail(hex, side) {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="${side === "ours" ? "M0 0 C0 8 4 12 12 12 L0 12 Z" : "M12 0 C12 8 8 12 0 12 L12 12 Z"}" fill="${hex}" fill-opacity="${(Number.parseInt(FILL_ALPHA, 16) / 255).toFixed(3)}"/></svg>`;
 }
+const AVATAR_PX = 28;
+const AVATAR_COLS = 12;
 /**
-* One message as a chat bubble: yours on the right in the accent, theirs on the left in grey,
-* each with a tail toward its side. The bubble's first line is the author icon, name and meta.
+* One message as a group-chat bubble: a round avatar beside it with the name and host under the
+* icon, the bubble with a tail toward the avatar. Yours sit right in the accent, theirs left in
+* grey, so the side says whose it is and the icon says person or agent.
 */
 function messageRow(els, surface, m, ...content) {
 	const { Box, Text } = els;
@@ -753,14 +760,24 @@ function messageRow(els, surface, m, ...content) {
 	const tone = l.tty ? SIDE_KEY[m.side] : hex;
 	const ours = m.side === "ours";
 	const body = content.filter((c) => c != null);
-	const header = el(Box, {
-		flexDirection: "row",
-		gap: 1,
-		alignItems: "center"
-	}, m.author === "agent" ? mark(els, l, "robot", hex, tone, "Agent", "[agent]", 14) : mark(els, l, "user", hex, tone, "Person", "[person]", 14), el(Text, { bold: true }, m.name), m.meta ? el(Text, {
+	const who = el(Box, {
+		flexDirection: "column",
+		alignItems: "center",
+		width: AVATAR_COLS,
+		flexShrink: 0
+	}, l.Svg ? el(l.Svg, {
+		source: avatar(m.author === "agent" ? "robot" : "user", hex, AVATAR_PX),
+		alt: m.author === "agent" ? "Agent" : "Person",
+		width: AVATAR_PX,
+		height: AVATAR_PX
+	}) : el(Text, { color: tone }, m.author === "agent" ? "[agent]" : "[person]"), el(Text, {
+		bold: true,
+		wrap: "wrap",
+		maxLines: 2
+	}, m.name), m.host ? el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
-	}, m.meta) : null);
+	}, `@${m.host}`) : null);
 	const bubble = el(Box, {
 		flexDirection: "column",
 		flexShrink: 1,
@@ -769,7 +786,7 @@ function messageRow(els, surface, m, ...content) {
 		borderColor: l.tty ? tone : void 0,
 		paddingX: 1,
 		paddingY: l.tty ? 0 : 1
-	}, header, ...body);
+	}, ...body, m.meta ? el(Text, { dimColor: true }, m.meta) : null);
 	const point = l.Svg ? el(l.Svg, {
 		source: tail(hex, m.side),
 		alt: "Speech bubble tail",
@@ -779,11 +796,19 @@ function messageRow(els, surface, m, ...content) {
 	return el(Box, {
 		key: m.key,
 		flexDirection: "row",
-		alignItems: "flex-end",
+		alignItems: "flex-start",
 		justifyContent: ours ? "flex-end" : "flex-start",
 		paddingLeft: ours ? l.tty ? 4 : 8 : 0,
 		paddingRight: ours ? 0 : l.tty ? 4 : 8
-	}, ...ours ? [bubble, point] : [point, bubble]);
+	}, ...ours ? [
+		bubble,
+		point,
+		who
+	] : [
+		who,
+		point,
+		bubble
+	]);
 }
 /** The mail itself, framed as an attachment: icon and label, subject, preview, actions. */
 function mailAttachment(els, surface, m) {
@@ -791,7 +816,7 @@ function mailAttachment(els, surface, m) {
 	const l = look(els, surface);
 	const accent = l.tty ? "suggestion" : BRAND.accent;
 	const label = m.dir === "in" ? `Received${m.shortId !== void 0 ? ` #${m.shortId}` : ""}` : `Sent${m.shortId !== void 0 ? ` #${m.shortId}` : ""}`;
-	const route = m.dir === "in" ? `from ${m.peer}` : `to ${m.peer}`;
+	const route = m.dir === "in" ? "" : `to ${m.peer}`;
 	const body = m.body.trim();
 	const preview = body.replace(/\s+/g, " ");
 	const actions = [];
@@ -805,10 +830,7 @@ function mailAttachment(els, surface, m) {
 		plain: true,
 		onPress: m.onOpenSession
 	}, "Open their session"));
-	return el(Box, {
-		flexDirection: "column",
-		marginTop: l.tty ? 0 : 1
-	}, el(Box, {
+	return el(Box, { flexDirection: "column" }, el(Box, {
 		flexDirection: "row",
 		gap: 1,
 		alignItems: "center"
@@ -818,7 +840,11 @@ function mailAttachment(els, surface, m) {
 	}, label), el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
-	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · "))), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
+	}, [
+		route,
+		m.when,
+		m.isReply ? "reply" : ""
+	].filter(Boolean).join(" · "))), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
 		key: `${m.key}-body`,
 		text: body
 	}) : el(Text, {}, body) : el(Text, {
@@ -830,8 +856,8 @@ function mailAttachment(els, surface, m) {
 	}, ...actions) : null);
 }
 /**
-* A mail as one message: the agent that sent it (robot avatar, name, host and time), then the
-* mail as an attachment under it.
+* A mail as one message: the sending agent's avatar, name and host beside it, the mail in the
+* bubble with its time on the Sent or Received line.
 */
 function mailCard(els, surface, m) {
 	const sender = m.dir === "in" ? m.peer : m.from ?? "";
@@ -844,7 +870,7 @@ function mailCard(els, surface, m) {
 		side: m.side ?? (m.dir === "out" ? "ours" : "theirs"),
 		author: "agent",
 		name: who.name,
-		meta: [who.host ? `@${who.host}` : "", m.when].filter(Boolean).join(" · ")
+		host: who.host
 	}, mailAttachment(els, surface, m));
 }
 /** A prompt a person typed: yours on the right, theirs on the left. */
@@ -858,7 +884,8 @@ function promptCard(els, surface, m) {
 		side: m.who === "me" ? "ours" : "theirs",
 		author: "person",
 		name: m.who === "me" ? "You" : who.name || "Their person",
-		meta: [m.who === "them" && who.host ? `@${who.host}` : "", m.note].filter(Boolean).join(" · ")
+		host: m.who === "them" ? who.host : "",
+		meta: m.note
 	}, el(els.Text, {}, m.text));
 }
 
@@ -1927,7 +1954,7 @@ async function drawSession(p, $, e) {
 		}
 		if (ev.kind === "tool") return el(Box, {
 			key: `ev-${ev.step}`,
-			paddingLeft: 2
+			paddingLeft: 14
 		}, el(Text, {
 			dimColor: true,
 			wrap: "truncate-end"
@@ -1938,7 +1965,7 @@ async function drawSession(p, $, e) {
 				key: `ev-${ev.step}`,
 				who: turn && turn.from === p.kid ? "me" : "them",
 				name: turn && turn.from !== p.kid ? turn.from : "",
-				note: turn ? "remote turn" : picked?.host ? `@${picked.host}` : "",
+				note: turn ? "remote turn" : "",
 				text: turn ? turn.text : ev.text
 			});
 		}
@@ -1947,7 +1974,7 @@ async function drawSession(p, $, e) {
 			side: "theirs",
 			author: "agent",
 			name: "Their agent",
-			meta: picked?.host ? `@${picked.host}` : ""
+			host: picked?.host ?? ""
 		}, Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text));
 	};
 	return el(Box, {
