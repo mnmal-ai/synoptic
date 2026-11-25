@@ -220,3 +220,41 @@ export function laneRows<T extends { status: string }>(
     rows: rows.filter((r) => r.status === s)
   }));
 }
+
+/** A pushed mail row, read back from the text `renderPushRow` wrote. */
+export type MailRow = {
+  shortId: number;
+  id: string | undefined;
+  from: string;
+  date: string;
+  subject: string;
+  isReply: boolean;
+  body: string;
+};
+
+/** Reads a pushed mail row's text; undefined when the text is not one. */
+export function parseMailRow(text: string): MailRow | undefined {
+  const head =
+    /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(
+      text
+    );
+  if (!head) return undefined;
+  const lines = text.split('\n');
+  const titleAt = lines.findIndex((l) => /^### #\d+ — /.test(l));
+  const title = titleAt < 0 ? '' : (lines[titleAt] ?? '').replace(/^### #\d+ — /, '');
+  const isReply = title.endsWith(' (reply)');
+  const body: string[] = [];
+  for (const l of titleAt < 0 ? [] : lines.slice(titleAt + 1)) {
+    if (l.startsWith('> ') || l === '>') body.push(l.slice(2));
+    else if (body.length > 0) break;
+  }
+  return {
+    shortId: Number(head[1]),
+    id: /ackAgentMessage \{ id: "([^"]+)" \}/.exec(text)?.[1],
+    from: oneLine(head[2] ?? ''),
+    date: head[3] ?? '',
+    subject: oneLine(isReply ? title.slice(0, -' (reply)'.length) : title),
+    isReply,
+    body: body.join('\n')
+  };
+}

@@ -9,7 +9,8 @@ import {
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
 import { newPanes, registerPanes, shareReply, shareToolCall, startPanes } from './desktop-panes.js';
-import { mailCallLine, mailReceivedLine } from './pane-text.js';
+import { registerMailCard } from './mail-card.js';
+import { mailCallLine } from './pane-text.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -69,8 +70,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
-  // The row above is the model's; this dim line is the person's: who wrote, when, about what.
-  if (!m.fromSelf) $.ui.log(mailReceivedLine(m));
+  // registerMailCard draws that row for the person as a card they can open.
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
@@ -107,6 +107,7 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 export const register: Register = (on) => {
   const panes = newPanes();
   registerPanes(on, panes);
+  registerMailCard(on);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,

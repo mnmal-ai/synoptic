@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { renderPushRow } from '../../synoptic/src/inbox-push.js';
 import {
   ago,
   controlKids,
@@ -6,6 +7,7 @@ import {
   hostOf,
   mailCallLine,
   mailReceivedLine,
+  parseMailRow,
   remoteTurnText,
   toolSummary,
   viewTodos
@@ -146,5 +148,37 @@ describe('ago', () => {
     expect(ago('2026-11-25T11:00:00Z', now)).toBe('60m ago');
     expect(ago('2026-11-25T06:00:00Z', now)).toBe('6h ago');
     expect(ago('2026-11-20T12:00:00Z', now)).toBe('5d ago');
+  });
+});
+
+describe('parseMailRow', () => {
+  const m = {
+    id: '0190-abc',
+    shortId: 42,
+    subject: 'Gate green',
+    body: 'line one\n\nline three',
+    inReplyTo: 'x',
+    tags: null,
+    from: 'peer@host',
+    createdAt: '2026-11-25T18:05:00Z'
+  };
+  it('reads back what renderPushRow wrote', () => {
+    expect(parseMailRow(renderPushRow(m, 'cortext'))).toEqual({
+      shortId: 42,
+      id: '0190-abc',
+      from: 'peer@host',
+      date: '2026-11-25',
+      subject: 'Gate green',
+      isReply: true,
+      body: 'line one\n\nline three'
+    });
+  });
+  it('reads a row with no body', () => {
+    const row = parseMailRow(renderPushRow({ ...m, body: null, inReplyTo: null }));
+    expect(row?.body).toBe('');
+    expect(row?.isReply).toBe(false);
+  });
+  it('is undefined for any other text', () => {
+    expect(parseMailRow('hello')).toBeUndefined();
   });
 });

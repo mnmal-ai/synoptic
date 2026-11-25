@@ -90,7 +90,7 @@ export type Panes = {
 };
 
 /** One element: `h` with its result narrowed to what a Box child and a render hook take. */
-function el(...args: Parameters<typeof h>): RenderElement {
+export function el(...args: Parameters<typeof h>): RenderElement {
   const [tag, props, ...children] = args;
   // An undefined prop is left out: a surface checks props against an allowlist of set values.
   const set = props

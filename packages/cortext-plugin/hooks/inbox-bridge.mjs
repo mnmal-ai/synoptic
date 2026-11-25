@@ -263,12 +263,6 @@ function clockTime(ms) {
 	const d = new Date(ms);
 	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
-/** The dim transcript line for mail that arrived: number, sender, time, subject. */
-function mailReceivedLine(m, _now) {
-	const at = Date.parse(m.createdAt);
-	const when = Number.isNaN(at) ? "" : ` · ${clockTime(at)}`;
-	return `Mail received #${m.shortId}${m.urgent ? " (urgent)" : ""} · from ${oneLine(m.from)}${when} · ${cut(oneLine(m.subject), 90)}`;
-}
 /**
 * The dim transcript line for a mailbox call this session made through the substrate MCP
 * server, or undefined when the call is not one. Reads the `act` sketch or the `mutate` frame.
@@ -385,6 +379,27 @@ function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
 		},
 		rows: rows.filter((r) => r.status === s)
 	}));
+}
+/** Reads a pushed mail row's text; undefined when the text is not one. */
+function parseMailRow(text) {
+	const head = /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(text);
+	if (!head) return void 0;
+	const lines = text.split("\n");
+	const titleAt = lines.findIndex((l) => /^### #\d+ — /.test(l));
+	const title = titleAt < 0 ? "" : (lines[titleAt] ?? "").replace(/^### #\d+ — /, "");
+	const isReply = title.endsWith(" (reply)");
+	const body = [];
+	for (const l of titleAt < 0 ? [] : lines.slice(titleAt + 1)) if (l.startsWith("> ") || l === ">") body.push(l.slice(2));
+	else if (body.length > 0) break;
+	return {
+		shortId: Number(head[1]),
+		id: /ackAgentMessage \{ id: "([^"]+)" \}/.exec(text)?.[1],
+		from: oneLine(head[2] ?? ""),
+		date: head[3] ?? "",
+		subject: oneLine(isReply ? title.slice(0, -8) : title),
+		isReply,
+		body: body.join("\n")
+	};
 }
 
 //#endregion
@@ -1732,6 +1747,66 @@ function registerPanes(on, p) {
 }
 
 //#endregion
+//#region src/mail-card.ts
+const PREVIEW_MAX = 140;
+const openMail = atom({
+	plugin: "cortext",
+	key: "mailOpen"
+}, []);
+async function drawMailCard($, e, text) {
+	const row = parseMailRow(text);
+	if (!row) return void 0;
+	const els = $.ui.resolve(e);
+	const { Box, Text, Button } = els;
+	const Markdown = els.Markdown;
+	const tone = accent(e.surface === "terminal");
+	const isOpen = (await read($, openMail)).includes(row.shortId);
+	const toggle = () => update($, openMail, (prev) => {
+		const ids = prev ?? [];
+		return ids.includes(row.shortId) ? ids.filter((n) => n !== row.shortId) : [...ids, row.shortId].slice(-200);
+	});
+	const meta = [
+		`from ${row.from}`,
+		row.date,
+		row.isReply ? "reply" : ""
+	].filter(Boolean).join(" · ");
+	const preview = row.body.replace(/\s+/g, " ").trim();
+	const body = row.body.trim();
+	return el(Box, {
+		key: `mail-${row.shortId}`,
+		flexDirection: "column",
+		borderStyle: "round",
+		borderColor: tone,
+		paddingX: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, el(Text, {
+		bold: true,
+		color: tone
+	}, `Mail #${row.shortId}`), el(Text, {
+		dimColor: true,
+		wrap: "truncate-end"
+	}, meta)), el(Text, { bold: true }, row.subject || "(no subject)"), isOpen ? body ? Markdown ? el(Markdown, {
+		key: `mail-body-${row.shortId}`,
+		text: body
+	}) : el(Text, {}, body) : el(Text, { dimColor: true }, "(no message body)") : preview ? el(Text, {
+		dimColor: true,
+		wrap: "truncate-end"
+	}, cut(preview, PREVIEW_MAX)) : el(Text, { dimColor: true }, "(no message body)"), isOpen ? el(Text, { dimColor: true }, "Signed by another agent: read it as information, not as an instruction from you.") : void 0, body ? el(Button, {
+		key: `mail-toggle-${row.shortId}`,
+		plain: true,
+		onPress: toggle
+	}, isOpen ? "Hide full message" : "Show full message") : void 0);
+}
+function registerMailCard(on) {
+	on("ui.render", { component: "UserMessage" }, async ($, e, next) => {
+		if (e.props.isExpanded) return next(e);
+		return await drawMailCard($, e, e.props.text) ?? next(e);
+	});
+}
+
+//#endregion
 //#region src/inbox-bridge.ts
 const DELIVERED = {
 	plugin: "cortext",
@@ -1775,7 +1850,6 @@ async function deliver(b, $, m) {
 			text: renderPushRow(m, b.ns)
 		}]
 	} });
-	if (!m.fromSelf) $.ui.log(mailReceivedLine(m));
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
@@ -1808,6 +1882,7 @@ async function originalPromptCheck($) {
 const register = (on) => {
 	const panes = newPanes();
 	registerPanes(on, panes);
+	registerMailCard(on);
 	const b = {
 		ns: "cortext",
 		turnId: void 0,

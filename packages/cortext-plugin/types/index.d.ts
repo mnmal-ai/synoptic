@@ -62,6 +62,8 @@ declare module 'claude-code' {
       inboxCursor: string;
       /** SYNOPTIC_INBOX_PROMPT_CHECK as the session found it, before any watcher set it; null = unset. */
       inboxPromptCheckOrig: string | null;
+      /** Mail cards in the transcript shown open, by shortId. */
+      mailOpen: number[];
       paneTodos: Shaped<PaneTodo[]>;
       paneTodoScope: 'project' | 'all';
       paneDrafts: Record<string, string>;
