@@ -1,17 +1,30 @@
 import type { ClientKeyEvent, ClientModule, ClientPointerEvent, RenderElement } from 'claude-code';
+import { wrapLines } from './pane-text.js';
 
-// The Todos list, drawn whole by this surface module: one line per row, the whole line lit
-// under the pointer, the picked row in inverse colors. A click posts `{ type: 'pick', id }`;
+// The Todos list, drawn whole by this surface module: each row is its title on up to two
+// lines and a quiet line of facts (priority, status, area), the whole row lit under the
+// pointer and the picked row filled. A click posts `{ type: 'pick', id }`;
 // up and down arrows post the neighbour while the list has the focus (a click gives it).
 
-export type ListRow = { id: string; num: string; title: string; tone: string; strong: boolean };
+export type ListRow = {
+  id: string;
+  num: string;
+  title: string;
+  /** What the row's quiet line says, as parts: `High`, `Open`, an area. */
+  facts: { text: string; tone?: string }[];
+};
 export type ListProps = { rows: ListRow[]; picked: string | null; tty?: boolean };
+type State = { hover?: number };
+
+/** Each row is two title lines, a facts line and a gap. */
+export const ROW_LINES = 4;
+/** The most rows drawn at once. */
+export const MAX_ROWS = 120;
 
 // Off the terminal the picked row and the row under the pointer take a brand-tinted fill;
 // on the terminal they keep inverse and underline, which every terminal theme draws.
 const PICKED_FILL = '#0a9fdc2e';
 const HOVER_FILL = '#8593a81f';
-type State = { hover?: number };
 
 const latest = new WeakMap<object, ListProps>();
 
@@ -22,7 +35,8 @@ const List: ClientModule<ListProps, State> = (props, surface) => {
     surface.setState({});
     surface.onPointer((ev: ClientPointerEvent) => {
       const rows = latest.get(surface)?.rows ?? [];
-      const at = ev.y >= 0 && ev.y < rows.length ? ev.y : undefined;
+      const i = Math.floor(ev.y / ROW_LINES);
+      const at = ev.y >= 0 && i < rows.length && ev.y % ROW_LINES < ROW_LINES - 1 ? i : undefined;
       if (ev.type === 'up' && ev.button === 'left' && at !== undefined) {
         const row = rows[at];
         if (row) surface.post({ type: 'pick', id: row.id });
@@ -45,36 +59,54 @@ const List: ClientModule<ListProps, State> = (props, surface) => {
     });
   }
   const hover = surface.state?.hover;
+  const width = Math.max(8, surface.columns);
   // biome-ignore lint/correctness/noUndeclaredVariables: `h` is the engine's global JSX factory
-  return h(
+  const t = h;
+  // Only props that are on: the engine refuses a tree past 100,000 characters, and a list can
+  // hold a few hundred rows. Past MAX_ROWS the list says how many it leaves out.
+  const on = (v: boolean, k: string) => (v ? { [k]: true } : {});
+  const shown = props.rows.slice(0, MAX_ROWS);
+  const rest = props.rows.length - shown.length;
+  return t(
     Box,
     { flexDirection: 'column' },
-    ...props.rows.map((r, i) => {
-      const on = r.id === props.picked;
-      const lit = !on && i === hover;
-      const look = props.tty
-        ? { inverse: on, underline: lit }
-        : on
-          ? { backgroundColor: PICKED_FILL, bold: true }
-          : lit
-            ? { backgroundColor: HOVER_FILL }
-            : {};
-      // biome-ignore lint/correctness/noUndeclaredVariables: as above
-      return h(
-        Text,
-        { key: `r-${r.id}`, ...look, wrap: 'truncate-end' },
-        // biome-ignore lint/correctness/noUndeclaredVariables: as above
-        h(
+    ...shown.map((r, i) => {
+      const picked = r.id === props.picked;
+      const lit = !picked && i === hover;
+      // The terminal marks a row in its text; elsewhere the row's box takes a fill.
+      const mark = props.tty ? { ...on(picked, 'inverse'), ...on(lit, 'underline') } : {};
+      const fill = props.tty ? undefined : picked ? PICKED_FILL : lit ? HOVER_FILL : undefined;
+      const lead = `${r.num} `;
+      const [first = '', second = ''] = wrapLines(`${lead}${r.title}`, width - 2, 2);
+      const facts: (string | RenderElement)[] = [];
+      for (const f of r.facts) {
+        const sep = facts.length ? ' · ' : '';
+        if (f.tone) facts.push(sep, t(Text, { color: f.tone }, f.text));
+        else facts.push(`${sep}${f.text}`);
+      }
+      const title = { ...mark, ...on(picked, 'bold') };
+      return t(
+        Box,
+        {
+          key: `r-${r.id}`,
+          flexDirection: 'column',
+          paddingX: 1,
+          marginBottom: 1,
+          ...(fill ? { backgroundColor: fill } : {})
+        },
+        t(
           Text,
-          { color: on && props.tty ? undefined : r.tone, bold: true },
-          r.strong ? '● ' : on ? '▌ ' : '  '
+          title,
+          t(Text, on(!picked, 'dimColor'), first.slice(0, lead.length)),
+          first.slice(lead.length)
         ),
-        // biome-ignore lint/correctness/noUndeclaredVariables: as above
-        h(Text, { dimColor: !on }, `${r.num} `),
-        r.title,
-        ' '.repeat(Math.max(0, surface.columns))
+        t(Text, title, second || ' '),
+        t(Text, { ...mark, ...on(!picked, 'dimColor'), wrap: 'truncate-end' }, ...facts)
       );
-    })
+    }),
+    ...(rest > 0
+      ? [t(Text, { dimColor: true }, ` ${rest} more. Search or filter to narrow the list.`)]
+      : [])
   ) as RenderElement;
 };
 

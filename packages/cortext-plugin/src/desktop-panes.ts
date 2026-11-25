@@ -929,14 +929,21 @@ async function drawTodos(
                   rows: rows.map((t) => ({
                     id: t.id,
                     num: `#${t.shortId}`,
-                    title: allProjects ? `${t.title}  · ${t.project ?? 'cross-cutting'}` : t.title,
-                    tone: statusTone(t.status, tty),
-                    strong: t.priority === 'high' || t.status === 'blocked'
+                    title: t.title,
+                    facts: [
+                      t.priority === 'high'
+                        ? { text: 'High', tone: tty ? 'warning' : BRAND.magenta }
+                        : { text: humanize(t.priority) },
+                      { text: humanize(t.status), tone: statusTone(t.status, tty) },
+                      ...(t.area ? [{ text: t.area }] : []),
+                      ...(allProjects ? [{ text: t.project ?? 'cross-cutting' }] : [])
+                    ]
                   })),
                   picked: pick,
                   tty
                 },
-                height: Math.max(1, rows.length)
+                // Four lines a row: two of title, one of facts, one of space (list.ts ROW_LINES), at most 120 rows (MAX_ROWS).
+                height: Math.max(1, Math.min(rows.length, 120) * 4 + (rows.length > 120 ? 1 : 0))
               }) as RenderElement
             ]
           : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t))))
@@ -946,7 +953,7 @@ async function drawTodos(
           (h(Client, {
             key: 'todo-splitter',
             module: './splitter.mjs',
-            props: { rows: Math.max(10, rows.length), rule: rule(tty), accent: accent(tty) },
+            props: { rows: Math.max(10, rows.length * 4), rule: rule(tty), accent: accent(tty) },
             width: 1
           }) as RenderElement)
         : null,

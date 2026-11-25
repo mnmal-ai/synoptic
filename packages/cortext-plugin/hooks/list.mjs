@@ -1,4 +1,42 @@
+//#region src/pane-text.ts
+/**
+* Text folded into at most `max` lines of `width` characters, breaking at spaces where it can;
+* the last line ends in an ellipsis when text is left over.
+*/
+function wrapLines(text, width, max) {
+	const w = Math.max(4, Math.floor(width));
+	const words = text.trim().split(/\s+/).filter(Boolean);
+	const lines = [];
+	let line = "";
+	let i = 0;
+	while (i < words.length && lines.length < max) {
+		const word = words[i] ?? "";
+		const next = line ? `${line} ${word}` : word;
+		if (next.length <= w) {
+			line = next;
+			i++;
+		} else if (!line) {
+			lines.push(word.slice(0, w));
+			words[i] = word.slice(w);
+		} else {
+			lines.push(line);
+			line = "";
+		}
+	}
+	if (line && lines.length < max) lines.push(line);
+	if (i < words.length && lines.length > 0) {
+		const last = lines[lines.length - 1] ?? "";
+		lines[lines.length - 1] = `${last.slice(0, w - 1).trimEnd()}…`;
+	}
+	return lines;
+}
+
+//#endregion
 //#region src/list.ts
+/** Each row is two title lines, a facts line and a gap. */
+const ROW_LINES = 4;
+/** The most rows drawn at once. */
+const MAX_ROWS = 120;
 const PICKED_FILL = "#0a9fdc2e";
 const HOVER_FILL = "#8593a81f";
 const latest = /* @__PURE__ */ new WeakMap();
@@ -9,7 +47,8 @@ const List = (props, surface) => {
 		surface.setState({});
 		surface.onPointer((ev) => {
 			const rows = latest.get(surface)?.rows ?? [];
-			const at = ev.y >= 0 && ev.y < rows.length ? ev.y : void 0;
+			const i = Math.floor(ev.y / 4);
+			const at = ev.y >= 0 && i < rows.length && ev.y % 4 < 3 ? i : void 0;
 			if (ev.type === "up" && ev.button === "left" && at !== void 0) {
 				const row = rows[at];
 				if (row) surface.post({
@@ -34,26 +73,44 @@ const List = (props, surface) => {
 		});
 	}
 	const hover = surface.state?.hover;
-	return h(Box, { flexDirection: "column" }, ...props.rows.map((r, i) => {
-		const on = r.id === props.picked;
-		const lit = !on && i === hover;
-		const look = props.tty ? {
-			inverse: on,
-			underline: lit
-		} : on ? {
-			backgroundColor: PICKED_FILL,
-			bold: true
-		} : lit ? { backgroundColor: HOVER_FILL } : {};
-		return h(Text, {
+	const width = Math.max(8, surface.columns);
+	const t = h;
+	const on = (v, k) => v ? { [k]: true } : {};
+	const shown = props.rows.slice(0, 120);
+	const rest = props.rows.length - shown.length;
+	return t(Box, { flexDirection: "column" }, ...shown.map((r, i) => {
+		const picked = r.id === props.picked;
+		const lit = !picked && i === hover;
+		const mark = props.tty ? {
+			...on(picked, "inverse"),
+			...on(lit, "underline")
+		} : {};
+		const fill = props.tty ? void 0 : picked ? PICKED_FILL : lit ? HOVER_FILL : void 0;
+		const lead = `${r.num} `;
+		const [first = "", second = ""] = wrapLines(`${lead}${r.title}`, width - 2, 2);
+		const facts = [];
+		for (const f of r.facts) {
+			const sep = facts.length ? " · " : "";
+			if (f.tone) facts.push(sep, t(Text, { color: f.tone }, f.text));
+			else facts.push(`${sep}${f.text}`);
+		}
+		const title = {
+			...mark,
+			...on(picked, "bold")
+		};
+		return t(Box, {
 			key: `r-${r.id}`,
-			...look,
+			flexDirection: "column",
+			paddingX: 1,
+			marginBottom: 1,
+			...fill ? { backgroundColor: fill } : {}
+		}, t(Text, title, t(Text, on(!picked, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " "), t(Text, {
+			...mark,
+			...on(!picked, "dimColor"),
 			wrap: "truncate-end"
-		}, h(Text, {
-			color: on && props.tty ? void 0 : r.tone,
-			bold: true
-		}, r.strong ? "● " : on ? "▌ " : "  "), h(Text, { dimColor: !on }, `${r.num} `), r.title, " ".repeat(Math.max(0, surface.columns)));
-	}));
+		}, ...facts));
+	}), ...rest > 0 ? [t(Text, { dimColor: true }, ` ${rest} more. Search or filter to narrow the list.`)] : []);
 };
 
 //#endregion
-export { List as default };
+export { MAX_ROWS, ROW_LINES, List as default };

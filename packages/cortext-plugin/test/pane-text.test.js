@@ -14,7 +14,8 @@ import {
   remoteTurnText,
   splitMailFeedText,
   toolSummary,
-  viewTodos
+  viewTodos,
+  wrapLines
 } from '../src/pane-text.ts';
 
 describe('toolSummary', () => {
@@ -237,5 +238,20 @@ describe('parseRemoteTurn', () => {
   });
   it('is undefined for a prompt someone typed here', () => {
     expect(parseRemoteTurn('Cut the release')).toBeUndefined();
+  });
+});
+
+describe('wrapLines', () => {
+  it('folds a title into two lines at spaces', () => {
+    expect(wrapLines('Ask Nathan: OK for Horizon to sign', 16, 2)).toEqual([
+      'Ask Nathan: OK',
+      'for Horizon to…'
+    ]);
+  });
+  it('leaves a short title on one line', () => {
+    expect(wrapLines('Short one', 20, 2)).toEqual(['Short one']);
+  });
+  it('splits a word wider than the line', () => {
+    expect(wrapLines('abcdefghij', 4, 2)).toEqual(['abcd', 'efg…']);
   });
 });

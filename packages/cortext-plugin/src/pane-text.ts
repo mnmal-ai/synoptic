@@ -313,3 +313,36 @@ export function parseRemoteTurn(text: string): { from: string; text: string } | 
   );
   return m ? { from: m[1] ?? '', text: text.slice(m[0].length) } : undefined;
 }
+
+/**
+ * Text folded into at most `max` lines of `width` characters, breaking at spaces where it can;
+ * the last line ends in an ellipsis when text is left over.
+ */
+export function wrapLines(text: string, width: number, max: number): string[] {
+  const w = Math.max(4, Math.floor(width));
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  let i = 0;
+  while (i < words.length && lines.length < max) {
+    const word = words[i] ?? '';
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= w) {
+      line = next;
+      i++;
+    } else if (!line) {
+      // A word wider than the line is split.
+      lines.push(word.slice(0, w));
+      words[i] = word.slice(w);
+    } else {
+      lines.push(line);
+      line = '';
+    }
+  }
+  if (line && lines.length < max) lines.push(line);
+  if (i < words.length && lines.length > 0) {
+    const last = lines[lines.length - 1] ?? '';
+    lines[lines.length - 1] = `${last.slice(0, w - 1).trimEnd()}…`;
+  }
+  return lines;
+}
