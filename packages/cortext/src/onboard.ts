@@ -29,6 +29,7 @@ import {
   DECISION_STATUS_VOCAB,
   HOST_INSTALL_CHECK_STATES,
   HOST_INSTALL_FRAGMENT_STATES,
+  SESSION_FEED_EVENT_KINDS,
   TASK_STATUS_VOCAB,
   TODO_STATUS_ALIASES
 } from './namespace.js';
@@ -418,6 +419,35 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           'After a completed subtask, a blocker, or before a reset; point at files and rows, never retell them',
           'Treat the step as done only once the write is acknowledged; on a refused revision, re-read the latest and retry'
         ]
+      },
+      SessionFeed: {
+        purpose:
+          "A session its user chose to share read-only, keyed by its instance tag. Written only by that session's plugin, after its user turns sharing on",
+        fields: {
+          id: 'auto-generated',
+          instance: '`session:<8 hex>`, unique among live rows',
+          host: 'lowercase hostname, domain dropped',
+          title: 'the first prompt, cut short',
+          sharing: 'false once the user turns sharing off (default true)',
+          lastEventAt: 'when the latest event was written',
+          archived: 'true if retired',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: ['Never by hand: the plugin writes it when its user turns sharing on']
+      },
+      SessionFeedEvent: {
+        purpose:
+          "One step of a shared session: a prompt, a reply, or a tool call's name and short summary. Tool output is never written",
+        fields: {
+          id: 'auto-generated',
+          feed: 'UUID crossRef to the SessionFeed, cascade on delete',
+          step: "one higher than the feed's latest; unique per feed",
+          kind: vocabUnion(SESSION_FEED_EVENT_KINDS),
+          text: 'the prompt, the reply, or the tool summary (not indexed)',
+          tool: 'the tool name on a tool event (nullable)',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: ['Never by hand: the plugin writes it while its feed is sharing']
       }
     },
     mutations: buildMutations(),

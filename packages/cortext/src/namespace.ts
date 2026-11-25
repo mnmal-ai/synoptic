@@ -178,6 +178,9 @@ export const HOST_INSTALL_CHECK_STATES = ['ok', 'warn', 'unknown'] as const;
 
 export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
 
+/** SessionFeedEvent.kind: a user prompt, an assistant reply, or one tool call. */
+export const SESSION_FEED_EVENT_KINDS = ['prompt', 'reply', 'tool'] as const;
+
 const CONCEPT_NAME_TTL_MS = 60_000;
 
 /** Long-form length past which `embed.source` appends the long form to the synopsis. */
@@ -964,6 +967,53 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           name: 'rows_execution_checkpoint_task_revision_unique'
         }
       ]
+    },
+    // A session its user chose to share read-only. One row per session, keyed
+    // by the instance tag the session stamps on its mail. Written only by that
+    // session, and only after its user turned sharing on.
+    SessionFeed: {
+      fields: {
+        // `session:<8 hex>`, the upsert key.
+        instance: field.string(),
+        // Normalised hostname: lowercase, domain dropped.
+        host: field.string(),
+        // The first prompt, cut short: what a viewer picks the feed by.
+        title: field.string(),
+        // False once the user turns sharing off; the feed then takes no events.
+        sharing: field.boolean({ default: true }),
+        lastEventAt: field.date(),
+        archived: field.boolean({ default: false }),
+        project: field.string({ nullable: true, indexed: true })
+      },
+      indexes: [
+        {
+          fields: ['instance'],
+          unique: true,
+          where: 'live',
+          name: 'rows_session_feed_instance_unique'
+        }
+      ]
+    },
+    // One step of a shared session: a prompt, a reply, or a tool call's name
+    // and short summary. Tool output is never written.
+    SessionFeedEvent: {
+      fields: {
+        feed: field.crossRef(ns, 'SessionFeed', { onDelete: 'cascade' }),
+        // Writer-assigned, one higher than the feed's latest.
+        step: field.number(),
+        kind: field.enum(SESSION_FEED_EVENT_KINDS),
+        text: field.string({ indexed: false }),
+        tool: field.string({ nullable: true }),
+        project: field.string({ nullable: true, indexed: true })
+      },
+      indexes: [
+        {
+          fields: ['feed', { field: 'step', dir: 'desc' }],
+          unique: true,
+          where: 'live',
+          name: 'rows_session_feed_event_feed_step_unique'
+        }
+      ]
     }
     // ReviewSession + ReviewFinding live in the review plugin's review/* namespace.
   };
@@ -1049,7 +1099,9 @@ export const CLAUDE_TYPE_NAMES = [
   'AgentMessage',
   'HostInstall',
   'Task',
-  'ExecutionCheckpoint'
+  'ExecutionCheckpoint',
+  'SessionFeed',
+  'SessionFeedEvent'
 ] as const;
 
 /**

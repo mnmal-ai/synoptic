@@ -1182,6 +1182,145 @@
         "type": "string"
       }
     },
+    "SessionFeed": {
+      "archived": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
+      },
+      "host": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "instance": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "lastEventAt": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "date"
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "sharing": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
+      },
+      "title": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      }
+    },
+    "SessionFeedEvent": {
+      "feed": {
+        "kind": "crossRef",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": true,
+        "target": "SessionFeed"
+      },
+      "kind": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string",
+        "enum": [
+          "prompt",
+          "reply",
+          "tool"
+        ]
+      },
+      "project": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": true,
+        "required": false,
+        "type": "string"
+      },
+      "step": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "number"
+      },
+      "text": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "tool": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      }
+    },
     "SessionLog": {
       "archived": {
         "kind": "scalar",
@@ -1624,6 +1763,7 @@
         ".:HOST_INSTALL_FRAGMENT_STATES",
         ".:ReleaseClass",
         ".:ReleaseSurface",
+        ".:SESSION_FEED_EVENT_KINDS",
         ".:SurfaceChange",
         ".:SurfaceField",
         ".:TASK_STATUS_VOCAB",
@@ -1645,7 +1785,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "be1e2d57"
+      "dtsDigest": "fb58f746"
     }
   },
   "surfaceFormat": 2
