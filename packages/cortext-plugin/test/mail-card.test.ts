@@ -91,6 +91,7 @@ function substrate(on: any, opened: string[]) {
     return { value: { isPlaced: true } };
   });
   on('ui.log', () => ({ value: undefined }));
+  on('ui.panes', () => ({ value: [] }));
   on('clock.now', () => ({ value: Date.parse('2026-11-25T00:00:00Z') }));
   on('clock.every', () => ({ value: { cancel: () => {} } }));
   on('mcp.call', (_: unknown, e: { args?: { payload?: Record<string, unknown> } }) => {

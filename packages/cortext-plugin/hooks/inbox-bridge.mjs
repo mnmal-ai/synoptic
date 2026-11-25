@@ -1944,6 +1944,8 @@ async function openRemoteSession(p, $, instance) {
 	const found = (await read($, feeds)).find((f) => f.instance === instance);
 	if (found) await watch(p, $, found.id);
 	else await note($, `${instance} is not shared. Its user turns it on with /cortext-share on.`);
+	const was = (await $.ui.panes()).find((pane) => pane.id === SESSION_PANE);
+	if (was && !was.isShown) await $.ui.close({ id: SESSION_PANE });
 	const opened = await $.ui.open({
 		id: SESSION_PANE,
 		title: "Remote session",
