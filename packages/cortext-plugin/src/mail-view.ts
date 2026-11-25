@@ -163,7 +163,9 @@ export function messageRow(
       el(
         Box,
         { flexDirection: 'row', gap: 1, paddingX: 1 },
-        el(Text, { bold: true, color: tone }, m.name),
+        // Theirs takes the terminal's own foreground, which every theme keeps readable; yours the
+        // theme's accent key, which the theme also sets for its own background.
+        el(Text, { bold: true, color: ours ? tone : undefined }, m.name),
         el(
           Text,
           { dimColor: true },

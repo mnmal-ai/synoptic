@@ -814,7 +814,7 @@ function messageRow(els, surface, m, ...content) {
 		paddingX: 1
 	}, el(Text, {
 		bold: true,
-		color: tone
+		color: ours ? tone : void 0
 	}, m.name), el(Text, { dimColor: true }, [m.host ? `@${m.host}` : "", m.author === "agent" ? "agent" : "person"].filter(Boolean).join(" · "))), bubble);
 	return el(Box, {
 		key: m.key,
