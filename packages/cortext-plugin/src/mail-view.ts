@@ -220,26 +220,31 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
   return el(
     Box,
     { flexDirection: 'column' },
+    // One line: the subject on the left, the Sent or Received label on the right.
     el(
       Box,
-      { flexDirection: 'row', gap: 1, alignItems: 'center', justifyContent: 'flex-end' },
-      mark(
-        els,
-        l,
-        m.dir === 'in' ? 'mail-down' : 'mail-up',
-        BRAND.accent,
-        accent,
-        m.dir === 'in' ? 'Received mail' : 'Sent mail',
-        m.dir === 'in' ? '↓' : '↑'
-      ),
-      el(Text, { bold: true, color: accent }, label),
+      { flexDirection: 'row', gap: 2, alignItems: 'center', justifyContent: 'space-between' },
+      el(Text, { bold: true, wrap: 'truncate-end' }, m.subject || '(no subject)'),
       el(
-        Text,
-        { dimColor: true, wrap: 'truncate-end' },
-        [route, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
+        Box,
+        { flexDirection: 'row', gap: 1, alignItems: 'center', flexShrink: 0 },
+        mark(
+          els,
+          l,
+          m.dir === 'in' ? 'mail-down' : 'mail-up',
+          BRAND.accent,
+          accent,
+          m.dir === 'in' ? 'Received mail' : 'Sent mail',
+          m.dir === 'in' ? '↓' : '↑'
+        ),
+        el(Text, { bold: true, color: accent }, label),
+        el(
+          Text,
+          { dimColor: true, wrap: 'truncate-end' },
+          [route, m.isReply ? 'reply' : ''].filter(Boolean).join(' · ')
+        )
       )
     ),
-    el(Text, { bold: true }, m.subject || '(no subject)'),
     m.isOpen && body
       ? l.Markdown
         ? el(l.Markdown, { key: `${m.key}-body`, text: body })

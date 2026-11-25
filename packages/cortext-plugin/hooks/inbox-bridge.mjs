@@ -840,16 +840,24 @@ function mailAttachment(els, surface, m) {
 	}, "Open their session"));
 	return el(Box, { flexDirection: "column" }, el(Box, {
 		flexDirection: "row",
+		gap: 2,
+		alignItems: "center",
+		justifyContent: "space-between"
+	}, el(Text, {
+		bold: true,
+		wrap: "truncate-end"
+	}, m.subject || "(no subject)"), el(Box, {
+		flexDirection: "row",
 		gap: 1,
 		alignItems: "center",
-		justifyContent: "flex-end"
+		flexShrink: 0
 	}, mark(els, l, m.dir === "in" ? "mail-down" : "mail-up", BRAND.accent, accent, m.dir === "in" ? "Received mail" : "Sent mail", m.dir === "in" ? "↓" : "↑"), el(Text, {
 		bold: true,
 		color: accent
 	}, label), el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
-	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · "))), el(Text, { bold: true }, m.subject || "(no subject)"), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
+	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · ")))), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
 		key: `${m.key}-body`,
 		text: body
 	}) : el(Text, {}, body) : el(Text, {
