@@ -2,8 +2,8 @@ import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
 import { openRemoteSession, type Panes } from './desktop-panes.js';
 import { el } from './el.js';
-import { mailCard } from './mail-view.js';
-import { parseMailRow, parseMailSend } from './pane-text.js';
+import { mailCard, promptCard } from './mail-view.js';
+import { parseMailRow, parseMailSend, parseRemoteTurn } from './pane-text.js';
 
 // Agent mail in this session's transcript drawn as cards (mail-view.ts): received rows and sent
 // calls. Each card folds to a preview and opens to the whole body; ctrl+o keeps the rows as the
@@ -24,6 +24,17 @@ export function registerMailCard(on: On, p: Panes): void {
   // A pushed mail row: the user-role row the bridge appends for each delivered message.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.props.isExpanded) return next(e); // ctrl+o shows the row as the model read it
+    const turn = parseRemoteTurn(e.props.text);
+    if (turn) {
+      // A turn another person sent from their Remote session pane, running here.
+      return promptCard($.ui.resolve(e), e.surface, {
+        key: `turn-${e.requestId}`,
+        who: 'them',
+        name: turn.from,
+        note: 'remote turn, runs here',
+        text: turn.text
+      });
+    }
     const row = parseMailRow(e.props.text);
     if (!row) return next(e);
     const id = `in-${row.shortId}`;

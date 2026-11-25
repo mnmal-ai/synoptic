@@ -5,7 +5,7 @@ import { accent, BRAND, MARK_SVG, rule, statusTone } from './brand.js';
 import { el } from './el.js';
 import { groupedView } from './grouped.js';
 import { openMail } from './mail-card.js';
-import { mailCard } from './mail-view.js';
+import { mailCard, promptCard } from './mail-view.js';
 import {
   ago,
   clockTime,
@@ -16,6 +16,7 @@ import {
   humanize,
   laneRows,
   mailFeedText,
+  parseRemoteTurn,
   remoteTurnText,
   splitMailFeedText,
   type TodoSort,
@@ -1184,6 +1185,7 @@ async function drawSession(
   const room = Math.max(3, ((e as { viewport?: { rows?: number } }).viewport?.rows ?? 40) - 6);
 
   const opened = await read($, openMail);
+  const picked = list.find((f) => f.id === feed);
   const step = (ev: FeedEvent): RenderElement => {
     if (ev.kind === 'mail-in' || ev.kind === 'mail-out') {
       const { subject, body } = splitMailFeedText(ev.text);
@@ -1211,18 +1213,21 @@ async function drawSession(
       );
     }
     if (ev.kind === 'prompt') {
-      return el(
-        Box,
-        { key: `ev-${ev.step}`, borderStyle: 'round', paddingX: 1 },
-        el(Text, { bold: true }, ev.text)
-      );
+      // A person typed it: the sharer's own prompt, or a turn a viewer sent (you, or someone else).
+      const turn = parseRemoteTurn(ev.text);
+      return promptCard(els, e.surface, {
+        key: `ev-${ev.step}`,
+        who: turn && turn.from === p.kid ? 'me' : 'them',
+        name: turn ? (turn.from === p.kid ? '' : turn.from) : (picked?.host ?? ''),
+        note: turn ? 'remote turn' : '',
+        text: turn ? turn.text : ev.text
+      });
     }
     return Markdown
       ? el(Markdown, { key: `ev-${ev.step}`, text: ev.text })
       : el(Box, { key: `ev-${ev.step}` }, el(Text, {}, ev.text));
   };
 
-  const picked = list.find((f) => f.id === feed);
   return el(
     Box,
     { flexDirection: 'column', gap: 1 },

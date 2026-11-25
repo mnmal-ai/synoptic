@@ -10,6 +10,7 @@ import {
   mailReceivedLine,
   parseMailRow,
   parseMailSend,
+  parseRemoteTurn,
   remoteTurnText,
   splitMailFeedText,
   toolSummary,
@@ -224,5 +225,17 @@ describe('parseMailSend', () => {
       body: 'a\n\nb'
     });
     expect(splitMailFeedText(mailFeedText('s', ''))).toEqual({ subject: 's', body: '' });
+  });
+});
+
+describe('parseRemoteTurn', () => {
+  it('reads back what remoteTurnText wrote', () => {
+    expect(parseRemoteTurn(remoteTurnText('peer@host', 'Hold the merge.\n\nThanks'))).toEqual({
+      from: 'peer@host',
+      text: 'Hold the merge.\n\nThanks'
+    });
+  });
+  it('is undefined for a prompt someone typed here', () => {
+    expect(parseRemoteTurn('Cut the release')).toBeUndefined();
   });
 });

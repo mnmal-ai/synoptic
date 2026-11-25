@@ -213,6 +213,18 @@ const PATHS = {
 		"M3 19l6 -6",
 		"M15 13l6 6"
 	],
+	robot: [
+		"M6 6a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2l0 -4",
+		"M12 2v2",
+		"M9 12v9",
+		"M15 12v9",
+		"M5 16l4 -2",
+		"M15 14l4 2",
+		"M9 18h6",
+		"M10 8v.01",
+		"M14 8v.01"
+	],
+	user: ["M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0", "M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"],
 	send: ["M10 14l11 -11", "M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"],
 	"circle-check": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0", "M9 12l2 2l4 -4"],
 	circle: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"],
@@ -482,6 +494,14 @@ function splitMailFeedText(text) {
 		body: text.slice(at + 2)
 	};
 }
+/** A remote turn's prompt, read back from the text `remoteTurnText` wrote; undefined otherwise. */
+function parseRemoteTurn(text) {
+	const m = /^\[Remote turn from (\S+), sent from a cortext Remote session pane\.[^\]]*\]\n\n/.exec(text);
+	return m ? {
+		from: m[1] ?? "",
+		text: text.slice(m[0].length)
+	} : void 0;
+}
 
 //#endregion
 //#region src/grouped.ts
@@ -725,7 +745,12 @@ function mailCard(els, surface, m) {
 		flexDirection: "row",
 		gap: 1,
 		alignItems: "center"
-	}, mark(m.dir === "in" ? "mail-down" : "mail-up", m.dir === "in" ? "✉↓" : "✉↑", 18), el(Text, {
+	}, mark(m.dir === "in" ? "mail-down" : "mail-up", m.dir === "in" ? "✉↓" : "✉↑", 18), Svg ? el(Svg, {
+		source: icon("robot", hex, 16),
+		alt: "Agent mail",
+		width: 16,
+		height: 16
+	}) : el(Text, { dimColor: true }, "[agent]"), el(Text, {
 		bold: true,
 		color: tone
 	}, m.shortId !== void 0 ? `${label} #${m.shortId}` : label), el(Text, {
@@ -743,6 +768,39 @@ function mailCard(els, surface, m) {
 		alignItems: "center"
 	}, ...buttons) : void 0);
 }
+/** A prompt a person typed, as a card: pink with a person icon for you, amber for them. */
+function promptCard(els, surface, m) {
+	const { Box, Text } = els;
+	const tty = surface === "terminal";
+	const Svg = tty ? void 0 : els.Svg;
+	const hex = m.who === "me" ? BRAND.magenta : BRAND.yellow;
+	const tone = tty ? m.who === "me" ? "claude" : "warning" : hex;
+	const label = m.who === "me" ? "You" : "Their person";
+	const meta = [m.name, m.note].filter(Boolean).join(" · ");
+	return el(Box, {
+		key: m.key,
+		flexDirection: "column",
+		borderStyle: "round",
+		borderColor: tone,
+		backgroundColor: tty ? void 0 : tint(hex, "1a"),
+		paddingX: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, Svg ? el(Svg, {
+		source: icon("user", hex, 16),
+		alt: "Typed by a person",
+		width: 16,
+		height: 16
+	}) : el(Text, { color: tone }, "●"), el(Text, {
+		bold: true,
+		color: tone
+	}, label), meta ? el(Text, {
+		dimColor: true,
+		wrap: "truncate-end"
+	}, meta) : void 0), el(Text, {}, m.text));
+}
 
 //#endregion
 //#region src/mail-card.ts
@@ -759,6 +817,14 @@ function toggler($, id) {
 function registerMailCard(on, p) {
 	on("ui.render", { component: "UserMessage" }, async ($, e, next) => {
 		if (e.props.isExpanded) return next(e);
+		const turn = parseRemoteTurn(e.props.text);
+		if (turn) return promptCard($.ui.resolve(e), e.surface, {
+			key: `turn-${e.requestId}`,
+			who: "them",
+			name: turn.from,
+			note: "remote turn, runs here",
+			text: turn.text
+		});
 		const row = parseMailRow(e.props.text);
 		if (!row) return next(e);
 		const id = `in-${row.shortId}`;
@@ -1779,6 +1845,7 @@ async function drawSession(p, $, e) {
 	const now = await $.clock.now();
 	const room = Math.max(3, (e.viewport?.rows ?? 40) - 6);
 	const opened = await read($, openMail);
+	const picked = list.find((f) => f.id === feed);
 	const step = (ev) => {
 		if (ev.kind === "mail-in" || ev.kind === "mail-out") {
 			const { subject, body } = splitMailFeedText(ev.text);
@@ -1801,17 +1868,21 @@ async function drawSession(p, $, e) {
 			dimColor: true,
 			wrap: "truncate-end"
 		}, `  ${ev.tool ?? "tool"}: ${ev.text}`));
-		if (ev.kind === "prompt") return el(Box, {
-			key: `ev-${ev.step}`,
-			borderStyle: "round",
-			paddingX: 1
-		}, el(Text, { bold: true }, ev.text));
+		if (ev.kind === "prompt") {
+			const turn = parseRemoteTurn(ev.text);
+			return promptCard(els, e.surface, {
+				key: `ev-${ev.step}`,
+				who: turn && turn.from === p.kid ? "me" : "them",
+				name: turn ? turn.from === p.kid ? "" : turn.from : picked?.host ?? "",
+				note: turn ? "remote turn" : "",
+				text: turn ? turn.text : ev.text
+			});
+		}
 		return Markdown ? el(Markdown, {
 			key: `ev-${ev.step}`,
 			text: ev.text
 		}) : el(Box, { key: `ev-${ev.step}` }, el(Text, {}, ev.text));
 	};
-	const picked = list.find((f) => f.id === feed);
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1

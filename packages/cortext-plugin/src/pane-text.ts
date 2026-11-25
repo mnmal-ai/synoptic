@@ -305,3 +305,11 @@ export function splitMailFeedText(text: string): { subject: string; body: string
     ? { subject: text, body: '' }
     : { subject: text.slice(0, at), body: text.slice(at + 2) };
 }
+
+/** A remote turn's prompt, read back from the text `remoteTurnText` wrote; undefined otherwise. */
+export function parseRemoteTurn(text: string): { from: string; text: string } | undefined {
+  const m = /^\[Remote turn from (\S+), sent from a cortext Remote session pane\.[^\]]*\]\n\n/.exec(
+    text
+  );
+  return m ? { from: m[1] ?? '', text: text.slice(m[0].length) } : undefined;
+}

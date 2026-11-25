@@ -87,6 +87,10 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
       { flexDirection: 'row', gap: 1, alignItems: 'center' },
       // Received: an envelope with a down arrow; sent: one with an up arrow.
       mark(m.dir === 'in' ? 'mail-down' : 'mail-up', m.dir === 'in' ? '✉↓' : '✉↑', 18),
+      // Every mail is between agents: the robot says so.
+      Svg
+        ? el(Svg, { source: icon('robot', hex, 16), alt: 'Agent mail', width: 16, height: 16 })
+        : el(Text, { dimColor: true }, '[agent]'),
       el(
         Text,
         { bold: true, color: tone },
@@ -114,5 +118,53 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
     buttons.length > 0
       ? el(Box, { flexDirection: 'row', gap: 2, alignItems: 'center' }, ...buttons)
       : undefined
+  );
+}
+
+export type PromptCardSpec = {
+  key: string;
+  /** `me`: the person at this keyboard; `them`: the person at the other session. */
+  who: 'me' | 'them';
+  /** Who typed it, shown beside the label: a kid, or empty for this person. */
+  name?: string;
+  /** What the label adds, such as `remote turn`. */
+  note?: string;
+  text: string;
+};
+
+/** A prompt a person typed, as a card: pink with a person icon for you, amber for them. */
+export function promptCard(els: Els, surface: string, m: PromptCardSpec): RenderElement {
+  const { Box, Text } = els;
+  const tty = surface === 'terminal';
+  const Svg = tty ? undefined : ((els as unknown as { Svg?: Tag }).Svg as Tag | undefined);
+  const hex = m.who === 'me' ? BRAND.magenta : BRAND.yellow;
+  const tone = tty ? (m.who === 'me' ? 'claude' : 'warning') : hex;
+  const label = m.who === 'me' ? 'You' : 'Their person';
+  const meta = [m.name, m.note].filter(Boolean).join(' · ');
+  return el(
+    Box,
+    {
+      key: m.key,
+      flexDirection: 'column',
+      borderStyle: 'round',
+      borderColor: tone,
+      backgroundColor: tty ? undefined : tint(hex, '1a'),
+      paddingX: 1
+    },
+    el(
+      Box,
+      { flexDirection: 'row', gap: 1, alignItems: 'center' },
+      Svg
+        ? el(Svg, {
+            source: icon('user', hex, 16),
+            alt: 'Typed by a person',
+            width: 16,
+            height: 16
+          })
+        : el(Text, { color: tone }, '●'),
+      el(Text, { bold: true, color: tone }, label),
+      meta ? el(Text, { dimColor: true, wrap: 'truncate-end' }, meta) : undefined
+    ),
+    el(Text, {}, m.text)
   );
 }

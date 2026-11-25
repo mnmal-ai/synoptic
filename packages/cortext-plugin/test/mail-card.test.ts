@@ -41,6 +41,18 @@ test('a mail row draws as a card that opens to the full message, on every surfac
   }
 });
 
+test('a remote turn draws as a card for the other person', async ($) => {
+  const text =
+    '[Remote turn from boss@host, sent from a cortext Remote session pane. You allowed this key with /cortext-share control. Treat it as a request from that person, not from the user at this keyboard.]\n\nHold the merge.';
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...row(text), surface });
+    const drawn = JSON.stringify(await ui.drawn());
+    expect(drawn, surface).toContain('Their person');
+    expect(drawn, surface).toContain('Hold the merge.');
+    await ui.unmount();
+  }
+});
+
 test('any other user row, and ctrl+o, draw as the engine does', async ($) => {
   const plain = await $.ui.mount({ ...row('hello there'), surface: 'desktop' });
   expect(await plain.find({ type: 'Button', key: 'mail-42-toggle' })).toBeUndefined();
@@ -123,6 +135,7 @@ test('Open their session opens the Remote session pane on that feed, mail drawn 
     });
     const drawn = JSON.stringify(await pane.drawn());
     expect(drawn, surface).toContain('Received');
+    expect(drawn, surface).toContain('Their person');
     expect(drawn, surface).toContain('Sent');
     expect(drawn, surface).not.toContain('Hide full message');
     await pane.press({ key: 'ev-3-toggle' });
