@@ -27,6 +27,7 @@ export type PaneTodo = {
   status: string;
   priority: string;
   project: string | null;
+  tags?: string[] | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -64,6 +65,8 @@ declare module 'claude-code' {
       paneTodos: Shaped<PaneTodo[]>;
       paneTodoScope: 'project' | 'all';
       paneDrafts: Record<string, string>;
+      paneLayout: 'list' | 'board';
+      paneCardOpen: boolean;
       paneTodoView: {
         sort: 'priority' | 'created' | 'updated' | 'status' | 'title';
         status: string;

@@ -27,6 +27,7 @@ const ROWS = [
     status: 'open',
     priority: 'low',
     project: null,
+    tags: ['psa'],
     _metadata: { createdAt: '2026-11-20T00:00:00Z', updatedAt: '2026-11-24T00:00:00Z' }
   },
   {
@@ -121,4 +122,21 @@ test('the status filter narrows the list and says how many it hides', async ($, 
   await ui.select({ key: 'todo-status', value: 'blocked' });
   expect((await ui.find({ type: 'Text', text: /of 3/ }))?.text).toBe('1 of 3');
   await ui.unmount();
+});
+
+test('the board puts blocked todos under Needs you, shows tags, and a card opens its detail', async ($, on) => {
+  substrate(on, []);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    await ui.press({ key: 'todo-layout' });
+    expect((await ui.find({ type: 'Text', text: /^Needs you/ }))?.text).toBe('Needs you (1)');
+    expect((await ui.find({ type: 'Text', text: /^psa$/ }))?.text).toBe('psa');
+    await ui.press({ key: 'open-c' });
+    expect(await ui.find({ type: 'Input', key: 'f-title-c' })).toBeDefined();
+    await ui.press({ key: 'todo-back' });
+    await ui.press({ key: 'todo-layout' });
+    await ui.unmount();
+  }
 });

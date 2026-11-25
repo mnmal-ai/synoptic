@@ -119,6 +119,7 @@ export type TodoView = { sort: TodoSort; status: string; priority: string; searc
 type Sortable = {
   shortId: number;
   title: string;
+  tags?: string[] | null;
   status: string;
   priority: string;
   createdAt?: string;
@@ -161,4 +162,24 @@ export function ago(iso: string, now: number): string {
   if (s < 5400) return `${Math.round(s / 60)}m ago`;
   if (s < 129600) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
+}
+
+export type Lane = { key: string; title: string; tone: string; statuses: readonly string[] };
+
+/** The board's swimlanes, left to right. A blocked todo waits on a person, so its lane says so. */
+export const LANES: readonly Lane[] = [
+  { key: 'todo', title: 'Todo', tone: 'suggestion', statuses: ['open'] },
+  { key: 'doing', title: 'In progress', tone: 'success', statuses: ['in_progress'] },
+  { key: 'needs-you', title: 'Needs you', tone: 'warning', statuses: ['blocked'] },
+  { key: 'later', title: 'Later', tone: 'subtle', statuses: ['deferred'] }
+];
+
+/** Rows split into the board's lanes, each keeping the list's order. */
+export function laneRows<T extends { status: string }>(
+  rows: readonly T[]
+): { lane: Lane; rows: T[] }[] {
+  return LANES.map((lane) => ({
+    lane,
+    rows: rows.filter((r) => lane.statuses.includes(r.status))
+  }));
 }
