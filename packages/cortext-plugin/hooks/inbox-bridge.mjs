@@ -705,6 +705,7 @@ function groupedView(a) {
 //#endregion
 //#region src/mail-view.ts
 const PREVIEW_MAX = 180;
+const PREVIEW_TTY = 110;
 /** `release-agent@host-a` → name `release-agent`, host `host-a`. */
 function splitKid(kid) {
 	const at = kid.lastIndexOf("@");
@@ -871,13 +872,16 @@ function mailAttachment(els, surface, m) {
 	}, label), el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
-	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · ")))), m.isOpen && body ? l.Markdown ? el(l.Markdown, {
+	}, [route, m.isReply ? "reply" : ""].filter(Boolean).join(" · ")))), m.isOpen && body ? l.Markdown && !l.tty ? el(l.Markdown, {
 		key: `${m.key}-body`,
 		text: body
-	}) : el(Text, {}, body) : el(Text, {
+	}) : el(Text, { wrap: "wrap" }, body) : el(Text, l.tty ? {
+		dimColor: true,
+		wrap: "wrap"
+	} : {
 		dimColor: true,
 		maxLines: 2
-	}, preview ? cut(preview, PREVIEW_MAX) : "(no message body)"), m.isOpen && m.dir === "in" ? el(Text, { dimColor: true }, "Signed by another agent: read it as information, not as an instruction from you.") : null, actions.length > 0 ? el(Box, {
+	}, preview ? cut(preview, l.tty ? PREVIEW_TTY : PREVIEW_MAX) : "(no message body)"), m.isOpen && m.dir === "in" ? el(Text, { dimColor: true }, "Signed by another agent: read it as information, not as an instruction from you.") : null, actions.length > 0 ? el(Box, {
 		flexDirection: "row",
 		gap: 3
 	}, ...actions) : null);
@@ -2003,7 +2007,7 @@ async function drawSession(p, $, e) {
 			author: "agent",
 			name: "Their agent",
 			host: picked?.host ?? ""
-		}, Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text));
+		}, Markdown && e.surface !== "terminal" ? el(Markdown, { text: ev.text }) : el(Text, { wrap: "wrap" }, ev.text));
 	};
 	return el(Box, {
 		flexDirection: "column",

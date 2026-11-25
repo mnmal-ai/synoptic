@@ -12,6 +12,7 @@ import { cut } from './pane-text.js';
 // name says person or agent. A mail is a bubble too, its direction on the envelope icon.
 
 const PREVIEW_MAX = 180;
+const PREVIEW_TTY = 110;
 
 type Els = ReturnType<EngineInterface['ui']['resolve']>;
 type Tag = Parameters<typeof el>[0];
@@ -272,14 +273,16 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
         )
       )
     ),
+    // The terminal measures wrapped Markdown and a maxLines Text short inside the pane's fixed
+    // height, so the next row draws over them: it gets plain text, cut to a length instead.
     m.isOpen && body
-      ? l.Markdown
+      ? l.Markdown && !l.tty
         ? el(l.Markdown, { key: `${m.key}-body`, text: body })
-        : el(Text, {}, body)
+        : el(Text, { wrap: 'wrap' }, body)
       : el(
           Text,
-          { dimColor: true, maxLines: 2 },
-          preview ? cut(preview, PREVIEW_MAX) : '(no message body)'
+          l.tty ? { dimColor: true, wrap: 'wrap' } : { dimColor: true, maxLines: 2 },
+          preview ? cut(preview, l.tty ? PREVIEW_TTY : PREVIEW_MAX) : '(no message body)'
         ),
     m.isOpen && m.dir === 'in'
       ? el(

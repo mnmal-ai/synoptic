@@ -1236,7 +1236,9 @@ async function drawSession(
         name: 'Their agent',
         host: picked?.host ?? ''
       },
-      Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text)
+      Markdown && e.surface !== 'terminal'
+        ? el(Markdown, { text: ev.text })
+        : el(Text, { wrap: 'wrap' }, ev.text)
     );
   };
 
