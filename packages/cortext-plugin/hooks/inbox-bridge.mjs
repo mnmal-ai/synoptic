@@ -801,6 +801,20 @@ function messageRow(els, surface, m, ...content) {
 		width: 12,
 		height: 12
 	}) : null;
+	if (l.tty) return el(Box, {
+		key: m.key,
+		flexDirection: "column",
+		alignItems: ours ? "flex-end" : "flex-start",
+		paddingLeft: ours ? 4 : 0,
+		paddingRight: ours ? 0 : 4
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		paddingX: 1
+	}, el(Text, {
+		bold: true,
+		color: tone
+	}, m.name), el(Text, { dimColor: true }, [m.host ? `@${m.host}` : "", m.author === "agent" ? "agent" : "person"].filter(Boolean).join(" · "))), bubble);
 	return el(Box, {
 		key: m.key,
 		flexDirection: "row",
@@ -1968,7 +1982,7 @@ async function drawSession(p, $, e) {
 		}
 		if (ev.kind === "tool") return el(Box, {
 			key: `ev-${ev.step}`,
-			paddingLeft: 14
+			paddingLeft: e.surface === "terminal" ? 2 : 14
 		}, el(Text, {
 			dimColor: true,
 			wrap: "truncate-end"

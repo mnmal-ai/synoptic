@@ -1211,7 +1211,7 @@ async function drawSession(
       // A step of the agent's, indented under its avatar column as the chat does.
       return el(
         Box,
-        { key: `ev-${ev.step}`, paddingLeft: 14 },
+        { key: `ev-${ev.step}`, paddingLeft: e.surface === 'terminal' ? 2 : 14 },
         el(Text, { dimColor: true, wrap: 'truncate-end' }, `${ev.tool ?? 'tool'} · ${ev.text}`)
       );
     }

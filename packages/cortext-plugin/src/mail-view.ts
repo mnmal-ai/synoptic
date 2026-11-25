@@ -147,6 +147,33 @@ export function messageRow(
   const point = l.Svg
     ? el(l.Svg, { source: tail(hex, m.side), alt: 'Speech bubble tail', width: 12, height: 12 })
     : null;
+  if (l.tty) {
+    // A terminal draws no icon, so no avatar column: a one-line label above the bubble on its own
+    // side names who wrote it, and the bubble's border carries the side's colour.
+    return el(
+      Box,
+      {
+        key: m.key,
+        flexDirection: 'column',
+        alignItems: ours ? 'flex-end' : 'flex-start',
+        paddingLeft: ours ? 4 : 0,
+        paddingRight: ours ? 0 : 4
+      },
+      el(
+        Box,
+        { flexDirection: 'row', gap: 1, paddingX: 1 },
+        el(Text, { bold: true, color: tone }, m.name),
+        el(
+          Text,
+          { dimColor: true },
+          [m.host ? `@${m.host}` : '', m.author === 'agent' ? 'agent' : 'person']
+            .filter(Boolean)
+            .join(' · ')
+        )
+      ),
+      bubble
+    );
+  }
   // The bubble, its tail and its avatar line up at the bottom; it keeps a margin on the far side, so
   // yours and theirs never line up edge to edge.
   return el(
