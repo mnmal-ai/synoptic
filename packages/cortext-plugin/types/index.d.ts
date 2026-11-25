@@ -61,10 +61,9 @@ declare module 'claude-code' {
       inboxCursor: string;
       /** SYNOPTIC_INBOX_PROMPT_CHECK as the session found it, before any watcher set it; null = unset. */
       inboxPromptCheckOrig: string | null;
-      paneTodos: PaneTodo[];
+      paneTodos: Shaped<PaneTodo[]>;
       paneTodoScope: 'project' | 'all';
-      paneField: 'title' | 'area' | 'notes' | 'body' | 'blockedBy' | 'revisitWhen' | null;
-      paneFieldDraft: string;
+      paneDrafts: Record<string, string>;
       paneTodoView: {
         sort: 'priority' | 'created' | 'updated' | 'status' | 'title';
         status: string;

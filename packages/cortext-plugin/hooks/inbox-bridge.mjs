@@ -264,19 +264,15 @@ const STATUSES = [
 const todos = atom({
 	plugin: "cortext",
 	key: "paneTodos"
-}, []);
+}, [], { shape: "todos-2" });
 const todoScope = atom({
 	plugin: "cortext",
 	key: "paneTodoScope"
 }, "project");
-const editField = atom({
+const drafts = atom({
 	plugin: "cortext",
-	key: "paneField"
-}, null);
-const fieldDraft = atom({
-	plugin: "cortext",
-	key: "paneFieldDraft"
-}, "");
+	key: "paneDrafts"
+}, {});
 const todoView = atom({
 	plugin: "cortext",
 	key: "paneTodoView"
@@ -465,7 +461,6 @@ async function setView(p, $, patch) {
 }
 async function selectTodo(p, $, t) {
 	await update($, selected, () => t.id);
-	await update($, editField, () => null);
 	try {
 		const rows = await query(p, $, "Todo", {
 			params: {
@@ -532,7 +527,7 @@ async function saveField(p, $, t, patch) {
 			id: t.id,
 			...clean
 		});
-		await update($, editField, () => null);
+		await update($, drafts, (d) => dropDrafts(d, t.id, Object.keys(patch)));
 		await loadTodos(p, $);
 		const fresh = (await read($, todos)).find((r) => r.id === t.id);
 		if (fresh) await selectTodo(p, $, fresh);
@@ -541,51 +536,95 @@ async function saveField(p, $, t, patch) {
 		await note($, `Could not save #${t.shortId}: ${err.message}`);
 	}
 }
-/**
-* A compact control. On a desktop: an icon button whose name shows as a tooltip under the pointer.
-* On a terminal, which has no pointer hover: the name itself, with its hotkey.
-*/
-function iconButton(els, tty, b) {
-	const { Box, Text, Button } = els;
-	if (tty) return el(Button, {
-		key: b.key,
-		label: b.name,
-		hotkey: b.hotkey,
-		variant: b.primary ? "primary" : void 0,
-		onPress: b.onPress
-	});
-	return el(Box, {
-		key: `tip-${b.key}`,
-		position: "relative"
-	}, el(Button, {
-		key: b.key,
-		label: b.name,
-		hotkey: b.hotkey,
-		plain: true,
-		onPress: b.onPress
-	}, b.icon), el(Box, {
-		position: "absolute",
-		top: 2,
-		left: 0,
-		display: "none",
-		hover: { display: "flex" },
-		backgroundColor: "text",
-		paddingX: 1
-	}, el(Text, {
-		color: "inverseText",
-		size: "caption",
-		wrap: "truncate-end"
-	}, b.hotkey ? `${b.name}  ${b.hotkey}` : b.name)));
+function dropDrafts(d, id, fields) {
+	const out = { ...d };
+	for (const f of fields) delete out[`${id}:${f}`];
+	return out;
 }
 function priorityTone(t) {
 	if (t.status === "blocked") return "error";
 	if (t.priority === "high") return "warning";
-	return t.priority === "medium" ? "text" : "subtle";
+	return "subtle";
+}
+/** A caption over a control or value. */
+function labelled(els, label, child) {
+	const { Box, Text } = els;
+	return el(Box, { flexDirection: "column" }, el(Text, {
+		color: "subtle",
+		size: "caption"
+	}, label), child);
+}
+/** One list row. The picked row is the app's primary button, which carries its own contrast. */
+function listRow(els, tty, t, on, onPress) {
+	const { Box, Text, Button } = els;
+	const mark = t.status === "blocked" ? "blocked" : t.priority;
+	const label = `#${t.shortId}  ${t.title}`;
+	if (tty) return el(Box, {
+		key: `row-${t.id}`,
+		flexDirection: "row",
+		gap: 1
+	}, el(Text, {
+		color: on ? "suggestion" : priorityTone(t),
+		bold: on
+	}, on ? "›" : " "), el(Button, {
+		key: `pick-${t.id}`,
+		label,
+		plain: true,
+		onPress
+	}, el(Text, {
+		color: on ? "suggestion" : "text",
+		bold: on,
+		wrap: "truncate-end"
+	}, label)), el(Text, {
+		color: priorityTone(t),
+		size: "caption"
+	}, mark));
+	return el(Box, {
+		key: `row-${t.id}`,
+		flexDirection: "row"
+	}, el(Button, {
+		key: `pick-${t.id}`,
+		label,
+		variant: on ? "primary" : void 0,
+		plain: on ? void 0 : true,
+		onPress
+	}));
+}
+/**
+* A field that is always editable: click into the text and type. Enter saves (Shift+Enter is a
+* new line in a tall field); while it differs from what is stored, Save and Revert sit under it.
+*/
+function textField(els, o) {
+	const { Box, Button, Input } = els;
+	const dirty = o.draft !== void 0 && o.draft !== o.stored;
+	return labelled(els, o.label, el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Input, {
+		key: `f-${o.name}-${o.id}`,
+		value: o.draft ?? o.stored,
+		rows: o.rows,
+		placeholder: o.placeholder,
+		submitLabel: "save",
+		onInput: (v) => o.onDraft(v),
+		onSubmit: (v) => o.onSave(v)
+	}), dirty ? el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, el(Button, {
+		key: `save-${o.name}`,
+		label: "Save",
+		variant: "primary",
+		onPress: () => o.onSave(o.draft ?? "")
+	}), el(Button, {
+		key: `revert-${o.name}`,
+		label: "Revert",
+		onPress: () => o.onDraft(void 0)
+	})) : null));
 }
 async function drawTodos(p, $, e) {
 	const els = $.ui.resolve(e);
 	const { Box, Text, Button, Input, Select } = els;
-	const Markdown = els.Markdown;
 	const tty = e.surface === "terminal";
 	const all = await read($, todos);
 	const view = await read($, todoView);
@@ -594,34 +633,33 @@ async function drawTodos(p, $, e) {
 	const said = await read($, paneNote);
 	const pick = await read($, selected);
 	const more = await read($, detail);
-	const field = await read($, editField);
-	const draft = await read($, fieldDraft);
+	const pending = await read($, drafts);
 	const current = rows.find((t) => t.id === pick) ?? all.find((t) => t.id === pick);
 	const now = await $.clock.now();
 	const filtered = view.status !== "any" || view.priority !== "any" || view.search.trim() !== "";
 	const master = el(Box, {
 		flexDirection: "column",
-		width: "38%",
+		width: "36%",
 		gap: 1
 	}, el(Box, {
 		flexDirection: "row",
 		gap: 1
 	}, el(Box, { flexGrow: 1 }, el(Input, {
 		key: "todo-search",
-		placeholder: "Search todos",
-		submitLabel: "search",
+		placeholder: "Search title or #id",
+		submitLabel: "find",
 		value: view.search,
 		onInput: (v) => void setView(p, $, { search: v }),
 		onSubmit: (v) => void setView(p, $, { search: v })
-	})), iconButton(els, tty, {
+	})), el(Button, {
 		key: "todo-refresh",
-		icon: "↻",
-		name: "Refresh",
-		hotkey: "r",
+		label: "Refresh",
+		hotkey: tty ? "r" : void 0,
 		onPress: () => void refreshTodos(p, $)
 	})), el(Box, {
 		flexDirection: "row",
-		gap: 1,
+		columnGap: 1,
+		rowGap: 1,
 		flexWrap: "wrap"
 	}, el(Select, {
 		key: "todo-scope",
@@ -663,13 +701,14 @@ async function drawTodos(p, $, e) {
 		onSelect: (v) => void setView(p, $, { priority: v })
 	})), el(Input, {
 		key: "todo-new",
-		placeholder: `New todo in ${scope === "all" ? p.project : p.project}`,
+		placeholder: `New todo in ${p.project}`,
 		submitLabel: "add",
 		value: "",
 		onSubmit: (v) => void createTodo(p, $, v)
 	}), el(Box, {
 		flexDirection: "row",
-		gap: 1
+		gap: 1,
+		alignItems: "center"
 	}, el(Text, {
 		color: "subtle",
 		size: "caption",
@@ -684,157 +723,67 @@ async function drawTodos(p, $, e) {
 			priority: "any",
 			search: ""
 		})
-	}) : null), rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : null, ...rows.map((t) => {
-		const on = t.id === pick;
-		return el(Box, {
-			key: `row-${t.id}`,
-			flexDirection: "row",
-			gap: 1,
-			paddingX: 1,
-			backgroundColor: on ? "suggestion" : void 0,
-			hover: on ? void 0 : { backgroundColor: "promptBorder" }
-		}, el(Button, {
-			key: `pick-${t.id}`,
-			label: `#${t.shortId} ${t.title}`,
-			plain: true,
-			onPress: () => void selectTodo(p, $, t)
-		}, el(Text, {
-			color: on ? "inverseText" : priorityTone(t),
-			bold: t.priority === "high" || t.status === "blocked"
-		}, t.status === "blocked" ? "■ " : t.priority === "high" ? "● " : t.priority === "medium" ? "○ " : "· "), el(Text, {
-			color: on ? "inverseText" : "text",
-			bold: on,
-			wrap: "truncate-end"
-		}, t.title)));
-	}));
-	const label = (text) => el(Text, {
-		color: "subtle",
-		size: "caption"
-	}, text);
-	const editable = (t, name, title, value, opts) => {
-		if (field === name) return el(Box, {
-			key: `field-${name}`,
-			flexDirection: "column"
-		}, label(title), el(Input, {
-			key: `input-${name}-${t.id}`,
-			value: draft,
-			rows: opts.rows,
-			autoFocus: true,
-			submitLabel: "save",
-			onInput: (v) => void update($, fieldDraft, () => v),
-			onSubmit: (v) => void saveField(p, $, t, { [name]: v })
-		}), el(Box, {
-			flexDirection: "row",
-			gap: 1
-		}, el(Button, {
-			key: `save-${name}`,
-			label: "Save",
-			variant: "primary",
-			onPress: () => void read($, fieldDraft).then((v) => saveField(p, $, t, { [name]: v }))
-		}), el(Button, {
-			key: `cancel-${name}`,
-			label: "Cancel",
-			onPress: () => void update($, editField, () => null)
-		})));
-		const start = () => void update($, fieldDraft, () => value ?? "").then(() => update($, editField, () => name));
-		return el(Box, {
-			key: `field-${name}`,
-			flexDirection: "column"
-		}, label(title), el(Box, {
-			key: `edit-${name}-${t.id}`,
-			hover: { backgroundColor: "promptBorder" }
-		}, value ? opts.prose && Markdown && !tty ? el(Box, { flexDirection: "column" }, el(Markdown, { text: value }), el(Button, {
-			key: `open-${name}`,
-			label: `Edit ${title.toLowerCase()}`,
-			plain: true,
-			dimColor: true,
-			onPress: start
-		})) : el(Button, {
-			key: `open-${name}`,
-			label: `Edit ${title.toLowerCase()}`,
-			plain: true,
-			onPress: start
-		}, el(Text, { color: "text" }, value)) : el(Button, {
-			key: `open-${name}`,
-			label: opts.empty,
-			plain: true,
-			dimColor: true,
-			onPress: start
-		})));
+	}) : null), rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : el(Box, { flexDirection: "column" }, ...rows.map((t) => listRow(els, tty, t, t.id === pick, () => void selectTodo(p, $, t)))));
+	const field = (name, label, stored, rows, placeholder) => {
+		if (!current) return null;
+		const k = `${current.id}:${name}`;
+		return textField(els, {
+			id: current.id,
+			name,
+			label,
+			stored: stored ?? "",
+			draft: pending[k],
+			rows,
+			placeholder,
+			onDraft: (v) => void update($, drafts, (d) => {
+				const out = { ...d };
+				if (v === void 0) delete out[k];
+				else out[k] = v;
+				return out;
+			}),
+			onSave: (v) => void saveField(p, $, current, { [name]: v })
+		});
 	};
+	const fact = (label, value) => labelled(els, label, el(Text, {
+		color: "text",
+		tabular: true
+	}, value));
 	const page = !current ? el(Text, { color: "subtle" }, rows.length ? "Pick a todo on the left." : "Nothing to show.") : el(Box, {
 		flexDirection: "column",
 		gap: 1
 	}, el(Box, {
 		flexDirection: "row",
-		gap: 1
+		gap: 2,
+		alignItems: "center"
 	}, el(Box, { flexGrow: 1 }, el(Text, {
 		color: "subtle",
 		size: "caption",
 		tabular: true
-	}, `#${current.shortId} · ${current.project ?? "cross-cutting"}`)), iconButton(els, tty, {
+	}, `#${current.shortId} · ${current.project ?? "cross-cutting"}`)), el(Button, {
 		key: "todo-close",
-		icon: "✓",
-		name: "Close as done",
-		hotkey: "x",
-		primary: true,
+		label: "Close as done",
+		hotkey: tty ? "x" : void 0,
 		onPress: () => void closeTodo(p, $, current)
-	})), field === "title" ? editable(current, "title", "Title", current.title, {
-		rows: 2,
-		empty: "Add a title"
-	}) : el(Box, {
-		key: `edit-title-${current.id}`,
-		hover: { backgroundColor: "promptBorder" }
-	}, el(Button, {
-		key: "open-title",
-		label: "Edit title",
-		plain: true,
-		onPress: () => void update($, fieldDraft, () => current.title).then(() => update($, editField, () => "title"))
-	}, el(Text, {
-		size: "title",
-		weight: "semibold",
-		color: "text"
-	}, current.title))), el(Box, {
+	})), field("title", "Title", current.title, 2, "Title"), el(Box, {
 		flexDirection: "row",
-		gap: 2,
-		flexWrap: "wrap"
-	}, el(Select, {
+		columnGap: 3,
+		rowGap: 1,
+		flexWrap: "wrap",
+		alignItems: "flex-end"
+	}, labelled(els, "Priority", el(Select, {
 		key: `pri-${current.id}`,
-		label: "Priority",
 		value: current.priority,
 		options: PRIORITIES.map((v) => ({ value: v })),
 		onSelect: (v) => void saveField(p, $, current, { priority: v })
-	}), el(Select, {
+	})), labelled(els, "Status", el(Select, {
 		key: `status-${current.id}`,
-		label: "Status",
 		value: current.status,
 		options: STATUSES.map((v) => ({
 			value: v,
 			label: v.replace("_", " ")
 		})),
 		onSelect: (v) => void saveField(p, $, current, { status: v })
-	})), el(Box, {
-		flexDirection: "row",
-		gap: 3,
-		flexWrap: "wrap"
-	}, editable(current, "area", "Area", current.area, { empty: "Add an area" }), el(Box, { flexDirection: "column" }, label("Created"), el(Text, {
-		color: "text",
-		tabular: true
-	}, current.createdAt ? ago(current.createdAt, now) : "—")), el(Box, { flexDirection: "column" }, label("Updated"), el(Text, {
-		color: "text",
-		tabular: true
-	}, current.updatedAt ? ago(current.updatedAt, now) : "—")), more?.targetDate ? el(Box, { flexDirection: "column" }, label("Target"), el(Text, {
-		color: "text",
-		tabular: true
-	}, more.targetDate.slice(0, 10))) : null), current.status === "blocked" || more?.blockedBy ? editable(current, "blockedBy", "Blocked by", more?.blockedBy, { empty: "Say what it waits on" }) : null, current.status === "deferred" || more?.revisitWhen ? editable(current, "revisitWhen", "Revisit when", more?.revisitWhen, { empty: "Say when to look again" }) : null, editable(current, "notes", "Notes", more?.notes, {
-		rows: 4,
-		prose: true,
-		empty: "Add notes"
-	}), editable(current, "body", "Description", more?.body, {
-		rows: 8,
-		prose: true,
-		empty: "Add a description"
-	}));
+	})), fact("Created", current.createdAt ? ago(current.createdAt, now) : "—"), fact("Updated", current.updatedAt ? ago(current.updatedAt, now) : "—"), more?.targetDate ? fact("Target", more.targetDate.slice(0, 10)) : null), field("area", "Area", current.area, void 0, "Area"), current.status === "blocked" || more?.blockedBy ? field("blockedBy", "Blocked by", more?.blockedBy, 2, "What it waits on") : null, current.status === "deferred" || more?.revisitWhen ? field("revisitWhen", "Revisit when", more?.revisitWhen, 2, "When to look again") : null, field("notes", "Notes", more?.notes, 6, "Add notes"), field("body", "Description", more?.body, 10, "Add a description"));
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1
@@ -844,7 +793,7 @@ async function drawTodos(p, $, e) {
 	}, master, el(Box, {
 		flexDirection: "column",
 		flexGrow: 1,
-		borderStyle: "single",
+		borderStyle: "round",
 		borderColor: "promptBorder",
 		paddingX: 2,
 		paddingY: 1

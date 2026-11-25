@@ -89,26 +89,27 @@ test('opens with the first row picked, its detail on the right, on every surface
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface });
-    // Priority sort: high first, so "High one" is the picked row and the detail title.
-    const titles = await ui.findAll({ type: 'Text', text: /one$/ });
-    expect(titles.map((t) => t.text)).toContain('High one');
-    expect(await ui.find({ type: 'Button', key: 'open-notes' })).toBeDefined();
+    // Priority sort: high first, so "High one" (#2) is picked and its title fills the editor.
+    expect(await ui.find({ type: 'Input', key: 'f-title-b' })).toBeDefined();
+    expect(await ui.find({ type: 'Button', key: 'pick-b' })).toBeDefined();
+    expect(await ui.find({ type: 'Input', key: 'f-notes-b' })).toBeDefined();
     expect(await ui.find({ type: 'Button', key: 'todo-close' })).toBeDefined();
     await ui.unmount();
   }
 });
 
-test('a press on a field swaps in its editor, and Enter saves just that field', async ($, on) => {
+test('notes edit in place: typing shows Save, and Enter saves just that field', async ($, on) => {
   const writes: unknown[] = [];
   substrate(on, writes);
   await $.command.run({ command: 'cortext-todos', args: '' });
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
-  await ui.press({ key: 'open-notes' });
-  const input = await ui.find({ type: 'Input', key: 'input-notes-b' });
-  expect(input).toBeDefined();
-  await ui.input({ key: 'input-notes-b', text: 'new notes' });
+  expect(await ui.find({ type: 'Button', key: 'save-notes' })).toBeUndefined();
+  await ui.input({ key: 'f-notes-b', text: 'new notes', kind: 'change' });
+  expect(await ui.find({ type: 'Button', key: 'save-notes' })).toBeDefined();
+  await ui.input({ key: 'f-notes-b', text: 'new notes' });
   expect(JSON.stringify(writes)).toContain('"notes":"new notes"');
+  expect(await ui.find({ type: 'Button', key: 'save-notes' })).toBeUndefined();
   await ui.unmount();
 });
 
