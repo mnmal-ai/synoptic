@@ -701,7 +701,6 @@ function groupedView(a) {
 //#endregion
 //#region src/mail-view.ts
 const PREVIEW_MAX = 180;
-const AVATAR = 20;
 /** `release-agent@host-a` → name `release-agent`, host `host-a`. */
 function splitKid(kid) {
 	const at = kid.lastIndexOf("@");
@@ -730,68 +729,67 @@ function mark(els, l, name, hex, tone, alt, glyph, size = 16) {
 		height: size
 	}) : el(els.Text, { color: tone }, glyph);
 }
-const SPEAKER_HEX = {
-	me: BRAND.magenta,
-	them: BRAND.yellow,
-	agent: BRAND.slate
+const SIDE_HEX = {
+	ours: BRAND.accent,
+	theirs: BRAND.slate
 };
-const SPEAKER_KEY = {
-	me: "claude",
-	them: "warning",
-	agent: "subtle"
+const SIDE_KEY = {
+	ours: "suggestion",
+	theirs: "subtle"
 };
+const FILL_ALPHA = "24";
+/** The bubble's tail, a curved point at its bottom corner toward its own side. */
+function tail(hex, side) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="${side === "ours" ? "M0 0 C0 8 4 12 12 12 L0 12 Z" : "M12 0 C12 8 8 12 0 12 L12 12 Z"}" fill="${hex}" fill-opacity="${(Number.parseInt(FILL_ALPHA, 16) / 255).toFixed(3)}"/></svg>`;
+}
 /**
-* One message row: avatar, name and meta on one line, the content under the name. Your own
-* (`me`) draws as a tinted bubble on the right instead, as every chat app draws the sender's.
+* One message as a chat bubble: yours on the right in the accent, theirs on the left in grey,
+* each with a tail toward its side. The bubble's first line is the author icon, name and meta.
 */
 function messageRow(els, surface, m, ...content) {
 	const { Box, Text } = els;
 	const l = look(els, surface);
-	const hex = SPEAKER_HEX[m.speaker];
-	const tone = l.tty ? SPEAKER_KEY[m.speaker] : hex;
+	const hex = SIDE_HEX[m.side];
+	const tone = l.tty ? SIDE_KEY[m.side] : hex;
+	const ours = m.side === "ours";
 	const body = content.filter((c) => c != null);
 	const header = el(Box, {
 		flexDirection: "row",
 		gap: 1,
 		alignItems: "center"
-	}, el(Text, {
-		bold: true,
-		color: m.speaker === "agent" ? void 0 : tone
-	}, m.name), m.meta ? el(Text, {
+	}, m.author === "agent" ? mark(els, l, "robot", hex, tone, "Agent", "[agent]", 14) : mark(els, l, "user", hex, tone, "Person", "[person]", 14), el(Text, { bold: true }, m.name), m.meta ? el(Text, {
 		dimColor: true,
 		wrap: "truncate-end"
 	}, m.meta) : null);
-	if (m.speaker === "me") return el(Box, {
-		key: m.key,
-		flexDirection: "row",
-		justifyContent: "flex-end"
-	}, el(Box, {
+	const bubble = el(Box, {
 		flexDirection: "column",
-		width: l.tty ? void 0 : "85%",
-		backgroundColor: l.tty ? void 0 : tint(hex, "14"),
+		flexShrink: 1,
+		backgroundColor: l.tty ? void 0 : tint(hex, FILL_ALPHA),
 		borderStyle: l.tty ? "round" : void 0,
 		borderColor: l.tty ? tone : void 0,
-		paddingX: 1
-	}, header, ...body));
-	const avatar = m.speaker === "agent" ? mark(els, l, "robot", hex, tone, "Agent", "[agent]", AVATAR) : mark(els, l, "user", hex, tone, "Person", "[person]", AVATAR);
+		paddingX: 1,
+		paddingY: l.tty ? 0 : 1
+	}, header, ...body);
+	const point = l.Svg ? el(l.Svg, {
+		source: tail(hex, m.side),
+		alt: "Speech bubble tail",
+		width: 12,
+		height: 12
+	}) : null;
 	return el(Box, {
 		key: m.key,
 		flexDirection: "row",
-		gap: 1
-	}, el(Box, {
-		flexDirection: "column",
-		width: l.tty ? void 0 : AVATAR
-	}, avatar), el(Box, {
-		flexDirection: "column",
-		flexGrow: 1
-	}, header, ...body));
+		alignItems: "flex-end",
+		justifyContent: ours ? "flex-end" : "flex-start",
+		paddingLeft: ours ? l.tty ? 4 : 8 : 0,
+		paddingRight: ours ? 0 : l.tty ? 4 : 8
+	}, ...ours ? [bubble, point] : [point, bubble]);
 }
 /** The mail itself, framed as an attachment: icon and label, subject, preview, actions. */
 function mailAttachment(els, surface, m) {
 	const { Box, Text, Button } = els;
 	const l = look(els, surface);
 	const accent = l.tty ? "suggestion" : BRAND.accent;
-	const rule = l.tty ? "promptBorder" : tint(BRAND.slate, "59");
 	const label = m.dir === "in" ? `Received${m.shortId !== void 0 ? ` #${m.shortId}` : ""}` : `Sent${m.shortId !== void 0 ? ` #${m.shortId}` : ""}`;
 	const route = m.dir === "in" ? `from ${m.peer}` : `to ${m.peer}`;
 	const body = m.body.trim();
@@ -809,10 +807,7 @@ function mailAttachment(els, surface, m) {
 	}, "Open their session"));
 	return el(Box, {
 		flexDirection: "column",
-		borderStyle: "round",
-		borderColor: rule,
-		paddingX: 1,
-		marginTop: 1
+		marginTop: l.tty ? 0 : 1
 	}, el(Box, {
 		flexDirection: "row",
 		gap: 1,
@@ -846,12 +841,13 @@ function mailCard(els, surface, m) {
 	};
 	return messageRow(els, surface, {
 		key: m.key,
-		speaker: "agent",
+		side: m.side ?? (m.dir === "out" ? "ours" : "theirs"),
+		author: "agent",
 		name: who.name,
 		meta: [who.host ? `@${who.host}` : "", m.when].filter(Boolean).join(" · ")
 	}, mailAttachment(els, surface, m));
 }
-/** A prompt a person typed: your bubble on the right, their person's message on the left. */
+/** A prompt a person typed: yours on the right, theirs on the left. */
 function promptCard(els, surface, m) {
 	const who = m.name ? splitKid(m.name) : {
 		name: "",
@@ -859,9 +855,10 @@ function promptCard(els, surface, m) {
 	};
 	return messageRow(els, surface, {
 		key: m.key,
-		speaker: m.who,
-		name: m.who === "me" ? "You" : "Their person",
-		meta: [m.who === "them" && who.name ? who.name : "", m.note].filter(Boolean).join(" · ")
+		side: m.who === "me" ? "ours" : "theirs",
+		author: "person",
+		name: m.who === "me" ? "You" : who.name || "Their person",
+		meta: [m.who === "them" && who.host ? `@${who.host}` : "", m.note].filter(Boolean).join(" · ")
 	}, el(els.Text, {}, m.text));
 }
 
@@ -1916,6 +1913,7 @@ async function drawSession(p, $, e) {
 			return mailCard(els, e.surface, {
 				key: `ev-${ev.step}`,
 				dir: ev.kind === "mail-in" ? "in" : "out",
+				side: ev.kind === "mail-in" && ev.tool === p.kid ? "ours" : "theirs",
 				peer: ev.tool ?? "someone",
 				when: "",
 				subject,
@@ -1929,7 +1927,7 @@ async function drawSession(p, $, e) {
 		}
 		if (ev.kind === "tool") return el(Box, {
 			key: `ev-${ev.step}`,
-			paddingLeft: e.surface === "terminal" ? 2 : 3
+			paddingLeft: 2
 		}, el(Text, {
 			dimColor: true,
 			wrap: "truncate-end"
@@ -1939,16 +1937,17 @@ async function drawSession(p, $, e) {
 			return promptCard(els, e.surface, {
 				key: `ev-${ev.step}`,
 				who: turn && turn.from === p.kid ? "me" : "them",
-				name: turn ? turn.from === p.kid ? "" : turn.from : picked?.host ?? "",
-				note: turn ? "remote turn" : "",
+				name: turn && turn.from !== p.kid ? turn.from : "",
+				note: turn ? "remote turn" : picked?.host ? `@${picked.host}` : "",
 				text: turn ? turn.text : ev.text
 			});
 		}
 		return messageRow(els, e.surface, {
 			key: `ev-${ev.step}`,
-			speaker: "agent",
+			side: "theirs",
+			author: "agent",
 			name: "Their agent",
-			meta: picked?.host ?? ""
+			meta: picked?.host ? `@${picked.host}` : ""
 		}, Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text));
 	};
 	return el(Box, {

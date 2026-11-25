@@ -47,7 +47,7 @@ test('a remote turn draws as a card for the other person', async ($) => {
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...row(text), surface });
     const drawn = JSON.stringify(await ui.drawn());
-    expect(drawn, surface).toContain('Their person');
+    expect(drawn, surface).toContain('"boss"');
     expect(drawn, surface).toContain('Hold the merge.');
     await ui.unmount();
   }

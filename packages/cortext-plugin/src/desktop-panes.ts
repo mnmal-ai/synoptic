@@ -1193,6 +1193,8 @@ async function drawSession(
       return mailCard(els, e.surface, {
         key: `ev-${ev.step}`,
         dir: ev.kind === 'mail-in' ? 'in' : 'out',
+        // Mail their agent received came from someone: yours when the sender is your key.
+        side: ev.kind === 'mail-in' && ev.tool === p.kid ? 'ours' : 'theirs',
         peer: ev.tool ?? 'someone',
         when: '',
         subject,
@@ -1209,7 +1211,7 @@ async function drawSession(
       // A step of the agent's, indented under its avatar column as the chat does.
       return el(
         Box,
-        { key: `ev-${ev.step}`, paddingLeft: e.surface === 'terminal' ? 2 : 3 },
+        { key: `ev-${ev.step}`, paddingLeft: 2 },
         el(Text, { dimColor: true, wrap: 'truncate-end' }, `${ev.tool ?? 'tool'} · ${ev.text}`)
       );
     }
@@ -1219,15 +1221,21 @@ async function drawSession(
       return promptCard(els, e.surface, {
         key: `ev-${ev.step}`,
         who: turn && turn.from === p.kid ? 'me' : 'them',
-        name: turn ? (turn.from === p.kid ? '' : turn.from) : (picked?.host ?? ''),
-        note: turn ? 'remote turn' : '',
+        name: turn && turn.from !== p.kid ? turn.from : '',
+        note: turn ? 'remote turn' : picked?.host ? `@${picked.host}` : '',
         text: turn ? turn.text : ev.text
       });
     }
     return messageRow(
       els,
       e.surface,
-      { key: `ev-${ev.step}`, speaker: 'agent', name: 'Their agent', meta: picked?.host ?? '' },
+      {
+        key: `ev-${ev.step}`,
+        side: 'theirs',
+        author: 'agent',
+        name: 'Their agent',
+        meta: picked?.host ? `@${picked.host}` : ''
+      },
       Markdown ? el(Markdown, { text: ev.text }) : el(Text, {}, ev.text)
     );
   };

@@ -7,11 +7,9 @@ import { cut } from './pane-text.js';
 // How agent mail and typed prompts look, on every site that draws them: no engine state, so the
 // Remote session pane, the transcript hooks and a demo all draw the same rows.
 //
-// The chat pattern people already read: each message is an avatar, a name with a quiet time
-// beside it, then the text, with no box around it. Your own turns sit right as a tinted bubble.
-// A mail is the one thing with a frame: an attachment card under the agent that sent it, its
-// colour only on the envelope icon. Colour follows who is speaking (you pink, their person
-// amber, agents neutral); a mail's direction is its icon and label.
+// The iMessage pattern: what you and your agent wrote sits right in the accent, what the other
+// side wrote sits left in grey, each bubble with a tail toward its side. A small icon by the
+// name says person or agent. A mail is a bubble too, its direction on the envelope icon.
 
 const PREVIEW_MAX = 180;
 const AVATAR = 20;
@@ -56,27 +54,35 @@ function mark(
     : el(els.Text, { color: tone }, glyph);
 }
 
-type Speaker = 'me' | 'them' | 'agent';
+/** Whose side a message sits on: yours (you and your agent) right, theirs left, as iMessage does. */
+export type Side = 'ours' | 'theirs';
+/** Who wrote it, shown as the small icon beside the name. */
+export type Author = 'person' | 'agent';
 
-const SPEAKER_HEX: Record<Speaker, string> = {
-  me: BRAND.magenta,
-  them: BRAND.yellow,
-  agent: BRAND.slate
-};
-const SPEAKER_KEY: Record<Speaker, string> = { me: 'claude', them: 'warning', agent: 'subtle' };
+const SIDE_HEX: Record<Side, string> = { ours: BRAND.accent, theirs: BRAND.slate };
+const SIDE_KEY: Record<Side, string> = { ours: 'suggestion', theirs: 'subtle' };
+// The bubble's fill: the side's colour at low strength, so text stays at full contrast on it.
+const FILL_ALPHA = '24';
+
+/** The bubble's tail, a curved point at its bottom corner toward its own side. */
+function tail(hex: string, side: Side): string {
+  const d = side === 'ours' ? 'M0 0 C0 8 4 12 12 12 L0 12 Z' : 'M12 0 C12 8 8 12 0 12 L12 12 Z';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path d="${d}" fill="${hex}" fill-opacity="${(Number.parseInt(FILL_ALPHA, 16) / 255).toFixed(3)}"/></svg>`;
+}
 
 export type MessageSpec = {
   key: string;
-  speaker: Speaker;
-  /** The bold name; for a kid pass `splitKid(kid).name` and its host as `meta`. */
+  side: Side;
+  author: Author;
+  /** The bold name; for a kid pass `splitKid(kid).name` and its host in `meta`. */
   name: string;
   /** Dim words after the name: the host, a time, `remote turn`. */
   meta?: string;
 };
 
 /**
- * One message row: avatar, name and meta on one line, the content under the name. Your own
- * (`me`) draws as a tinted bubble on the right instead, as every chat app draws the sender's.
+ * One message as a chat bubble: yours on the right in the accent, theirs on the left in grey,
+ * each with a tail toward its side. The bubble's first line is the author icon, name and meta.
  */
 export function messageRow(
   els: Els,
@@ -86,43 +92,48 @@ export function messageRow(
 ): RenderElement {
   const { Box, Text } = els;
   const l = look(els, surface);
-  const hex = SPEAKER_HEX[m.speaker];
-  const tone = l.tty ? SPEAKER_KEY[m.speaker] : hex;
+  const hex = SIDE_HEX[m.side];
+  const tone = l.tty ? SIDE_KEY[m.side] : hex;
+  const ours = m.side === 'ours';
   const body = content.filter((c): c is RenderElement => c != null);
   const header = el(
     Box,
     { flexDirection: 'row', gap: 1, alignItems: 'center' },
-    el(Text, { bold: true, color: m.speaker === 'agent' ? undefined : tone }, m.name),
+    m.author === 'agent'
+      ? mark(els, l, 'robot', hex, tone, 'Agent', '[agent]', 14)
+      : mark(els, l, 'user', hex, tone, 'Person', '[person]', 14),
+    el(Text, { bold: true }, m.name),
     m.meta ? el(Text, { dimColor: true, wrap: 'truncate-end' }, m.meta) : null
   );
-  if (m.speaker === 'me') {
-    return el(
-      Box,
-      { key: m.key, flexDirection: 'row', justifyContent: 'flex-end' },
-      el(
-        Box,
-        {
-          flexDirection: 'column',
-          width: l.tty ? undefined : '85%',
-          backgroundColor: l.tty ? undefined : tint(hex, '14'),
-          borderStyle: l.tty ? 'round' : undefined,
-          borderColor: l.tty ? tone : undefined,
-          paddingX: 1
-        },
-        header,
-        ...body
-      )
-    );
-  }
-  const avatar =
-    m.speaker === 'agent'
-      ? mark(els, l, 'robot', hex, tone, 'Agent', '[agent]', AVATAR)
-      : mark(els, l, 'user', hex, tone, 'Person', '[person]', AVATAR);
+  const bubble = el(
+    Box,
+    {
+      flexDirection: 'column',
+      flexShrink: 1,
+      backgroundColor: l.tty ? undefined : tint(hex, FILL_ALPHA),
+      borderStyle: l.tty ? 'round' : undefined,
+      borderColor: l.tty ? tone : undefined,
+      paddingX: 1,
+      paddingY: l.tty ? 0 : 1
+    },
+    header,
+    ...body
+  );
+  const point = l.Svg
+    ? el(l.Svg, { source: tail(hex, m.side), alt: 'Speech bubble tail', width: 12, height: 12 })
+    : null;
+  // The bubble keeps a margin on the far side, so yours and theirs never line up edge to edge.
   return el(
     Box,
-    { key: m.key, flexDirection: 'row', gap: 1 },
-    el(Box, { flexDirection: 'column', width: l.tty ? undefined : AVATAR }, avatar),
-    el(Box, { flexDirection: 'column', flexGrow: 1 }, header, ...body)
+    {
+      key: m.key,
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: ours ? 'flex-end' : 'flex-start',
+      paddingLeft: ours ? (l.tty ? 4 : 8) : 0,
+      paddingRight: ours ? 0 : l.tty ? 4 : 8
+    },
+    ...(ours ? [bubble, point] : [point, bubble])
   );
 }
 
@@ -143,6 +154,8 @@ export type MailCardSpec = {
   onToggle: () => unknown;
   /** Shown as "Open their session" when set. */
   onOpenSession?: () => unknown;
+  /** Which side sent it; defaults to ours for sent mail, theirs for received. */
+  side?: Side;
 };
 
 /** The mail itself, framed as an attachment: icon and label, subject, preview, actions. */
@@ -150,7 +163,6 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
   const { Box, Text, Button } = els;
   const l = look(els, surface);
   const accent = l.tty ? 'suggestion' : BRAND.accent;
-  const rule = l.tty ? 'promptBorder' : tint(BRAND.slate, '59');
   const label =
     m.dir === 'in'
       ? `Received${m.shortId !== undefined ? ` #${m.shortId}` : ''}`
@@ -177,15 +189,10 @@ export function mailAttachment(els: Els, surface: string, m: MailCardSpec): Rend
       )
     );
   }
+  // Inside the bubble already, so no frame of its own: a rule above sets it apart from the name.
   return el(
     Box,
-    {
-      flexDirection: 'column',
-      borderStyle: 'round',
-      borderColor: rule,
-      paddingX: 1,
-      marginTop: 1
-    },
+    { flexDirection: 'column', marginTop: l.tty ? 0 : 1 },
     el(
       Box,
       { flexDirection: 'row', gap: 1, alignItems: 'center' },
@@ -238,7 +245,8 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
     surface,
     {
       key: m.key,
-      speaker: 'agent',
+      side: m.side ?? (m.dir === 'out' ? 'ours' : 'theirs'),
+      author: 'agent',
       name: who.name,
       meta: [who.host ? `@${who.host}` : '', m.when].filter(Boolean).join(' · ')
     },
@@ -257,7 +265,7 @@ export type PromptCardSpec = {
   text: string;
 };
 
-/** A prompt a person typed: your bubble on the right, their person's message on the left. */
+/** A prompt a person typed: yours on the right, theirs on the left. */
 export function promptCard(els: Els, surface: string, m: PromptCardSpec): RenderElement {
   const who = m.name ? splitKid(m.name) : { name: '', host: '' };
   return messageRow(
@@ -265,9 +273,10 @@ export function promptCard(els: Els, surface: string, m: PromptCardSpec): Render
     surface,
     {
       key: m.key,
-      speaker: m.who,
-      name: m.who === 'me' ? 'You' : 'Their person',
-      meta: [m.who === 'them' && who.name ? who.name : '', m.note].filter(Boolean).join(' · ')
+      side: m.who === 'me' ? 'ours' : 'theirs',
+      author: 'person',
+      name: m.who === 'me' ? 'You' : who.name || 'Their person',
+      meta: [m.who === 'them' && who.host ? `@${who.host}` : '', m.note].filter(Boolean).join(' · ')
     },
     el(els.Text, {}, m.text)
   );
