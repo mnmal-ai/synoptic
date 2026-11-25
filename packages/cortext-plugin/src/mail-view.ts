@@ -39,7 +39,12 @@ export function mailCard(els: Els, surface: string, m: MailCardSpec): RenderElem
   const tone = tty ? (m.dir === 'in' ? 'suggestion' : 'claude') : hex;
   const mark = (name: string, glyph: string, size = 16): RenderElement =>
     Svg
-      ? el(Svg, { source: icon(name, hex, size), alt: '', width: size, height: size })
+      ? el(Svg, {
+          source: icon(name, hex, size),
+          alt: m.dir === 'in' ? 'Received mail' : 'Sent mail',
+          width: size,
+          height: size
+        })
       : el(Text, { color: tone }, glyph);
   const label = m.dir === 'in' ? 'Received' : 'Sent';
   const who = m.dir === 'in' ? `from ${m.peer}` : `to ${m.peer}`;

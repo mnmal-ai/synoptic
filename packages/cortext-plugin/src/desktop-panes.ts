@@ -1319,7 +1319,9 @@ export async function openRemoteSession(
   const found = (await read($, feeds)).find((f) => f.instance === instance);
   if (found) await watch(p, $, found.id);
   else await note($, `${instance} is not shared. Its user turns it on with /cortext-share on.`);
-  await $.ui.open({ id: SESSION_PANE, title: 'Remote session' });
+  // A press is the person's input, so the pane is placed at any width; focus raises it.
+  const opened = await $.ui.open({ id: SESSION_PANE, title: 'Remote session', focus: true });
+  if (!opened.isPlaced) $.ui.toast(`Could not open the Remote session pane: ${opened.reason}`);
 }
 
 /** Called from the bridge's main-thread turn.complete hook. */

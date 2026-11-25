@@ -691,7 +691,7 @@ function mailCard(els, surface, m) {
 	const tone = tty ? m.dir === "in" ? "suggestion" : "claude" : hex;
 	const mark = (name, glyph, size = 16) => Svg ? el(Svg, {
 		source: icon(name, hex, size),
-		alt: "",
+		alt: m.dir === "in" ? "Received mail" : "Sent mail",
 		width: size,
 		height: size
 	}) : el(Text, { color: tone }, glyph);
@@ -1873,10 +1873,12 @@ async function openRemoteSession(p, $, instance) {
 	const found = (await read($, feeds)).find((f) => f.instance === instance);
 	if (found) await watch(p, $, found.id);
 	else await note($, `${instance} is not shared. Its user turns it on with /cortext-share on.`);
-	await $.ui.open({
+	const opened = await $.ui.open({
 		id: SESSION_PANE,
-		title: "Remote session"
+		title: "Remote session",
+		focus: true
 	});
+	if (!opened.isPlaced) $.ui.toast(`Could not open the Remote session pane: ${opened.reason}`);
 }
 /** Called from the bridge's main-thread turn.complete hook. */
 async function shareReply(p, $, answer) {
