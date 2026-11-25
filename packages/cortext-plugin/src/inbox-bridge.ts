@@ -8,6 +8,7 @@ import {
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
+import { newPanes, registerPanes, shareReply, shareToolCall, startPanes } from './desktop-panes.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -101,6 +102,8 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 }
 
 export const register: Register = (on) => {
+  const panes = newPanes();
+  registerPanes(on, panes);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,
@@ -116,6 +119,7 @@ export const register: Register = (on) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e);
+    await startPanes(panes, $, e.cwd);
     b.interactive = e.isInteractive;
     b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
     const bootAt = await $.clock.now();
@@ -178,8 +182,9 @@ export const register: Register = (on) => {
     return started;
   });
 
-  on('tool.call', async (_$, e, next) => {
+  on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e); // a subagent's tools run inside the main thread's Agent call
+    await shareToolCall(panes, $, e.tool, e as unknown as Record<string, unknown>);
     b.toolsInFlight++;
     try {
       return await next(e);
@@ -204,6 +209,7 @@ export const register: Register = (on) => {
     if (e.agentId !== undefined) return next(e);
     const done = await next(e);
     b.turnId = undefined;
+    await shareReply(panes, $, e.answer);
     const now = await $.clock.now();
     // Urgent rows that landed late are owed a turn whatever the wake budget says. Such a row
     // forces a wake past both budgets (D1's wakes and D4's preemptions, which it may have
