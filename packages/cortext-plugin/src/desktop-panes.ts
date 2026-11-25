@@ -4,7 +4,8 @@ import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
 import { accent, BRAND, MARK_SVG, rule, statusTone } from './brand.js';
 import { el } from './el.js';
 import { groupedView } from './grouped.js';
-import { mailCard, openMail } from './mail-card.js';
+import { openMail } from './mail-card.js';
+import { mailCard } from './mail-view.js';
 import {
   ago,
   clockTime,

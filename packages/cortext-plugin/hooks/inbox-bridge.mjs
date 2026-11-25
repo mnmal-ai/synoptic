@@ -667,12 +667,8 @@ function groupedView(a) {
 }
 
 //#endregion
-//#region src/mail-card.ts
+//#region src/mail-view.ts
 const PREVIEW_MAX = 140;
-const openMail = atom({
-	plugin: "cortext",
-	key: "mailOpen"
-}, [], { shape: "mail-2" });
 /** One mail card, the same on every site that draws one. */
 function mailCard(els, surface, m) {
 	const { Box, Text, Button } = els;
@@ -735,6 +731,13 @@ function mailCard(els, surface, m) {
 		alignItems: "center"
 	}, ...buttons) : void 0);
 }
+
+//#endregion
+//#region src/mail-card.ts
+const openMail = atom({
+	plugin: "cortext",
+	key: "mailOpen"
+}, [], { shape: "mail-2" });
 function toggler($, id) {
 	return () => update($, openMail, (prev) => {
 		const ids = prev ?? [];
