@@ -58,6 +58,7 @@ function substrate(on: any, writes: unknown[], rows: unknown[] = ROWS) {
   on('ui.open', () => ({ value: { isPlaced: true } }));
   on('ui.log', () => ({ value: undefined }));
   on('clock.now', () => ({ value: Date.parse('2026-11-25T00:00:00Z') }));
+  on('clock.every', () => ({ value: undefined }));
   on(
     'mcp.call',
     (_: unknown, e: { tool: string; args?: { payload?: Record<string, unknown> } }) => {
@@ -124,17 +125,20 @@ test('the status filter narrows the list and says how many it hides', async ($, 
   await ui.unmount();
 });
 
-test('the board puts blocked todos under Needs you, shows tags, and a card opens its detail', async ($, on) => {
+test('the board has a lane per schema status, shows tags, and a card opens a side panel', async ($, on) => {
   substrate(on, []);
   await $.command.run({ command: 'cortext-todos', args: '' });
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface });
     await ui.press({ key: 'todo-layout' });
-    expect((await ui.find({ type: 'Text', text: /^Needs you/ }))?.text).toBe('Needs you (1)');
+    expect((await ui.find({ type: 'Text', text: /^Blocked/ }))?.text).toBe('Blocked (1)');
+    expect((await ui.find({ type: 'Text', text: /^Closed/ }))?.text).toBe('Closed (0)');
     expect((await ui.find({ type: 'Text', text: /^psa$/ }))?.text).toBe('psa');
     await ui.press({ key: 'open-c' });
     expect(await ui.find({ type: 'Input', key: 'f-title-c' })).toBeDefined();
+    // The lanes stay drawn beside the open panel.
+    expect(await ui.find({ type: 'Button', key: 'open-a' })).toBeDefined();
     await ui.press({ key: 'todo-back' });
     await ui.press({ key: 'todo-layout' });
     await ui.unmount();
@@ -164,4 +168,16 @@ test('all projects: 170 rows from 8 projects draw on every surface', async ($, o
     await ui.press({ key: 'todo-layout' });
     await ui.unmount();
   }
+});
+
+test('dragging the splitter widens the list', async ($, on) => {
+  substrate(on, []);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
+  await ui.pointer({ key: 'todo-splitter', type: 'down', x: 0, y: 2, button: 'left' });
+  await ui.pointer({ key: 'todo-splitter', type: 'move', x: 12, y: 2, button: 'left' });
+  await ui.pointer({ key: 'todo-splitter', type: 'up', x: 12, y: 2, button: 'left' });
+  // 12 of 120 columns is 10 points: the list goes from 34% to 44%.
+  expect(JSON.stringify(await ui.drawn())).toContain('"width":"44%"');
+  await ui.unmount();
 });

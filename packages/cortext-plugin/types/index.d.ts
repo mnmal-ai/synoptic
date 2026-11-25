@@ -67,6 +67,9 @@ declare module 'claude-code' {
       paneDrafts: Record<string, string>;
       paneLayout: 'list' | 'board';
       paneCardOpen: boolean;
+      paneVocab: { status: readonly string[]; priority: readonly string[] };
+      paneRefreshedAt: number;
+      paneSplit: number;
       paneTodoView: {
         sort: 'priority' | 'created' | 'updated' | 'status' | 'title';
         status: string;

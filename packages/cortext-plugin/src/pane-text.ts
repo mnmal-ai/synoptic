@@ -126,30 +126,66 @@ type Sortable = {
   updatedAt?: string;
 };
 
-const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
-const STATUS_RANK: Record<string, number> = { blocked: 0, in_progress: 1, open: 2, deferred: 3 };
+/** The Todo type's own value lists, as the server's schema states them. */
+export type TodoVocab = { status: readonly string[]; priority: readonly string[] };
 
-/** The list as the pane shows it: filtered by status, priority and a title search, then sorted. */
-export function viewTodos<T extends Sortable>(rows: readonly T[], view: TodoView): T[] {
+/** What the pane uses until the server's schema has been read. */
+export const FALLBACK_VOCAB: TodoVocab = {
+  status: ['open', 'in_progress', 'blocked', 'deferred', 'closed'],
+  priority: ['low', 'medium', 'high']
+};
+
+/** Reads status and priority values from a `schema` answer for the Todo type, or undefined. */
+export function vocabFromSchema(answer: unknown): TodoVocab | undefined {
+  const fields = (answer as { fields?: Record<string, { enum?: unknown }> } | null)?.fields;
+  const list = (v: unknown): string[] | undefined =>
+    Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')
+      ? (v as string[])
+      : undefined;
+  const status = list(fields?.status?.enum);
+  const priority = list(fields?.priority?.enum);
+  return status && priority ? { status, priority } : undefined;
+}
+
+/** `in_progress` → `In progress`. */
+export function humanize(value: string): string {
+  const words = value.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The list as the pane shows it: filtered by status, priority and a search, then sorted. */
+export function viewTodos<T extends Sortable>(
+  rows: readonly T[],
+  view: TodoView,
+  vocab: TodoVocab = FALLBACK_VOCAB
+): T[] {
   const needle = view.search.trim().toLowerCase();
   const kept = rows.filter(
     (t) =>
       (view.status === 'any' || t.status === view.status) &&
       (view.priority === 'any' || t.priority === view.priority) &&
-      (needle === '' || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle))
+      (needle === '' ||
+        t.title.toLowerCase().includes(needle) ||
+        `#${t.shortId}`.includes(needle) ||
+        (t.tags ?? []).some((g) => g.toLowerCase().includes(needle)))
   );
+  // The schema lists priority low to high; the list leads with the highest.
+  const pRank = (v: string): number => {
+    const i = vocab.priority.indexOf(v);
+    return i < 0 ? 99 : vocab.priority.length - i;
+  };
+  const sRank = (v: string): number => {
+    const i = vocab.status.indexOf(v);
+    return i < 0 ? 99 : i;
+  };
   const time = (iso?: string): number => (iso ? Date.parse(iso) || 0 : 0);
-  const byPriority = (a: T, b: T): number =>
-    (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
+  const byPriority = (a: T, b: T): number => pRank(a.priority) - pRank(b.priority);
   const newest = (a: T, b: T): number => b.shortId - a.shortId;
   const order: Record<TodoSort, (a: T, b: T) => number> = {
     priority: (a, b) => byPriority(a, b) || newest(a, b),
     created: (a, b) => time(b.createdAt) - time(a.createdAt) || newest(a, b),
     updated: (a, b) => time(b.updatedAt) - time(a.updatedAt) || newest(a, b),
-    status: (a, b) =>
-      (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) ||
-      byPriority(a, b) ||
-      newest(a, b),
+    status: (a, b) => sRank(a.status) - sRank(b.status) || byPriority(a, b) || newest(a, b),
     title: (a, b) => a.title.localeCompare(b.title)
   };
   return [...kept].sort(order[view.sort]);
@@ -164,22 +200,23 @@ export function ago(iso: string, now: number): string {
   return `${Math.round(s / 86400)}d ago`;
 }
 
-export type Lane = { key: string; title: string; tone: string; statuses: readonly string[] };
+export type Lane = { key: string; title: string; tone: string };
 
-/** The board's swimlanes, left to right. A blocked todo waits on a person, so its lane says so. */
-export const LANES: readonly Lane[] = [
-  { key: 'todo', title: 'Todo', tone: 'suggestion', statuses: ['open'] },
-  { key: 'doing', title: 'In progress', tone: 'success', statuses: ['in_progress'] },
-  { key: 'needs-you', title: 'Needs you', tone: 'warning', statuses: ['blocked'] },
-  { key: 'later', title: 'Later', tone: 'subtle', statuses: ['deferred'] }
-];
+const LANE_TONES: Record<string, string> = {
+  open: 'suggestion',
+  in_progress: 'success',
+  blocked: 'error',
+  deferred: 'subtle',
+  closed: 'subtle'
+};
 
-/** Rows split into the board's lanes, each keeping the list's order. */
+/** One board lane per status the schema lists, in its order, each keeping the list's order. */
 export function laneRows<T extends { status: string }>(
-  rows: readonly T[]
+  rows: readonly T[],
+  statuses: readonly string[] = FALLBACK_VOCAB.status
 ): { lane: Lane; rows: T[] }[] {
-  return LANES.map((lane) => ({
-    lane,
-    rows: rows.filter((r) => lane.statuses.includes(r.status))
+  return statuses.map((s) => ({
+    lane: { key: s, title: humanize(s), tone: LANE_TONES[s] ?? 'text' },
+    rows: rows.filter((r) => r.status === s)
   }));
 }

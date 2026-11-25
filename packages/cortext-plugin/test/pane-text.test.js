@@ -127,7 +127,8 @@ describe('viewTodos', () => {
     expect(ids({})).toEqual([2, 3, 1]);
     expect(ids({ sort: 'created' })).toEqual([3, 2, 1]);
     expect(ids({ sort: 'updated' })).toEqual([1, 3, 2]);
-    expect(ids({ sort: 'status' })).toEqual([3, 2, 1]);
+    // Status follows the schema's order: open, in_progress, blocked, deferred, closed.
+    expect(ids({ sort: 'status' })).toEqual([2, 1, 3]);
     expect(ids({ sort: 'title' })).toEqual([2, 1, 3]);
   });
   it('filters by status, priority and a title or #id search', () => {

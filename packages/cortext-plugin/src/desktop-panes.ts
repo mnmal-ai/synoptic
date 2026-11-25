@@ -3,15 +3,19 @@ import { atom, read, update } from 'claude-code';
 import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
 import {
   ago,
+  clockTime,
   controlKids,
   cut,
+  FALLBACK_VOCAB,
   hostOf,
+  humanize,
   laneRows,
   remoteTurnText,
   type TodoSort,
   type TodoView,
   toolSummary,
-  viewTodos
+  viewTodos,
+  vocabFromSchema
 } from './pane-text.js';
 
 // Two panes and one opt-in, all through the session's own substrate MCP server,
@@ -29,14 +33,20 @@ const TITLE_MAX = 80;
 const TEXT_MAX = 4_000;
 const TOOL_TEXT_MAX = 160;
 const EVENTS_KEPT = 300;
-const PRIORITIES = ['high', 'medium', 'low'] as const;
-const STATUSES = ['open', 'in_progress', 'blocked', 'deferred'] as const;
+// The mnmal-ai mark, drawn at the header's top left where a surface draws Svg.
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><image width="200" height="200" href="data:image/png;base64,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"/></svg>`;
+const AUTO_REFRESH_MS = 60_000;
 
 // The tag declines rows an earlier version stored, which lacked createdAt and updatedAt.
 const todos = atom({ plugin: 'cortext', key: 'paneTodos' }, [], { shape: 'todos-2' });
 const todoScope = atom({ plugin: 'cortext', key: 'paneTodoScope' }, 'project');
 // Unsaved text per `<todo id>:<field>`; a field with an entry here shows Save and Revert.
 const drafts = atom({ plugin: 'cortext', key: 'paneDrafts' }, {});
+// The Todo type's status and priority values, read from the server's schema on each refresh.
+const vocab = atom({ plugin: 'cortext', key: 'paneVocab' }, FALLBACK_VOCAB);
+const refreshedAt = atom({ plugin: 'cortext', key: 'paneRefreshedAt' }, 0);
+// The list's share of the pane, in percent; the splitter moves it.
+const splitPct = atom({ plugin: 'cortext', key: 'paneSplit' }, 34);
 const layout = atom({ plugin: 'cortext', key: 'paneLayout' }, 'list');
 // On the board a picked card opens full width; false shows the lanes.
 const cardOpen = atom({ plugin: 'cortext', key: 'paneCardOpen' }, false);
@@ -71,6 +81,8 @@ export type Panes = {
   writes: Promise<void>; // feed writes run one after another, so steps never race
   poll: { cancel: () => void } | undefined;
   turnPoll: { cancel: () => void } | undefined;
+  todoPoll: { cancel: () => void } | undefined;
+  cols: number; // the Todos pane's body width, as its last draw reported
 };
 
 /** One element: `h` with its result narrowed to what a Box child and a render hook take. */
@@ -152,10 +164,8 @@ const SORTS: { value: TodoSort; label: string }[] = [
 
 async function loadTodos(p: Panes, $: EngineInterface): Promise<void> {
   const scope = await read($, todoScope);
-  const and: object[] = [
-    { archived: { eq: false } },
-    { status: { in: ['open', 'in_progress', 'blocked', 'deferred'] } }
-  ];
+  // Every status the schema has, closed included while not archived: the board has a lane for each.
+  const and: object[] = [{ archived: { eq: false } }];
   if (scope === 'project') {
     and.push({ OR: [{ project: { eq: p.project } }, { project: { eq: null } }] });
   }
@@ -200,7 +210,7 @@ async function loadTodos(p: Panes, $: EngineInterface): Promise<void> {
 
 /** The rows the list shows now, in its order. */
 async function shown($: EngineInterface): Promise<PaneTodo[]> {
-  return viewTodos(await read($, todos), await read($, todoView));
+  return viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
 }
 
 /** Keeps a pick that is still listed; otherwise picks the first row, as a settings sidebar does. */
@@ -218,8 +228,17 @@ async function keepPick(p: Panes, $: EngineInterface): Promise<void> {
 
 async function refreshTodos(p: Panes, $: EngineInterface): Promise<void> {
   try {
+    try {
+      const answer = await sub(p, $, 'schema', { namespace: p.ns, type: 'Todo', shape: 'fields' });
+      const got = vocabFromSchema(answer);
+      if (got) await update($, vocab, () => got);
+    } catch {
+      // An older server or a refused schema read: keep the last value lists, or the fallback.
+    }
     await loadTodos(p, $);
     await keepPick(p, $);
+    const at = await $.clock.now();
+    await update($, refreshedAt, () => at);
     await note($, '');
   } catch (err) {
     await note($, `Could not load todos: ${(err as Error).message}`);
@@ -359,15 +378,22 @@ function listRow(els: Els, t: PaneTodo, on: boolean, onPress: () => void): Rende
 }
 
 /** One board card: a bordered Box around one Button whose Text parts are the title, the id and the tags. */
-function card(els: Els, t: PaneTodo, onPress: () => void): RenderElement {
+function card(
+  els: Els,
+  t: PaneTodo,
+  showProject: boolean,
+  on: boolean,
+  onPress: () => void
+): RenderElement {
   const { Box, Text, Button } = els;
   const tags = tagLine(t);
+  const where = showProject ? `${t.project ?? 'cross-cutting'} · ` : '';
   return el(
     Box,
     {
       key: `card-${t.id}`,
       borderStyle: 'round',
-      borderColor: 'promptBorder',
+      borderColor: on ? 'suggestion' : 'promptBorder',
       paddingX: 1,
       hover: { borderColor: 'suggestion' }
     },
@@ -376,7 +402,11 @@ function card(els: Els, t: PaneTodo, onPress: () => void): RenderElement {
       { key: `open-${t.id}`, label: t.title, plain: true, onPress },
       el(Text, { bold: t.priority === 'high' }, t.title),
       '\n',
-      el(Text, { dimColor: true }, `#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ''}`),
+      el(
+        Text,
+        { dimColor: true },
+        `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ''}`
+      ),
       tags ? '\n' : '',
       tags ? el(Text, { color: 'suggestion' }, tags) : ''
     )
@@ -451,9 +481,15 @@ function header(
     mode: string;
     shownCount: number;
     allCount: number;
+    voc: { status: readonly string[]; priority: readonly string[] };
+    refreshed: number;
   }
 ): RenderElement {
   const { Box, Text, Button, Input, Select } = els;
+  const Svg = (els as unknown as { Svg?: typeof Box }).Svg;
+  const logo = Svg
+    ? el(Svg, { source: LOGO_SVG, alt: 'mnmal-ai', width: 28, height: 28 })
+    : el(Text, { bold: true, color: 'claude' }, 'mnmal');
   const filtered =
     s.view.status !== 'any' || s.view.priority !== 'any' || s.view.search.trim() !== '';
   return el(
@@ -462,6 +498,7 @@ function header(
     el(
       Box,
       { flexDirection: 'row', gap: 1, alignItems: 'center' },
+      logo,
       el(
         Box,
         { flexGrow: 1 },
@@ -483,12 +520,21 @@ function header(
             update($, cardOpen, () => false)
           )
       }),
-      el(Button, {
-        key: 'todo-refresh',
-        label: 'Refresh',
-        hotkey: s.tty ? 'r' : undefined,
-        onPress: () => void refreshTodos(p, $)
-      })
+      el(
+        Box,
+        { flexDirection: 'column', alignItems: 'flex-end' },
+        el(Button, {
+          key: 'todo-refresh',
+          label: 'Refresh',
+          hotkey: s.tty ? 'r' : undefined,
+          onPress: () => void refreshTodos(p, $)
+        }),
+        el(
+          Text,
+          { color: 'subtle', tabular: true },
+          s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : 'Not refreshed yet'
+        )
+      )
     ),
     el(
       Box,
@@ -518,10 +564,7 @@ function header(
         value: s.view.status,
         options: [
           { value: 'any', label: 'Any' },
-          ...STATUSES.map((v) => ({
-            value: v,
-            label: v === 'blocked' ? 'needs you' : v.replace('_', ' ')
-          }))
+          ...s.voc.status.map((v) => ({ value: v, label: humanize(v) }))
         ],
         onSelect: (v: string) => void setView(p, $, { status: v })
       }),
@@ -529,7 +572,10 @@ function header(
         key: 'todo-priority',
         label: 'Priority',
         value: s.view.priority,
-        options: [{ value: 'any', label: 'Any' }, ...PRIORITIES.map((v) => ({ value: v }))],
+        options: [
+          { value: 'any', label: 'Any' },
+          ...[...s.voc.priority].reverse().map((v) => ({ value: v, label: humanize(v) }))
+        ],
         onSelect: (v: string) => void setView(p, $, { priority: v })
       }),
       el(
@@ -564,10 +610,12 @@ async function drawTodos(
 ) {
   const els = $.ui.resolve(e);
   const { Box, Text, Button, Select } = els;
+  const { Client } = els as unknown as { Client: typeof Box };
   const tty = e.surface === 'terminal';
   const all = await read($, todos);
   const view = await read($, todoView);
-  const rows = viewTodos(all, view);
+  const voc = await read($, vocab);
+  const rows = viewTodos(all, view, voc);
   const scope = await read($, todoScope);
   const mode = await read($, layout);
   const opened = await read($, cardOpen);
@@ -645,7 +693,7 @@ async function drawTodos(
               el(Select, {
                 key: `pri-${current.id}`,
                 value: current.priority,
-                options: PRIORITIES.map((v) => ({ value: v })),
+                options: [...voc.priority].reverse().map((v) => ({ value: v, label: humanize(v) })),
                 onSelect: (v: string) => void saveField(p, $, current, { priority: v })
               })
             ),
@@ -655,10 +703,7 @@ async function drawTodos(
               el(Select, {
                 key: `status-${current.id}`,
                 value: current.status,
-                options: STATUSES.map((v) => ({
-                  value: v,
-                  label: v === 'blocked' ? 'needs you' : v.replace('_', ' ')
-                })),
+                options: voc.status.map((v) => ({ value: v, label: humanize(v) })),
                 onSelect: (v: string) => void saveField(p, $, current, { status: v })
               })
             ),
@@ -686,7 +731,9 @@ async function drawTodos(
     scope,
     mode,
     shownCount: rows.length,
-    allCount: all.length
+    allCount: all.length,
+    voc,
+    refreshed: await read($, refreshedAt)
   });
   const empty =
     rows.length === 0
@@ -697,23 +744,33 @@ async function drawTodos(
         )
       : null;
 
-  let body: RenderElement;
-  if (mode === 'board' && opened && current) {
-    body = detailView(
-      el(Button, {
-        key: 'todo-back',
-        label: '← Board',
-        hotkey: tty ? 'b' : undefined,
-        onPress: () => void update($, cardOpen, () => false)
-      })
+  const split = await read($, splitPct);
+  p.cols = (e as { props?: { bodyColumns?: number } }).props?.bodyColumns ?? p.cols;
+  const allProjects = scope === 'all';
+  const detailPanel = (back: RenderElement | null, width?: string) =>
+    el(
+      Box,
+      {
+        flexDirection: 'column',
+        flexGrow: width ? 0 : 1,
+        flexShrink: 0,
+        width,
+        borderStyle: 'round',
+        borderColor: 'promptBorder',
+        paddingX: 2,
+        paddingY: 1
+      },
+      detailView(back)
     );
-  } else if (mode === 'board') {
-    body =
+
+  let body: RenderElement;
+  if (mode === 'board') {
+    const lanes =
       empty ??
       el(
         Box,
-        { flexDirection: 'row', gap: 2 },
-        ...laneRows(rows).map(({ lane, rows: inLane }) =>
+        { flexDirection: 'row', gap: 2, flexGrow: 1 },
+        ...laneRows(rows, voc.status).map(({ lane, rows: inLane }) =>
           el(
             Box,
             {
@@ -721,7 +778,7 @@ async function drawTodos(
               flexDirection: 'column',
               flexGrow: 1,
               flexShrink: 1,
-              width: '25%',
+              width: `${Math.floor(100 / Math.max(1, voc.status.length))}%`,
               gap: 1
             },
             el(Text, { bold: true, color: lane.tone }, `${lane.title} (${inLane.length})`),
@@ -730,34 +787,50 @@ async function drawTodos(
               card(
                 els,
                 t,
+                allProjects,
+                t.id === pick && opened,
                 () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true))
               )
             )
           )
         )
       );
+    // A picked card opens a rail at the right; the lanes stay in view beside it.
+    body =
+      opened && current
+        ? el(
+            Box,
+            { flexDirection: 'row', gap: 1 },
+            el(Box, { flexGrow: 1, flexShrink: 1 }, lanes),
+            detailPanel(
+              el(Button, {
+                key: 'todo-back',
+                label: 'Close panel',
+                hotkey: tty ? 'b' : undefined,
+                onPress: () => void update($, cardOpen, () => false)
+              }),
+              '42%'
+            )
+          )
+        : lanes;
   } else {
     body = el(
       Box,
-      { flexDirection: 'row', gap: 2 },
+      { flexDirection: 'row' },
       el(
         Box,
-        { flexDirection: 'column', width: '34%', flexShrink: 0 },
+        { flexDirection: 'column', width: `${split}%`, flexShrink: 0, paddingRight: 1 },
         empty,
         ...rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))
       ),
-      el(
-        Box,
-        {
-          flexDirection: 'column',
-          flexGrow: 1,
-          borderStyle: 'round',
-          borderColor: 'promptBorder',
-          paddingX: 2,
-          paddingY: 1
-        },
-        detailView(null)
-      )
+      // biome-ignore lint/correctness/noUndeclaredVariables: a literal h(Client, { module }) is how the engine finds the surface module
+      h(Client, {
+        key: 'todo-splitter',
+        module: './splitter.mjs',
+        props: { rows: Math.max(10, rows.length) },
+        width: 1
+      }) as RenderElement,
+      el(Box, { flexDirection: 'column', flexGrow: 1, paddingLeft: 1 }, detailPanel(null))
     );
   }
 
@@ -1073,7 +1146,9 @@ export function newPanes(): Panes {
     kid: 'unknown',
     writes: Promise.resolve(),
     poll: undefined,
-    turnPoll: undefined
+    turnPoll: undefined,
+    todoPoll: undefined,
+    cols: 120
   };
 }
 
@@ -1118,6 +1193,8 @@ export async function startPanes(p: Panes, $: EngineInterface, cwd: string): Pro
 export function registerPanes(on: On, p: Panes): void {
   on('command.run', { command: 'cortext-todos' }, async ($) => {
     await refreshTodos(p, $);
+    p.todoPoll?.cancel();
+    p.todoPoll = $.clock.every(AUTO_REFRESH_MS, () => void refreshTodos(p, $));
     await $.ui.open({ id: TODOS_PANE, title: 'Todos' });
     return { text: 'Todos pane opened.' };
   });
@@ -1141,6 +1218,24 @@ export function registerPanes(on: On, p: Panes): void {
       };
     }
     return { text: await setSharing(p, $, arg === 'on') };
+  });
+
+  on('ui.close', { id: TODOS_PANE }, async (_$, e, next) => {
+    p.todoPoll?.cancel();
+    p.todoPoll = undefined;
+    return next(e);
+  });
+
+  // The list view's splitter posts column moves; the list's share follows, kept between 15% and 75%.
+  on('ui.message', async ($, e, next) => {
+    const data = e.data as { type?: string; delta?: number } | null;
+    if (data?.type === 'split' && typeof data.delta === 'number' && p.cols > 0) {
+      const step = (data.delta * 100) / p.cols;
+      await update($, splitPct, (v) =>
+        Math.min(75, Math.max(15, Math.round((v + step) * 10) / 10))
+      );
+    }
+    return next(e);
   });
 
   on('ui.close', { id: SESSION_PANE }, async (_$, e, next) => {

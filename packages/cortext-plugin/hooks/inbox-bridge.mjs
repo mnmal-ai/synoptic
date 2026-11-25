@@ -206,29 +206,57 @@ function oneLine(text) {
 	}
 	return out.trim();
 }
-const PRIORITY_RANK = {
-	high: 0,
-	medium: 1,
-	low: 2
+/** What the pane uses until the server's schema has been read. */
+const FALLBACK_VOCAB = {
+	status: [
+		"open",
+		"in_progress",
+		"blocked",
+		"deferred",
+		"closed"
+	],
+	priority: [
+		"low",
+		"medium",
+		"high"
+	]
 };
-const STATUS_RANK = {
-	blocked: 0,
-	in_progress: 1,
-	open: 2,
-	deferred: 3
-};
-/** The list as the pane shows it: filtered by status, priority and a title search, then sorted. */
-function viewTodos(rows, view) {
+/** Reads status and priority values from a `schema` answer for the Todo type, or undefined. */
+function vocabFromSchema(answer) {
+	const fields = answer?.fields;
+	const list = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string") ? v : void 0;
+	const status = list(fields?.status?.enum);
+	const priority = list(fields?.priority?.enum);
+	return status && priority ? {
+		status,
+		priority
+	} : void 0;
+}
+/** `in_progress` → `In progress`. */
+function humanize(value) {
+	const words = value.replace(/_/g, " ");
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+/** The list as the pane shows it: filtered by status, priority and a search, then sorted. */
+function viewTodos(rows, view, vocab = FALLBACK_VOCAB) {
 	const needle = view.search.trim().toLowerCase();
-	const kept = rows.filter((t) => (view.status === "any" || t.status === view.status) && (view.priority === "any" || t.priority === view.priority) && (needle === "" || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle)));
+	const kept = rows.filter((t) => (view.status === "any" || t.status === view.status) && (view.priority === "any" || t.priority === view.priority) && (needle === "" || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle) || (t.tags ?? []).some((g) => g.toLowerCase().includes(needle))));
+	const pRank = (v) => {
+		const i = vocab.priority.indexOf(v);
+		return i < 0 ? 99 : vocab.priority.length - i;
+	};
+	const sRank = (v) => {
+		const i = vocab.status.indexOf(v);
+		return i < 0 ? 99 : i;
+	};
 	const time = (iso) => iso ? Date.parse(iso) || 0 : 0;
-	const byPriority = (a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
+	const byPriority = (a, b) => pRank(a.priority) - pRank(b.priority);
 	const newest = (a, b) => b.shortId - a.shortId;
 	const order = {
 		priority: (a, b) => byPriority(a, b) || newest(a, b),
 		created: (a, b) => time(b.createdAt) - time(a.createdAt) || newest(a, b),
 		updated: (a, b) => time(b.updatedAt) - time(a.updatedAt) || newest(a, b),
-		status: (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || byPriority(a, b) || newest(a, b),
+		status: (a, b) => sRank(a.status) - sRank(b.status) || byPriority(a, b) || newest(a, b),
 		title: (a, b) => a.title.localeCompare(b.title)
 	};
 	return [...kept].sort(order[view.sort]);
@@ -241,38 +269,22 @@ function ago(iso, now) {
 	if (s < 129600) return `${Math.round(s / 3600)}h ago`;
 	return `${Math.round(s / 86400)}d ago`;
 }
-/** The board's swimlanes, left to right. A blocked todo waits on a person, so its lane says so. */
-const LANES = [
-	{
-		key: "todo",
-		title: "Todo",
-		tone: "suggestion",
-		statuses: ["open"]
-	},
-	{
-		key: "doing",
-		title: "In progress",
-		tone: "success",
-		statuses: ["in_progress"]
-	},
-	{
-		key: "needs-you",
-		title: "Needs you",
-		tone: "warning",
-		statuses: ["blocked"]
-	},
-	{
-		key: "later",
-		title: "Later",
-		tone: "subtle",
-		statuses: ["deferred"]
-	}
-];
-/** Rows split into the board's lanes, each keeping the list's order. */
-function laneRows(rows) {
-	return LANES.map((lane) => ({
-		lane,
-		rows: rows.filter((r) => lane.statuses.includes(r.status))
+const LANE_TONES = {
+	open: "suggestion",
+	in_progress: "success",
+	blocked: "error",
+	deferred: "subtle",
+	closed: "subtle"
+};
+/** One board lane per status the schema lists, in its order, each keeping the list's order. */
+function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
+	return statuses.map((s) => ({
+		lane: {
+			key: s,
+			title: humanize(s),
+			tone: LANE_TONES[s] ?? "text"
+		},
+		rows: rows.filter((r) => r.status === s)
 	}));
 }
 
@@ -284,17 +296,8 @@ const POLL_MS = 4e3;
 const TITLE_MAX = 80;
 const TEXT_MAX = 4e3;
 const TOOL_TEXT_MAX = 160;
-const PRIORITIES = [
-	"high",
-	"medium",
-	"low"
-];
-const STATUSES = [
-	"open",
-	"in_progress",
-	"blocked",
-	"deferred"
-];
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><image width="200" height="200" href="data:image/png;base64,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"/></svg>`;
+const AUTO_REFRESH_MS = 6e4;
 const todos = atom({
 	plugin: "cortext",
 	key: "paneTodos"
@@ -307,6 +310,18 @@ const drafts = atom({
 	plugin: "cortext",
 	key: "paneDrafts"
 }, {});
+const vocab = atom({
+	plugin: "cortext",
+	key: "paneVocab"
+}, FALLBACK_VOCAB);
+const refreshedAt = atom({
+	plugin: "cortext",
+	key: "paneRefreshedAt"
+}, 0);
+const splitPct = atom({
+	plugin: "cortext",
+	key: "paneSplit"
+}, 34);
 const layout = atom({
 	plugin: "cortext",
 	key: "paneLayout"
@@ -431,12 +446,7 @@ const SORTS = [
 ];
 async function loadTodos(p, $) {
 	const scope = await read($, todoScope);
-	const and = [{ archived: { eq: false } }, { status: { in: [
-		"open",
-		"in_progress",
-		"blocked",
-		"deferred"
-	] } }];
+	const and = [{ archived: { eq: false } }];
 	if (scope === "project") and.push({ OR: [{ project: { eq: p.project } }, { project: { eq: null } }] });
 	const rows = [];
 	let cursor;
@@ -478,7 +488,7 @@ async function loadTodos(p, $) {
 }
 /** The rows the list shows now, in its order. */
 async function shown($) {
-	return viewTodos(await read($, todos), await read($, todoView));
+	return viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
 }
 /** Keeps a pick that is still listed; otherwise picks the first row, as a settings sidebar does. */
 async function keepPick(p, $) {
@@ -494,8 +504,19 @@ async function keepPick(p, $) {
 }
 async function refreshTodos(p, $) {
 	try {
+		try {
+			const answer = await sub(p, $, "schema", {
+				namespace: p.ns,
+				type: "Todo",
+				shape: "fields"
+			});
+			const got = vocabFromSchema(answer);
+			if (got) await update($, vocab, () => got);
+		} catch {}
 		await loadTodos(p, $);
 		await keepPick(p, $);
+		const at = await $.clock.now();
+		await update($, refreshedAt, () => at);
 		await note($, "");
 	} catch (err) {
 		await note($, `Could not load todos: ${err.message}`);
@@ -611,13 +632,14 @@ function listRow(els, t, on, onPress) {
 	}, el(Text, { dimColor: !on }, `#${t.shortId} `), el(Text, {}, t.title));
 }
 /** One board card: a bordered Box around one Button whose Text parts are the title, the id and the tags. */
-function card(els, t, onPress) {
+function card(els, t, showProject, on, onPress) {
 	const { Box, Text, Button } = els;
 	const tags = tagLine(t);
+	const where = showProject ? `${t.project ?? "cross-cutting"} · ` : "";
 	return el(Box, {
 		key: `card-${t.id}`,
 		borderStyle: "round",
-		borderColor: "promptBorder",
+		borderColor: on ? "suggestion" : "promptBorder",
 		paddingX: 1,
 		hover: { borderColor: "suggestion" }
 	}, el(Button, {
@@ -625,7 +647,7 @@ function card(els, t, onPress) {
 		label: t.title,
 		plain: true,
 		onPress
-	}, el(Text, { bold: t.priority === "high" }, t.title), "\n", el(Text, { dimColor: true }, `#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ""}`), tags ? "\n" : "", tags ? el(Text, { color: "suggestion" }, tags) : ""));
+	}, el(Text, { bold: t.priority === "high" }, t.title), "\n", el(Text, { dimColor: true }, `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ""}`), tags ? "\n" : "", tags ? el(Text, { color: "suggestion" }, tags) : ""));
 }
 /**
 * A field that is always editable: click into the text and type. Enter saves (Shift+Enter is a
@@ -662,6 +684,16 @@ function textField(els, o) {
 /** The header both layouts share: search, actions, then scope, sort and filters, then the add field. */
 function header(els, p, $, s) {
 	const { Box, Text, Button, Input, Select } = els;
+	const Svg = els.Svg;
+	const logo = Svg ? el(Svg, {
+		source: LOGO_SVG,
+		alt: "mnmal-ai",
+		width: 28,
+		height: 28
+	}) : el(Text, {
+		bold: true,
+		color: "claude"
+	}, "mnmal");
 	const filtered = s.view.status !== "any" || s.view.priority !== "any" || s.view.search.trim() !== "";
 	return el(Box, {
 		flexDirection: "column",
@@ -670,7 +702,7 @@ function header(els, p, $, s) {
 		flexDirection: "row",
 		gap: 1,
 		alignItems: "center"
-	}, el(Box, { flexGrow: 1 }, el(Input, {
+	}, logo, el(Box, { flexGrow: 1 }, el(Input, {
 		key: "todo-search",
 		placeholder: "Search title, #id or tag",
 		submitLabel: "find",
@@ -682,12 +714,18 @@ function header(els, p, $, s) {
 		label: s.mode === "board" ? "List view" : "Board view",
 		hotkey: s.tty ? "v" : void 0,
 		onPress: () => void update($, layout, (m) => m === "board" ? "list" : "board").then(() => update($, cardOpen, () => false))
-	}), el(Button, {
+	}), el(Box, {
+		flexDirection: "column",
+		alignItems: "flex-end"
+	}, el(Button, {
 		key: "todo-refresh",
 		label: "Refresh",
 		hotkey: s.tty ? "r" : void 0,
 		onPress: () => void refreshTodos(p, $)
-	})), el(Box, {
+	}), el(Text, {
+		color: "subtle",
+		tabular: true
+	}, s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : "Not refreshed yet"))), el(Box, {
 		flexDirection: "row",
 		columnGap: 2,
 		rowGap: 1,
@@ -717,9 +755,9 @@ function header(els, p, $, s) {
 		options: [{
 			value: "any",
 			label: "Any"
-		}, ...STATUSES.map((v) => ({
+		}, ...s.voc.status.map((v) => ({
 			value: v,
-			label: v === "blocked" ? "needs you" : v.replace("_", " ")
+			label: humanize(v)
 		}))],
 		onSelect: (v) => void setView(p, $, { status: v })
 	}), el(Select, {
@@ -729,7 +767,10 @@ function header(els, p, $, s) {
 		options: [{
 			value: "any",
 			label: "Any"
-		}, ...PRIORITIES.map((v) => ({ value: v }))],
+		}, ...[...s.voc.priority].reverse().map((v) => ({
+			value: v,
+			label: humanize(v)
+		}))],
 		onSelect: (v) => void setView(p, $, { priority: v })
 	}), el(Text, {
 		color: "subtle",
@@ -755,10 +796,12 @@ function header(els, p, $, s) {
 async function drawTodos(p, $, e) {
 	const els = $.ui.resolve(e);
 	const { Box, Text, Button, Select } = els;
+	const { Client } = els;
 	const tty = e.surface === "terminal";
 	const all = await read($, todos);
 	const view = await read($, todoView);
-	const rows = viewTodos(all, view);
+	const voc = await read($, vocab);
+	const rows = viewTodos(all, view, voc);
 	const scope = await read($, todoScope);
 	const mode = await read($, layout);
 	const opened = await read($, cardOpen);
@@ -812,14 +855,17 @@ async function drawTodos(p, $, e) {
 	}, labelled(els, "Priority", el(Select, {
 		key: `pri-${current.id}`,
 		value: current.priority,
-		options: PRIORITIES.map((v) => ({ value: v })),
+		options: [...voc.priority].reverse().map((v) => ({
+			value: v,
+			label: humanize(v)
+		})),
 		onSelect: (v) => void saveField(p, $, current, { priority: v })
 	})), labelled(els, "Status", el(Select, {
 		key: `status-${current.id}`,
 		value: current.status,
-		options: STATUSES.map((v) => ({
+		options: voc.status.map((v) => ({
 			value: v,
-			label: v === "blocked" ? "needs you" : v.replace("_", " ")
+			label: humanize(v)
 		})),
 		onSelect: (v) => void saveField(p, $, current, { status: v })
 	})), fact("Created", current.createdAt ? ago(current.createdAt, now) : "—"), fact("Updated", current.updatedAt ? ago(current.updatedAt, now) : "—"), more?.targetDate ? fact("Target", more.targetDate.slice(0, 10)) : null), tagLine(current) ? labelled(els, "Tags", el(Text, { color: "suggestion" }, tagLine(current))) : null, field("area", "Area", current.area, void 0, "Area"), current.status === "blocked" || more?.blockedBy ? field("blockedBy", "Waiting on", more?.blockedBy, 2, "What it needs from you") : null, current.status === "deferred" || more?.revisitWhen ? field("revisitWhen", "Revisit when", more?.revisitWhen, 2, "When to look again") : null, field("notes", "Notes", more?.notes, 6, "Add notes"), field("body", "Description", more?.body, 10, "Add a description"));
@@ -829,45 +875,68 @@ async function drawTodos(p, $, e) {
 		scope,
 		mode,
 		shownCount: rows.length,
-		allCount: all.length
+		allCount: all.length,
+		voc,
+		refreshed: await read($, refreshedAt)
 	});
 	const empty = rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : null;
-	let body;
-	if (mode === "board" && opened && current) body = detailView(el(Button, {
-		key: "todo-back",
-		label: "← Board",
-		hotkey: tty ? "b" : void 0,
-		onPress: () => void update($, cardOpen, () => false)
-	}));
-	else if (mode === "board") body = empty ?? el(Box, {
-		flexDirection: "row",
-		gap: 2
-	}, ...laneRows(rows).map(({ lane, rows: inLane }) => el(Box, {
-		key: `lane-${lane.key}`,
+	const split = await read($, splitPct);
+	p.cols = e.props?.bodyColumns ?? p.cols;
+	const allProjects = scope === "all";
+	const detailPanel = (back, width) => el(Box, {
 		flexDirection: "column",
-		flexGrow: 1,
-		flexShrink: 1,
-		width: "25%",
-		gap: 1
-	}, el(Text, {
-		bold: true,
-		color: lane.tone
-	}, `${lane.title} (${inLane.length})`), inLane.length === 0 ? el(Text, { color: "subtle" }, "Empty") : null, ...inLane.map((t) => card(els, t, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true)))))));
-	else body = el(Box, {
-		flexDirection: "row",
-		gap: 2
-	}, el(Box, {
-		flexDirection: "column",
-		width: "34%",
-		flexShrink: 0
-	}, empty, ...rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), el(Box, {
-		flexDirection: "column",
-		flexGrow: 1,
+		flexGrow: width ? 0 : 1,
+		flexShrink: 0,
+		width,
 		borderStyle: "round",
 		borderColor: "promptBorder",
 		paddingX: 2,
 		paddingY: 1
-	}, detailView(null)));
+	}, detailView(back));
+	let body;
+	if (mode === "board") {
+		const lanes = empty ?? el(Box, {
+			flexDirection: "row",
+			gap: 2,
+			flexGrow: 1
+		}, ...laneRows(rows, voc.status).map(({ lane, rows: inLane }) => el(Box, {
+			key: `lane-${lane.key}`,
+			flexDirection: "column",
+			flexGrow: 1,
+			flexShrink: 1,
+			width: `${Math.floor(100 / Math.max(1, voc.status.length))}%`,
+			gap: 1
+		}, el(Text, {
+			bold: true,
+			color: lane.tone
+		}, `${lane.title} (${inLane.length})`), inLane.length === 0 ? el(Text, { color: "subtle" }, "Empty") : null, ...inLane.map((t) => card(els, t, allProjects, t.id === pick && opened, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true)))))));
+		body = opened && current ? el(Box, {
+			flexDirection: "row",
+			gap: 1
+		}, el(Box, {
+			flexGrow: 1,
+			flexShrink: 1
+		}, lanes), detailPanel(el(Button, {
+			key: "todo-back",
+			label: "Close panel",
+			hotkey: tty ? "b" : void 0,
+			onPress: () => void update($, cardOpen, () => false)
+		}), "42%")) : lanes;
+	} else body = el(Box, { flexDirection: "row" }, el(Box, {
+		flexDirection: "column",
+		width: `${split}%`,
+		flexShrink: 0,
+		paddingRight: 1
+	}, empty, ...rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), h(Client, {
+		key: "todo-splitter",
+		module: "./splitter.mjs",
+		props: { rows: Math.max(10, rows.length) },
+		width: 1
+	}), el(Box, {
+		flexDirection: "column",
+		flexGrow: 1,
+		paddingLeft: 1
+	}, detailPanel(null)));
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1
@@ -1145,7 +1214,9 @@ function newPanes() {
 		kid: "unknown",
 		writes: Promise.resolve(),
 		poll: void 0,
-		turnPoll: void 0
+		turnPoll: void 0,
+		todoPoll: void 0,
+		cols: 120
 	};
 }
 /** Called from the bridge's main-thread tool.call hook: the tool's name and summary, never its output. */
@@ -1179,6 +1250,8 @@ async function startPanes(p, $, cwd) {
 function registerPanes(on, p) {
 	on("command.run", { command: "cortext-todos" }, async ($) => {
 		await refreshTodos(p, $);
+		p.todoPoll?.cancel();
+		p.todoPoll = $.clock.every(AUTO_REFRESH_MS, () => void refreshTodos(p, $));
 		await $.ui.open({
 			id: TODOS_PANE,
 			title: "Todos"
@@ -1203,6 +1276,19 @@ function registerPanes(on, p) {
 			return { text: `Sharing is ${value === true ? "on" : "off"}.${who} Use /cortext-share on, off, or control <kid>.` };
 		}
 		return { text: await setSharing(p, $, arg === "on") };
+	});
+	on("ui.close", { id: TODOS_PANE }, async (_$, e, next) => {
+		p.todoPoll?.cancel();
+		p.todoPoll = void 0;
+		return next(e);
+	});
+	on("ui.message", async ($, e, next) => {
+		const data = e.data;
+		if (data?.type === "split" && typeof data.delta === "number" && p.cols > 0) {
+			const step = data.delta * 100 / p.cols;
+			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round((v + step) * 10) / 10)));
+		}
+		return next(e);
 	});
 	on("ui.close", { id: SESSION_PANE }, async (_$, e, next) => {
 		p.poll?.cancel();
