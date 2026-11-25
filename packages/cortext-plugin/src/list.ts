@@ -65,6 +65,25 @@ const Row: ClientModule<RowProps, State> = (props, surface) => {
     else facts.push(`${sep}${f.text}`);
   }
   const title = { ...mark, ...flag(on, 'bold') };
+  // The terminal's cells are the letters' width, so the title is folded here; elsewhere the
+  // letters are narrower than a cell, so the app folds it to the row's real width.
+  const titleLines = props.tty
+    ? [
+        t(
+          Text,
+          title,
+          t(Text, flag(!on, 'dimColor'), first.slice(0, lead.length)),
+          first.slice(lead.length)
+        ),
+        t(Text, title, second || ' ')
+      ]
+    : [
+        t(
+          Box,
+          { height: 2 },
+          t(Text, { ...title, maxLines: 2 }, t(Text, flag(!on, 'dimColor'), lead), r.title)
+        )
+      ];
   return t(
     Box,
     {
@@ -73,13 +92,7 @@ const Row: ClientModule<RowProps, State> = (props, surface) => {
       height: ROW_LINES,
       ...(fill ? { backgroundColor: fill } : {})
     },
-    t(
-      Text,
-      title,
-      t(Text, flag(!on, 'dimColor'), first.slice(0, lead.length)),
-      first.slice(lead.length)
-    ),
-    t(Text, title, second || ' '),
+    ...titleLines,
     t(Text, { ...mark, ...flag(!on, 'dimColor'), wrap: 'truncate-end' }, ...facts)
   ) as RenderElement;
 };

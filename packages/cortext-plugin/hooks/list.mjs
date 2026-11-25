@@ -84,12 +84,16 @@ const Row = (props, surface) => {
 		...mark,
 		...flag(on, "bold")
 	};
+	const titleLines = props.tty ? [t(Text, title, t(Text, flag(!on, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " ")] : [t(Box, { height: 2 }, t(Text, {
+		...title,
+		maxLines: 2
+	}, t(Text, flag(!on, "dimColor"), lead), r.title))];
 	return t(Box, {
 		flexDirection: "column",
 		paddingX: 1,
 		height: 3,
 		...fill ? { backgroundColor: fill } : {}
-	}, t(Text, title, t(Text, flag(!on, "dimColor"), first.slice(0, lead.length)), first.slice(lead.length)), t(Text, title, second || " "), t(Text, {
+	}, ...titleLines, t(Text, {
 		...mark,
 		...flag(!on, "dimColor"),
 		wrap: "truncate-end"
