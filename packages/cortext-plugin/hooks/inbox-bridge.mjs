@@ -127,6 +127,58 @@ function laterCursor(cursor, createdAt) {
 }
 
 //#endregion
+//#region src/icons.ts
+const PATHS = {
+	"circle-check": ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0", "M9 12l2 2l4 -4"],
+	circle: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"],
+	"clock-pause": [
+		"M20.942 13.018a9 9 0 1 0 -7.909 7.922",
+		"M12 7v5l2 2",
+		"M17 17v5",
+		"M21 17v5"
+	],
+	"hand-stop": [
+		"M8 13v-7.5a1.5 1.5 0 0 1 3 0v6.5",
+		"M11 5.5v-2a1.5 1.5 0 1 1 3 0v8.5",
+		"M14 5.5a1.5 1.5 0 0 1 3 0v6.5",
+		"M17 7.5a1.5 1.5 0 0 1 3 0v8.5a6 6 0 0 1 -6 6h-2h.208a6 6 0 0 1 -5.012 -2.7a69.74 69.74 0 0 1 -.196 -.3c-.312 -.479 -1.407 -2.388 -3.286 -5.728a1.5 1.5 0 0 1 .536 -2.022a1.867 1.867 0 0 1 2.28 .28l1.47 1.47"
+	],
+	"layout-kanban": [
+		"M4 4l6 0",
+		"M14 4l6 0",
+		"M4 10a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -8",
+		"M14 10a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2"
+	],
+	"layout-list": ["M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -2", "M4 16a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -2"],
+	list: [
+		"M9 6l11 0",
+		"M9 12l11 0",
+		"M9 18l11 0",
+		"M5 6l0 .01",
+		"M5 12l0 .01",
+		"M5 18l0 .01"
+	],
+	notes: [
+		"M5 5a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -14",
+		"M9 7l6 0",
+		"M9 11l6 0",
+		"M9 15l4 0"
+	],
+	progress: [
+		"M10 20.777a8.942 8.942 0 0 1 -2.48 -.969",
+		"M14 3.223a9.003 9.003 0 0 1 0 17.554",
+		"M4.579 17.093a8.961 8.961 0 0 1 -1.227 -2.592",
+		"M3.124 10.5c.16 -.95 .468 -1.85 .9 -2.675l.169 -.305",
+		"M6.907 4.579a8.954 8.954 0 0 1 3.093 -1.356"
+	],
+	refresh: ["M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4", "M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"]
+};
+/** One Tabler icon as an SVG document, stroked in `color` (a raw color: an Svg image has no theme). */
+function icon(name, color, size = 16) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${(PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join("")}</svg>`;
+}
+
+//#endregion
 //#region src/pane-text.ts
 const TOOL_TEXT_MAX$1 = 160;
 function cut(text, max) {
@@ -289,6 +341,201 @@ function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
 }
 
 //#endregion
+//#region src/grouped.ts
+const HEX = {
+	open: null,
+	in_progress: "#58a6ff",
+	blocked: "#d29922",
+	deferred: "#8b949e",
+	closed: "#3fb950"
+};
+const THEME = {
+	open: null,
+	in_progress: "suggestion",
+	blocked: "warning",
+	deferred: "subtle",
+	closed: "success"
+};
+const GLYPH = {
+	open: "○",
+	in_progress: "◐",
+	blocked: "■",
+	deferred: "◌",
+	closed: "✓"
+};
+const ICON = {
+	open: "circle",
+	in_progress: "progress",
+	blocked: "hand-stop",
+	deferred: "clock-pause",
+	closed: "circle-check"
+};
+const TRACK = "#8b949e33";
+const ROW_HOVER = "#8b949e1f";
+const NEUTRAL = "#8b949e";
+/** The Grouped view's tree: heading and progress, then a group per status that has rows. */
+function groupedView(a) {
+	const { el } = a;
+	const { Box, Text, Button } = a.els;
+	const Svg = a.surface !== "terminal" ? a.els.Svg : void 0;
+	const tty = a.surface === "terminal";
+	const tone = (s) => tty ? THEME[s] ?? null : HEX[s] ?? null;
+	const glyph = (s) => {
+		const color = tone(s);
+		return color ? el(Text, { color }, GLYPH[s] ?? "•") : el(Text, {}, GLYPH[s] ?? "•");
+	};
+	const mark = (s) => Svg ? el(Svg, {
+		source: icon(ICON[s] ?? "circle", HEX[s] ?? NEUTRAL),
+		alt: humanize(s),
+		width: 16,
+		height: 16
+	}) : glyph(s);
+	const border = (s) => {
+		const color = tone(s);
+		if (!color) return { borderDimColor: true };
+		return tty ? {
+			borderColor: color,
+			borderDimColor: true
+		} : { borderColor: `${color}59` };
+	};
+	const rowHover = tty ? {} : { hover: { backgroundColor: ROW_HOVER } };
+	const row = (r) => {
+		const done = r.status === "closed";
+		const meta = [
+			r.priority === "high" ? el(Text, { color: tty ? "warning" : "#d29922" }, "high") : null,
+			a.allProjects ? el(Text, { dimColor: true }, r.project ?? "cross-cutting") : null,
+			el(Text, { dimColor: true }, `#${r.shortId}`)
+		].filter(Boolean);
+		return el(Box, { flexDirection: "column" }, el(Box, {
+			key: `grow-${r.id}`,
+			flexDirection: "row",
+			gap: 1,
+			...rowHover
+		}, el(Box, { flexShrink: 0 }, el(Button, {
+			key: `gstatus-${r.id}`,
+			label: GLYPH[r.status] ?? "•",
+			plain: true,
+			onPress: () => a.onTogglePicker(r)
+		}, glyph(r.status))), el(Box, {
+			flexGrow: 1,
+			flexShrink: 1,
+			minWidth: 0
+		}, el(Button, {
+			key: `gopen-${r.id}`,
+			label: r.title,
+			plain: true,
+			onPress: () => a.onOpen(r)
+		}, el(Text, {
+			wrap: "truncate-end",
+			strikethrough: done,
+			dimColor: done,
+			bold: r.id === a.picked
+		}, r.title))), el(Box, {
+			flexShrink: 0,
+			flexDirection: "row",
+			gap: 1
+		}, ...meta)), a.pickerFor === r.id ? picker(r) : null);
+	};
+	const picker = (r) => el(Box, {
+		flexDirection: "column",
+		alignSelf: "flex-start",
+		borderStyle: "round",
+		borderDimColor: true,
+		paddingX: 1
+	}, ...a.statuses.map((s) => el(Button, {
+		key: `gset-${r.id}-${s}`,
+		label: `${GLYPH[s] ?? "•"} ${humanize(s)}`,
+		plain: true,
+		onPress: () => a.onSetStatus(r, s)
+	}, glyph(s), el(Text, { bold: s === r.status }, ` ${humanize(s)}`))));
+	const total = a.rows.length;
+	const count = (s) => a.rows.filter((r) => r.status === s).length;
+	const parts = [
+		["closed", count("closed")],
+		["in_progress", count("in_progress")],
+		["blocked", count("blocked")]
+	];
+	const progress = () => {
+		if (total === 0) return null;
+		if (Svg) {
+			const [width, height] = [1e3, 8];
+			let x = 0;
+			const rects = parts.map(([s, n]) => {
+				const w = Math.round(width * n / total);
+				const rect = `<rect x="${x}" width="${w}" height="${height}" fill="${HEX[s]}"/>`;
+				x += w;
+				return rect;
+			});
+			const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><clipPath id="bar"><rect width="${width}" height="${height}" rx="${height / 2}"/></clipPath><g clip-path="url(#bar)"><rect width="${width}" height="${height}" fill="${TRACK}"/>${rects.join("")}</g></svg>`;
+			return el(Svg, {
+				source,
+				alt: `${count("closed")} of ${total} closed`
+			});
+		}
+		const width = Math.max(10, Math.min(60, a.columns - 2));
+		const [done, doing, waiting] = parts.map(([, n]) => Math.round(width * n / total));
+		return el(Text, {}, el(Text, { color: "success" }, "━".repeat(done ?? 0)), el(Text, { color: "suggestion" }, "━".repeat(doing ?? 0)), el(Text, { color: "warning" }, "━".repeat(waiting ?? 0)), el(Text, { dimColor: true }, "━".repeat(Math.max(0, width - (done ?? 0) - (doing ?? 0) - (waiting ?? 0)))));
+	};
+	const group = (s, rows) => {
+		const open = !a.folded.includes(s);
+		return el(Box, {
+			key: `group-${s}`,
+			flexDirection: "column",
+			gap: 1
+		}, el(Box, {
+			flexDirection: "row",
+			justifyContent: "space-between",
+			paddingX: 1
+		}, el(Box, {
+			flexDirection: "row",
+			gap: 1,
+			alignItems: "center"
+		}, mark(s), el(Button, {
+			key: `gfold-${s}`,
+			label: humanize(s),
+			plain: true,
+			onPress: () => a.onToggleGroup(s)
+		})), el(Box, {
+			flexDirection: "row",
+			gap: 2
+		}, el(Text, {
+			dimColor: true,
+			tabular: true
+		}, String(rows.length)), el(Button, {
+			key: `gfold-${s}-chev`,
+			label: open ? "▾" : "▸",
+			plain: true,
+			dimColor: true,
+			onPress: () => a.onToggleGroup(s)
+		}))), open ? el(Box, {
+			flexDirection: "column",
+			borderStyle: "round",
+			...border(s),
+			paddingX: 1
+		}, ...rows.map(row)) : null);
+	};
+	const groups = a.statuses.map((s) => ({
+		s,
+		rows: a.rows.filter((r) => r.status === s)
+	})).filter((g) => g.rows.length > 0);
+	return el(Box, {
+		flexDirection: "column",
+		gap: 2
+	}, el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Box, {
+		flexDirection: "row",
+		justifyContent: "space-between"
+	}, el(Text, { bold: true }, a.heading), total > 0 ? el(Text, { dimColor: true }, `${count("closed")} of ${total} closed`) : null), progress()), groups.length === 0 ? el(Box, {
+		flexDirection: "column",
+		borderStyle: "round",
+		borderDimColor: true,
+		paddingX: 1
+	}, el(Text, {}, "Nothing open."), el(Text, { dimColor: true }, "Add a todo above, or ask Claude to put one on the list.")) : null, ...groups.map((g) => group(g.s, g.rows)));
+}
+
+//#endregion
 //#region src/desktop-panes.ts
 const TODOS_PANE = "cortext-todos";
 const SESSION_PANE = "cortext-session";
@@ -326,6 +573,14 @@ const layout = atom({
 	plugin: "cortext",
 	key: "paneLayout"
 }, "list");
+const folds = atom({
+	plugin: "cortext",
+	key: "paneFolds"
+}, ["closed"]);
+const pickerFor = atom({
+	plugin: "cortext",
+	key: "panePicker"
+}, null);
 const cardOpen = atom({
 	plugin: "cortext",
 	key: "paneCardOpen"
@@ -709,11 +964,25 @@ function header(els, p, $, s) {
 		value: s.view.search,
 		onInput: (v) => void setView(p, $, { search: v }),
 		onSubmit: (v) => void setView(p, $, { search: v })
-	})), el(Button, {
-		key: "todo-layout",
-		label: s.mode === "board" ? "List view" : "Board view",
-		hotkey: s.tty ? "v" : void 0,
-		onPress: () => void update($, layout, (m) => m === "board" ? "list" : "board").then(() => update($, cardOpen, () => false))
+	})), el(Select, {
+		key: "todo-view",
+		label: "View",
+		value: s.mode,
+		options: [
+			{
+				value: "list",
+				label: "List"
+			},
+			{
+				value: "board",
+				label: "Board"
+			},
+			{
+				value: "grouped",
+				label: "Grouped"
+			}
+		],
+		onSelect: (v) => void update($, layout, () => v === "board" || v === "grouped" ? v : "list").then(() => update($, cardOpen, () => false))
 	}), el(Box, {
 		flexDirection: "column",
 		alignItems: "flex-end"
@@ -894,7 +1163,47 @@ async function drawTodos(p, $, e) {
 		paddingY: 1
 	}, detailView(back));
 	let body;
-	if (mode === "board") {
+	if (mode === "grouped") {
+		const view = groupedView({
+			els,
+			surface: e.surface,
+			el,
+			heading: allProjects ? "All projects" : p.project,
+			statuses: voc.status,
+			rows,
+			allProjects,
+			picked: opened ? pick : null,
+			pickerFor: await read($, pickerFor),
+			folded: await read($, folds),
+			columns: p.cols,
+			onOpen: (r) => {
+				const t = all.find((x) => x.id === r.id);
+				if (t) selectTodo(p, $, t).then(() => update($, cardOpen, () => true));
+			},
+			onTogglePicker: (r) => void update($, pickerFor, (cur) => cur === r.id ? null : r.id),
+			onSetStatus: (r, status) => {
+				const t = all.find((x) => x.id === r.id);
+				update($, pickerFor, () => null);
+				if (t && t.status !== status) update($, todos, (list) => list.map((x) => x.id === t.id ? {
+					...x,
+					status
+				} : x)).then(() => saveField(p, $, t, { status }));
+			},
+			onToggleGroup: (st) => void update($, folds, (f) => f.includes(st) ? f.filter((x) => x !== st) : [...f, st])
+		});
+		body = opened && current ? el(Box, {
+			flexDirection: "row",
+			gap: 1
+		}, el(Box, {
+			flexGrow: 1,
+			flexShrink: 1
+		}, view), detailPanel(el(Button, {
+			key: "todo-back",
+			label: "Close panel",
+			hotkey: tty ? "b" : void 0,
+			onPress: () => void update($, cardOpen, () => false)
+		}), "42%")) : view;
+	} else if (mode === "board") {
 		const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
 			status: lane.key,
 			title: lane.title,

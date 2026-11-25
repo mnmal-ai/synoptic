@@ -1,6 +1,7 @@
 import type { EngineInterface, On, RenderElement } from 'claude-code';
 import { atom, read, update } from 'claude-code';
 import type { FeedEvent, FeedRow, PaneTodo, TodoDetail } from '../types';
+import { groupedView } from './grouped.js';
 import {
   ago,
   clockTime,
@@ -48,6 +49,9 @@ const refreshedAt = atom({ plugin: 'cortext', key: 'paneRefreshedAt' }, 0);
 // The list's share of the pane, in percent; the splitter moves it.
 const splitPct = atom({ plugin: 'cortext', key: 'paneSplit' }, 34);
 const layout = atom({ plugin: 'cortext', key: 'paneLayout' }, 'list');
+// Grouped view: the statuses folded away (closed starts folded) and the row whose picker is open.
+const folds = atom({ plugin: 'cortext', key: 'paneFolds' }, ['closed']);
+const pickerFor = atom({ plugin: 'cortext', key: 'panePicker' }, null);
 // On the board a picked card opens full width; false shows the lanes.
 const cardOpen = atom({ plugin: 'cortext', key: 'paneCardOpen' }, false);
 const todoView = atom(
@@ -513,12 +517,17 @@ function header(
           onSubmit: (v: string) => void setView(p, $, { search: v })
         })
       ),
-      el(Button, {
-        key: 'todo-layout',
-        label: s.mode === 'board' ? 'List view' : 'Board view',
-        hotkey: s.tty ? 'v' : undefined,
-        onPress: () =>
-          void update($, layout, (m) => (m === 'board' ? 'list' : 'board')).then(() =>
+      el(Select, {
+        key: 'todo-view',
+        label: 'View',
+        value: s.mode,
+        options: [
+          { value: 'list', label: 'List' },
+          { value: 'board', label: 'Board' },
+          { value: 'grouped', label: 'Grouped' }
+        ],
+        onSelect: (v: string) =>
+          void update($, layout, () => (v === 'board' || v === 'grouped' ? v : 'list')).then(() =>
             update($, cardOpen, () => false)
           )
       }),
@@ -770,7 +779,54 @@ async function drawTodos(
     );
 
   let body: RenderElement;
-  if (mode === 'board') {
+  if (mode === 'grouped') {
+    const view = groupedView({
+      els: els as unknown as Record<string, unknown>,
+      surface: e.surface,
+      el,
+      heading: allProjects ? 'All projects' : p.project,
+      statuses: voc.status,
+      rows,
+      allProjects,
+      picked: opened ? pick : null,
+      pickerFor: await read($, pickerFor),
+      folded: await read($, folds),
+      columns: p.cols,
+      onOpen: (r) => {
+        const t = all.find((x) => x.id === r.id);
+        if (t) void selectTodo(p, $, t).then(() => update($, cardOpen, () => true));
+      },
+      onTogglePicker: (r) => void update($, pickerFor, (cur) => (cur === r.id ? null : r.id)),
+      onSetStatus: (r, status) => {
+        const t = all.find((x) => x.id === r.id);
+        void update($, pickerFor, () => null);
+        if (t && t.status !== status) {
+          void update($, todos, (list) =>
+            list.map((x) => (x.id === t.id ? { ...x, status } : x))
+          ).then(() => saveField(p, $, t, { status }));
+        }
+      },
+      onToggleGroup: (st) =>
+        void update($, folds, (f) => (f.includes(st) ? f.filter((x) => x !== st) : [...f, st]))
+    });
+    body =
+      opened && current
+        ? el(
+            Box,
+            { flexDirection: 'row', gap: 1 },
+            el(Box, { flexGrow: 1, flexShrink: 1 }, view),
+            detailPanel(
+              el(Button, {
+                key: 'todo-back',
+                label: 'Close panel',
+                hotkey: tty ? 'b' : undefined,
+                onPress: () => void update($, cardOpen, () => false)
+              }),
+              '42%'
+            )
+          )
+        : view;
+  } else if (mode === 'board') {
     const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
       status: lane.key,
       title: lane.title,

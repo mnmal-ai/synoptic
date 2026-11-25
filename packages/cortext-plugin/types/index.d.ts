@@ -65,7 +65,9 @@ declare module 'claude-code' {
       paneTodos: Shaped<PaneTodo[]>;
       paneTodoScope: 'project' | 'all';
       paneDrafts: Record<string, string>;
-      paneLayout: 'list' | 'board';
+      paneLayout: 'list' | 'board' | 'grouped';
+      paneFolds: string[];
+      panePicker: string | null;
       paneCardOpen: boolean;
       paneVocab: { status: readonly string[]; priority: readonly string[] };
       paneRefreshedAt: number;

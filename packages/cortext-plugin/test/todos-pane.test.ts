@@ -138,7 +138,7 @@ test('the board draws a lane per schema status; a click opens a card, a drop mov
   await $.command.run({ command: 'cortext-todos', args: '' });
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
-  await ui.press({ key: 'todo-layout' });
+  await ui.select({ key: 'todo-view', value: 'board' });
   const board = { in: 'todo-board' } as const;
   expect((await ui.find({ ...board, type: 'Text', text: /^Blocked/ }))?.text).toBe('Blocked 1');
   expect((await ui.find({ ...board, type: 'Text', text: /^Closed/ }))?.text).toBe('Closed 0');
@@ -173,9 +173,11 @@ test('all projects: 170 rows from 8 projects draw on every surface', async ($, o
     const ui = await $.ui.mount({ ...PANE, surface });
     await ui.select({ key: 'todo-scope', value: 'all' });
     expect(await ui.find({ type: 'Text', text: /^Could not/ })).toBeUndefined();
-    await ui.press({ key: 'todo-layout' });
+    await ui.select({ key: 'todo-view', value: 'board' });
     expect(await ui.find({ type: 'Text', text: /^Could not/ })).toBeUndefined();
-    await ui.press({ key: 'todo-layout' });
+    await ui.select({ key: 'todo-view', value: 'grouped' });
+    expect(await ui.find({ type: 'Text', text: /^Could not/ })).toBeUndefined();
+    await ui.select({ key: 'todo-view', value: 'list' });
     await ui.unmount();
   }
 });
@@ -189,5 +191,25 @@ test('dragging the splitter widens the list', async ($, on) => {
   await ui.pointer({ in: 'todo-splitter', type: 'up', x: 12, y: 2, button: 'left' });
   // 12 of 120 columns is 10 points: the list goes from 34% to 44%.
   expect(JSON.stringify(await ui.drawn())).toContain('"width":"44%"');
+  await ui.unmount();
+});
+
+test('grouped view: a group per status, a glyph opens the picker, a pick moves the todo', async ($, on) => {
+  const writes: unknown[] = [];
+  substrate(on, writes);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    await ui.select({ key: 'todo-view', value: 'grouped' });
+    expect(await ui.find({ type: 'Button', key: 'gfold-blocked' })).toBeDefined();
+    expect(await ui.find({ type: 'Text', text: /of 3 closed/ })).toBeDefined();
+    await ui.unmount();
+  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' });
+  await ui.press({ key: 'gstatus-a' });
+  await ui.press({ key: 'gset-a-in_progress' });
+  expect(JSON.stringify(writes)).toContain('"status":"in_progress"');
+  await ui.press({ key: 'gopen-c' });
+  expect(await ui.find({ type: 'Input', key: 'f-title-c' })).toBeDefined();
   await ui.unmount();
 });
