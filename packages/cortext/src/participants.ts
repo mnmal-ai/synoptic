@@ -258,3 +258,118 @@ export function operatorOnly(name: string, inner: RegistryEntryResolver): Regist
     );
   };
 }
+
+/** The kid that created `row`: `_metadata.createdBy`, set by the server from the signing key. */
+function createdByKid(row: Row): unknown {
+  return (row as Row & { _metadata?: { createdBy?: { id?: unknown } | null } })._metadata?.createdBy
+    ?.id;
+}
+
+function refuseNonOwner(ctx: RequestContext, name: string, feed: Row, orOperator: boolean): void {
+  const owner = createdByKid(feed);
+  const caller = callerKid(ctx);
+  if (caller !== null && caller === owner) return;
+  throw new ResolverFrameError(
+    'not_owner',
+    `${name}: only this feed's owner ('${String(owner ?? 'unknown')}')` +
+      `${orOperator ? ', or an operator,' : ''} may do this`,
+    { id: feed.id }
+  );
+}
+
+/**
+ * SessionFeed update/delete: the feed's owner (the key that created it) or an
+ * operator. A viewer trusts a feed because nobody else can change it.
+ */
+export function feedOwnerOnly(
+  installCtx: NamespaceInstallContext,
+  name: string,
+  inner: RegistryEntryResolver
+): RegistryEntryResolver {
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    const id = rowId(args);
+    if (id === undefined || isOperator(ctx)) return inner(ctx, args);
+    const ds: Dataset = args.dataset ?? installCtx.dataset;
+    const feed = await resolveEntityRow(ds, 'SessionFeed', id);
+    if (feed !== null) refuseNonOwner(ctx, name, feed, true);
+    return inner(ctx, args);
+  };
+}
+
+/**
+ * SessionFeedEvent create: the feed's owner only, and only while the feed is
+ * sharing. No operator exception: an event is shown as the owner's own words.
+ */
+export function feedEventCreateGuard(
+  installCtx: NamespaceInstallContext,
+  name: string,
+  inner: RegistryEntryResolver
+): RegistryEntryResolver {
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    const feedId = args.params?.feed;
+    const ds: Dataset = args.dataset ?? installCtx.dataset;
+    const feed =
+      typeof feedId === 'string' || typeof feedId === 'number'
+        ? await resolveEntityRow(ds, 'SessionFeed', feedId)
+        : null;
+    // Fails closed: a feed this guard cannot check is never handed to the resolver.
+    if (feed === null) {
+      throw new ResolverFrameError(
+        'missing_referent',
+        `${name}: 'feed' must be the id of an existing SessionFeed`,
+        { field: 'feed' }
+      );
+    }
+    refuseNonOwner(ctx, name, feed, false);
+    if (feed.sharing !== true || feed.archived === true) {
+      throw new ResolverFrameError(
+        'feed_not_sharing',
+        `${name}: feed '${String(feed.id)}' is not sharing; turn sharing on before adding events`,
+        { id: feed.id }
+      );
+    }
+    // The row written names the feed that was checked, whatever form the id arrived in.
+    return inner(ctx, { ...args, params: { ...args.params, feed: feed.id } });
+  };
+}
+
+/** SessionFeedEvent update: refused. An event is written once and read as it was said. */
+export function feedEventImmutable(name: string): RegistryEntryResolver {
+  return async () => {
+    throw new ResolverFrameError(
+      'immutable',
+      `${name}: a feed event cannot be changed; delete it or its feed instead`,
+      {}
+    );
+  };
+}
+
+/** SessionFeedEvent delete: its feed's owner or an operator. */
+export function feedEventDeleteGuard(
+  installCtx: NamespaceInstallContext,
+  name: string,
+  inner: RegistryEntryResolver
+): RegistryEntryResolver {
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    const id = rowId(args);
+    if (id === undefined || isOperator(ctx)) return inner(ctx, args);
+    const ds: Dataset = args.dataset ?? installCtx.dataset;
+    const event = await resolveEntityRow(ds, 'SessionFeedEvent', id);
+    if (event === null) return inner(ctx, args); // the resolver owns not-found
+    const feedId = event.feed;
+    const feed =
+      typeof feedId === 'string' || typeof feedId === 'number'
+        ? await resolveEntityRow(ds, 'SessionFeed', feedId)
+        : null;
+    // An event whose feed cannot be read has no owner to check, so only an operator may delete it.
+    if (feed === null) {
+      throw new ResolverFrameError(
+        'not_owner',
+        `${name}: this event's feed cannot be read; only an operator may delete it`,
+        { id: event.id }
+      );
+    }
+    refuseNonOwner(ctx, name, feed, true);
+    return inner(ctx, args);
+  };
+}

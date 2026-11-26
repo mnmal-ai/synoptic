@@ -33,6 +33,10 @@ import {
 import { installMailboxMutations } from './mailbox.js';
 import { CORTEXT_NL_RULINGS } from './nl-rulings.js';
 import {
+  feedEventCreateGuard,
+  feedEventDeleteGuard,
+  feedEventImmutable,
+  feedOwnerOnly,
   identityCreateGuard,
   identitySelfOnly,
   operatorOnly,
@@ -177,6 +181,9 @@ export const HOST_INSTALL_FRAGMENT_STATES = [
 export const HOST_INSTALL_CHECK_STATES = ['ok', 'warn', 'unknown'] as const;
 
 export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
+
+/** SessionFeedEvent.kind: a user prompt, an assistant reply, one tool call, or a mail received or sent. */
+export const SESSION_FEED_EVENT_KINDS = ['prompt', 'reply', 'tool', 'mail-in', 'mail-out'] as const;
 
 const CONCEPT_NAME_TTL_MS = 60_000;
 
@@ -964,6 +971,46 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           name: 'rows_execution_checkpoint_task_revision_unique'
         }
       ]
+    },
+    // A session its user chose to share read-only. The feed's owner is the key
+    // that created it (_metadata.createdBy): only the owner, or an operator, may
+    // change or delete it, and only the owner may add events (participants.ts).
+    // `instance` is deliberately not unique, so nobody can take another
+    // session's tag first; a reader matches instance AND owner.
+    SessionFeed: {
+      fields: {
+        // `session:<8 hex>`, the tag the session stamps on its mail.
+        instance: field.string({ indexed: true }),
+        // The first prompt, cut short: what a viewer picks the feed by.
+        title: field.string(),
+        // False once the user turns sharing off; the feed then takes no events.
+        sharing: field.boolean({ default: true }),
+        // When the latest event was written. The compact sweep deletes feeds idle past a week.
+        lastEventAt: field.date({ indexed: true }),
+        archived: field.boolean({ default: false }),
+        project: field.string({ nullable: true, indexed: true })
+      }
+    },
+    // One step of a shared session: a prompt, a reply, a tool call's name and
+    // short summary, or a mail. Written once by the feed's owner, never edited.
+    SessionFeedEvent: {
+      fields: {
+        feed: field.crossRef(ns, 'SessionFeed', { onDelete: 'cascade' }),
+        // Writer-assigned, one higher than the feed's latest.
+        step: field.number(),
+        kind: field.enum(SESSION_FEED_EVENT_KINDS),
+        text: field.string({ indexed: false }),
+        tool: field.string({ nullable: true }),
+        project: field.string({ nullable: true, indexed: true })
+      },
+      indexes: [
+        {
+          fields: ['feed', { field: 'step', dir: 'desc' }],
+          unique: true,
+          where: 'live',
+          name: 'rows_session_feed_event_feed_step_unique'
+        }
+      ]
     }
     // ReviewSession + ReviewFinding live in the review plugin's review/* namespace.
   };
@@ -1022,11 +1069,36 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
           'updateTodo',
           (r: RegistryEntryResolver) =>
             todoResolutionGuard(ctx, 'updateTodo', r, TODO_STATUS_ALIASES)
+        ],
+        // A shared session's feed: only its owner writes it, and events are never edited.
+        [
+          'updateSessionFeed',
+          (r: RegistryEntryResolver) => feedOwnerOnly(ctx, 'updateSessionFeed', r)
+        ],
+        [
+          'deleteSessionFeed',
+          (r: RegistryEntryResolver) => feedOwnerOnly(ctx, 'deleteSessionFeed', r)
+        ],
+        [
+          'createSessionFeedEvent',
+          (r: RegistryEntryResolver) => feedEventCreateGuard(ctx, 'createSessionFeedEvent', r)
+        ],
+        [
+          'updateSessionFeedEvent',
+          (_r: RegistryEntryResolver) => feedEventImmutable('updateSessionFeedEvent')
+        ],
+        [
+          'deleteSessionFeedEvent',
+          (r: RegistryEntryResolver) => feedEventDeleteGuard(ctx, 'deleteSessionFeedEvent', r)
         ]
       ] as const) {
         const entry = ctx.registry.get(name);
         if (entry === undefined) throw new Error(`cortext: autoCRUD did not register ${name}`);
-        ctx.registry.replace(name, { ...entry, resolver: wrap(entry.resolver) });
+        // `batch` is dropped: substrate before beta.17 runs an array write through the
+        // entry's batch resolver, which would skip the guard. Without one, each element
+        // runs the wrapped resolver. Replacing update/delete also retires updateMany/deleteMany.
+        const { batch: _unguarded, ...guarded } = entry;
+        ctx.registry.replace(name, { ...guarded, resolver: wrap(entry.resolver) });
       }
     }
   };
@@ -1049,7 +1121,9 @@ export const CLAUDE_TYPE_NAMES = [
   'AgentMessage',
   'HostInstall',
   'Task',
-  'ExecutionCheckpoint'
+  'ExecutionCheckpoint',
+  'SessionFeed',
+  'SessionFeedEvent'
 ] as const;
 
 /**

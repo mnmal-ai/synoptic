@@ -39,6 +39,7 @@ export interface CompactResult {
   decisionsArchived: number;
   sessionsRetained: number;
   messagesArchived: number;
+  feedsDeleted: number;
 }
 
 /**
@@ -60,6 +61,12 @@ export interface CompactOptions {
  * queries — the row remains queryable.
  */
 const MAIL_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * A shared-session feed idle longer than this is deleted, its events with it
+ * (cascade). A feed is a live view of a session, not a record of it.
+ */
+const FEED_DELETE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SessionRow {
   id: string;
@@ -255,12 +262,33 @@ export async function runCompact(
     );
   }
 
+  // shortcut: a feed that never goes idle keeps every event; cap events per feed if feeds run for weeks.
+  const feedCutoff = new Date(Date.now() - FEED_DELETE_AFTER_MS);
+  const idleFeeds = await queryAll<{ id: string }>(
+    engine,
+    ns,
+    'SessionFeed',
+    { where: { lastEventAt: { lt: feedCutoff.toISOString() } }, limit: MAX_COMPACT_SCAN },
+    ['id']
+  );
+
+  if (!dryRun) {
+    await mutateBatch(
+      engine,
+      ns,
+      'deleteSessionFeed',
+      idleFeeds.map((f) => ({ id: f.id })),
+      ['id']
+    );
+  }
+
   return {
     dryRun,
     sessionsArchived: toArchive.length,
     decisionsArchived: decisionsToArchive.length,
     sessionsRetained: retained.length,
-    messagesArchived: ackedMail.length
+    messagesArchived: ackedMail.length,
+    feedsDeleted: idleFeeds.length
   };
 }
 
