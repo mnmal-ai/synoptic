@@ -633,6 +633,81 @@ function registerMailCard(on) {
 }
 
 //#endregion
+//#region src/share-text.ts
+const TOOL_TEXT_MAX = 160;
+/** A tool call as a feed shows it: its own description, the file it touched or the URL's host, never its output. */
+function toolSummary(tool, input) {
+	const pick = (k) => typeof input[k] === "string" && input[k] !== "" ? input[k] : void 0;
+	const said = pick("description");
+	if (said !== void 0) return cut(said, 160);
+	const file = pick("file_path") ?? pick("notebook_path") ?? pick("path");
+	if (file !== void 0) return file.split("/").filter(Boolean).at(-1) ?? file;
+	const url = pick("url");
+	if (url !== void 0) return /^[a-z]+:\/\/([^/?#]+)/i.exec(url)?.[1] ?? tool;
+	return tool;
+}
+/** A mail feed event's text: subject, a blank line, then the body. */
+function mailFeedText(subject, body) {
+	return body ? `${subject}\n\n${body}` : subject;
+}
+/** Reads a mail feed event's text back into its subject and body. */
+function splitMailFeedText(text) {
+	const at = text.indexOf("\n\n");
+	return at < 0 ? {
+		subject: text,
+		body: ""
+	} : {
+		subject: text.slice(0, at),
+		body: text.slice(at + 2)
+	};
+}
+/**
+* Whether a submitted prompt is the person's own words: typed at the prompt or sent from their
+* phone, never a slash command, a hidden prompt, a plugin's wake-up or a peer's message.
+*/
+function isPersonsPrompt(e) {
+	const kind = e.origin?.kind;
+	return e.command === void 0 && e.isMeta !== true && (kind === "composer" || kind === "bridge");
+}
+
+//#endregion
+//#region src/substrate-mcp.ts
+/** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
+async function sub(p, $, tool, args) {
+	const r = await $.mcp.call(p.server, tool, args);
+	const text = r.content.map((c) => c.type === "text" ? c.text : "").join("");
+	if (r.isError) throw new Error(cut(text || `${tool} failed`, 200));
+	let parsed;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new Error(`${tool} answered ${text.length} characters that are not JSON: ${cut(text, 120)}`);
+	}
+	const body = parsed;
+	if (body.errors && body.errors.length > 0) {
+		const err = new Error(cut(body.errors[0]?.message ?? "refused", 200));
+		err.code = body.errors[0]?.code;
+		throw err;
+	}
+	return body;
+}
+async function query(p, $, type, frame) {
+	const key = `${p.ns}/${type}`;
+	const rows = (await sub(p, $, "query", { payload: { [key]: frame } })).data?.[key];
+	if (!Array.isArray(rows)) throw new Error(`${key} did not come back`);
+	return rows;
+}
+async function mutate(p, $, op, params) {
+	const key = `${p.ns}/${op}`;
+	const row = (await sub(p, $, "mutate", { payload: { [key]: {
+		params,
+		fields: { id: true }
+	} } })).data?.[key];
+	if (row === void 0) throw new Error(`${key} did not come back`);
+	return row;
+}
+
+//#endregion
 //#region src/todo-text.ts
 /** What the pane uses until the server's schema has been read. */
 const FALLBACK_VOCAB = {
@@ -742,6 +817,345 @@ function brainFactLine(fact, open) {
 	const text = fact === null ? void 0 : BRAIN_FACTS[fact];
 	if (!text || open < 1) return null;
 	return `${text} This board has ${open} open ${open === 1 ? "Todo" : "Todos"}.`;
+}
+
+//#endregion
+//#region src/session-share.ts
+const SESSION_PANE = "cortext-session";
+const POLL_MS = 4e3;
+const TITLE_MAX = 80;
+const TEXT_MAX = 4e3;
+const EVENTS_KEPT = 300;
+const FEEDS_LISTED = 50;
+const SHARE = {
+	plugin: "cortext",
+	key: "shareOn"
+};
+const feeds = atom({
+	plugin: "cortext",
+	key: "shareFeeds"
+}, []);
+const watched = atom({
+	plugin: "cortext",
+	key: "shareWatched"
+}, null);
+const events = atom({
+	plugin: "cortext",
+	key: "shareEvents"
+}, []);
+const shareNote = atom({
+	plugin: "cortext",
+	key: "shareNote"
+}, "");
+/** The feed's owner: the key that created it, as the server stamped it. */
+function ownerOf(f) {
+	return f._metadata?.createdBy?.id ?? "unknown";
+}
+async function whoAmI(p, $) {
+	if (p.kid) return p.kid;
+	p.kid = (await sub(p, $, "whoami", {})).identity?.kid ?? "";
+	return p.kid;
+}
+function enqueue(p, $, job) {
+	p.writes = p.writes.then(job).catch((err) => {
+		$.ui.log(`cortext: a shared step was not written: ${err.message}`, { to: "debug" });
+	});
+}
+/** This session's own feed: its instance AND this repo's key, since anyone may reuse an instance. */
+async function findFeed(p, $) {
+	const kid = await whoAmI(p, $);
+	if (!kid) return void 0;
+	return (await query(p, $, "SessionFeed", {
+		params: {
+			where: {
+				instance: { eq: p.instance },
+				createdBy: { eq: kid }
+			},
+			limit: 1
+		},
+		fields: { id: true }
+	}))[0]?.id;
+}
+async function latestStep(p, $, feed) {
+	return (await query(p, $, "SessionFeedEvent", {
+		params: {
+			where: { feed: { eq: feed } },
+			orderBy: [{ step: "desc" }],
+			limit: 1
+		},
+		fields: { step: true }
+	}))[0]?.step ?? 0;
+}
+async function ensureFeed(p, $, title) {
+	if (p.feed) return p.feed;
+	const at = new Date(await $.clock.now()).toISOString();
+	let id = await findFeed(p, $);
+	if (id) await mutate(p, $, "updateSessionFeed", {
+		id,
+		sharing: true,
+		lastEventAt: at
+	});
+	else id = (await mutate(p, $, "createSessionFeed", {
+		instance: p.instance,
+		title: cut(title || p.project, TITLE_MAX),
+		lastEventAt: at,
+		project: p.project
+	})).id;
+	p.step = await latestStep(p, $, id);
+	p.feed = id;
+	return id;
+}
+async function publish(p, $, kind, text, tool = null) {
+	const { value: on } = await $.state.get(SHARE);
+	if (on !== true || text.trim() === "") return;
+	enqueue(p, $, async () => {
+		const feed = await ensureFeed(p, $, kind === "prompt" ? text : "");
+		const write = (step) => mutate(p, $, "createSessionFeedEvent", {
+			feed,
+			step,
+			kind,
+			text: cut(text, kind === "tool" ? 160 : TEXT_MAX),
+			tool,
+			project: p.project
+		});
+		let step = p.step + 1;
+		try {
+			await write(step);
+		} catch (err) {
+			const code = err.code;
+			if (code === "missing_referent" || code === "not_found") p.feed = void 0;
+			if (code !== "unique_violation") throw err;
+			step = await latestStep(p, $, feed) + 1;
+			await write(step);
+		}
+		p.step = step;
+		await mutate(p, $, "updateSessionFeed", {
+			id: feed,
+			lastEventAt: new Date(await $.clock.now()).toISOString()
+		});
+	});
+}
+async function setSharing(p, $, on) {
+	if (on && !await whoAmI(p, $)) return "Sharing needs this repo’s substrate key, and whoami named none. Set SUBSTRATE_AGENT_KEY_ID in .claude/settings.local.json, then restart the session.";
+	await $.state.set(SHARE, on);
+	if (on) {
+		enqueue(p, $, async () => {
+			p.feed = void 0;
+		});
+		return `Sharing is on for ${p.instance}. Your prompts, replies, tool names and mail (never tool output) go to Substrate, where any agent with read access can see them. Viewers can only watch. Turn it off with /cortext-share off.`;
+	}
+	enqueue(p, $, async () => {
+		const id = p.feed ?? await findFeed(p, $);
+		p.feed = void 0;
+		if (id) await mutate(p, $, "updateSessionFeed", {
+			id,
+			sharing: false
+		});
+	});
+	return "Sharing is off. Viewers keep what was already shared; new steps stay here.";
+}
+async function note$1($, text) {
+	await update($, shareNote, () => text);
+}
+async function loadFeeds(p, $) {
+	try {
+		const kid = await whoAmI(p, $);
+		const rows = await query(p, $, "SessionFeed", {
+			params: {
+				where: {
+					sharing: { eq: true },
+					archived: { eq: false }
+				},
+				orderBy: [{ lastEventAt: "desc" }],
+				limit: FEEDS_LISTED
+			},
+			fields: {
+				id: true,
+				instance: true,
+				title: true,
+				project: true,
+				lastEventAt: true,
+				_metadata: { createdBy: true }
+			}
+		});
+		await update($, feeds, () => rows.filter((f) => !(f.instance === p.instance && ownerOf(f) === kid)));
+		await note$1($, "");
+	} catch (err) {
+		await note$1($, `Could not list shared sessions: ${err.message}`);
+	}
+}
+async function pollEvents(p, $) {
+	const feed = await read($, watched);
+	if (!feed) return;
+	const after = (await read($, events)).at(-1)?.step ?? 0;
+	try {
+		const rows = await query(p, $, "SessionFeedEvent", {
+			params: {
+				where: {
+					feed: { eq: feed },
+					step: { gt: after }
+				},
+				orderBy: [{ step: "asc" }],
+				limit: EVENTS_KEPT
+			},
+			fields: {
+				step: true,
+				kind: true,
+				text: true,
+				tool: true
+			}
+		});
+		if (rows.length > 0 && await read($, watched) === feed) await update($, events, (old) => [...old, ...rows].slice(-300));
+	} catch (err) {
+		await note$1($, `Could not read the session: ${err.message}`);
+	}
+}
+async function watch(p, $, feed) {
+	await update($, watched, () => feed);
+	await update($, events, () => []);
+	await pollEvents(p, $);
+	p.poll?.cancel();
+	p.poll = $.clock.every(POLL_MS, () => void pollEvents(p, $));
+}
+async function drawSession(p, $, e) {
+	const els = $.ui.resolve(e);
+	const { Box, Text, Button, Select } = els;
+	const Markdown = els.Markdown;
+	const list = await read($, feeds);
+	const feed = await read($, watched);
+	const shown = await read($, events);
+	const said = await read($, shareNote);
+	const opened = await read($, openMail);
+	const now = await $.clock.now();
+	const room = Math.max(3, (e.viewport?.rows ?? 40) - 6);
+	const picked = list.find((f) => f.id === feed);
+	const owner = splitKid(picked ? ownerOf(picked) : "");
+	const step = (ev) => {
+		const key = `ev-${ev.step}`;
+		if (ev.kind === "mail-in" || ev.kind === "mail-out") {
+			const { subject, body } = splitMailFeedText(ev.text);
+			const id = `feed-${feed}-${ev.step}`;
+			return mailCard(els, e.surface, {
+				key,
+				dir: ev.kind === "mail-in" ? "in" : "out",
+				peer: ev.tool ?? "someone",
+				when: "",
+				subject,
+				body,
+				isOpen: opened.includes(id),
+				onToggle: () => update($, openMail, (prev) => {
+					const ids = prev ?? [];
+					return ids.includes(id) ? ids.filter((n) => n !== id) : [...ids, id].slice(-200);
+				})
+			});
+		}
+		if (ev.kind === "tool") return el(Box, {
+			key,
+			paddingLeft: e.surface === "terminal" ? 2 : 14
+		}, el(Text, {
+			dimColor: true,
+			wrap: "truncate-end"
+		}, `${ev.tool ?? "tool"} · ${ev.text}`));
+		const person = ev.kind === "prompt";
+		return messageRow(els, e.surface, {
+			key,
+			side: "theirs",
+			author: person ? "person" : "agent",
+			name: person ? "Their user" : owner.name,
+			host: owner.host
+		}, Markdown && !person && e.surface !== "terminal" ? el(Markdown, { text: ev.text }) : el(Text, { wrap: "wrap" }, ev.text));
+	};
+	return el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, list.length > 0 ? el(Select, {
+		key: "feed-pick",
+		label: "Session",
+		value: feed ?? void 0,
+		options: list.map((f) => ({
+			value: f.id,
+			label: `${ownerOf(f)} · ${f.project ?? "—"} · ${cut(f.title, 40)} · ${ago(f.lastEventAt, now)}`
+		})),
+		onSelect: (v) => void watch(p, $, v)
+	}) : el(Text, { dimColor: true }, "No session is shared right now. Its user turns sharing on with /cortext-share on."), el(Button, {
+		key: "feed-refresh",
+		label: "Refresh",
+		onPress: () => void loadFeeds(p, $)
+	})), picked ? el(Text, { dimColor: true }, `${picked.instance}, shared by ${ownerOf(picked)}. Read-only: nothing here reaches that session.`) : null, said ? el(Text, { color: said.startsWith("Could not") ? "error" : "subtle" }, said) : null, ...shown.slice(-room).map(step));
+}
+/** The sharing state, made by the bridge and handed to registerShare, startShare and the share calls. */
+function newSharePane() {
+	return {
+		ns: "cortext",
+		server: "substrate",
+		project: "unknown",
+		instance: "session:unknown",
+		kid: "",
+		feed: void 0,
+		step: 0,
+		writes: Promise.resolve(),
+		poll: void 0
+	};
+}
+/** Called from the bridge's session.start hook. Asks the server nothing: whoami waits for first use. */
+async function startShare(p, $, cwd) {
+	p.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
+	p.server = await $.env.get("SYNOPTIC_SUBSTRATE_MCP") || "substrate";
+	p.project = cwd.split("/").filter(Boolean).at(-1) ?? "unknown";
+	p.instance = `session:${(await $.session.id()).slice(0, 8)}`;
+	await $.command.register({
+		name: "cortext-share",
+		description: "Share this session read-only: /cortext-share on | off"
+	});
+	await $.command.register({
+		name: "cortext-watch",
+		description: "Open a read-only pane on a session someone shared"
+	});
+}
+/** Called from the bridge's main-thread tool.call hook: the tool's name and summary, never its output. */
+async function shareToolCall(p, $, tool, input) {
+	await publish(p, $, "tool", toolSummary(tool, input), tool);
+}
+/** Called from the bridge for mail it delivered and mail this session sent. */
+async function shareMail(p, $, dir, peer, subject, body) {
+	await publish(p, $, dir === "in" ? "mail-in" : "mail-out", mailFeedText(subject, body), peer);
+}
+/** Called from the bridge's main-thread turn.complete hook. */
+async function shareReply(p, $, answer) {
+	await publish(p, $, "reply", answer);
+}
+function registerShare(on, p) {
+	on("command.run", { command: "cortext-share" }, async ($, e) => {
+		const arg = e.args.trim().toLowerCase();
+		if (arg === "on" || arg === "off") return { text: await setSharing(p, $, arg === "on") };
+		const { value } = await $.state.get(SHARE);
+		return { text: `Sharing is ${value === true ? "on" : "off"} for ${p.instance}. Use /cortext-share on or /cortext-share off.` };
+	});
+	on("command.run", { command: "cortext-watch" }, async ($) => {
+		await loadFeeds(p, $);
+		await $.ui.open({
+			id: SESSION_PANE,
+			title: "Shared session"
+		});
+		return { text: "Shared session pane opened. Pick a session at the top." };
+	});
+	on("ui.close", { id: SESSION_PANE }, async (_$, e, next) => {
+		p.poll?.cancel();
+		p.poll = void 0;
+		return next(e);
+	});
+	on("prompt.submit", async ($, e, next) => {
+		const entered = await next(e);
+		if (isPersonsPrompt(e) && "text" in entered) await publish(p, $, "prompt", entered.text);
+		return entered;
+	});
+	on("ui.render", {
+		component: "Pane",
+		requestId: SESSION_PANE
+	}, async ($, e) => drawSession(p, $, e));
 }
 
 //#endregion
@@ -1011,40 +1425,6 @@ const brainFact = atom({
 	plugin: "cortext",
 	key: "paneBrainFact"
 }, null);
-/** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
-async function sub(p, $, tool, args) {
-	const r = await $.mcp.call(p.server, tool, args);
-	const text = r.content.map((c) => c.type === "text" ? c.text : "").join("");
-	if (r.isError) throw new Error(cut(text || `${tool} failed`, 200));
-	let parsed;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		throw new Error(`${tool} answered ${text.length} characters that are not JSON: ${cut(text, 120)}`);
-	}
-	const body = parsed;
-	if (body.errors && body.errors.length > 0) {
-		const err = new Error(cut(body.errors[0]?.message ?? "refused", 200));
-		err.code = body.errors[0]?.code;
-		throw err;
-	}
-	return body;
-}
-async function query(p, $, type, frame) {
-	const key = `${p.ns}/${type}`;
-	const rows = (await sub(p, $, "query", { payload: { [key]: frame } })).data?.[key];
-	if (!Array.isArray(rows)) throw new Error(`${key} did not come back`);
-	return rows;
-}
-async function mutate(p, $, op, params) {
-	const key = `${p.ns}/${op}`;
-	const row = (await sub(p, $, "mutate", { payload: { [key]: {
-		params,
-		fields: { id: true }
-	} } })).data?.[key];
-	if (row === void 0) throw new Error(`${key} did not come back`);
-	return row;
-}
 async function note($, text) {
 	await update($, paneNote, () => text);
 }
@@ -1830,6 +2210,7 @@ async function deliver(b, $, m) {
 			text: renderPushRow(m, b.ns)
 		}]
 	} });
+	if (!m.fromSelf) await shareMail(b.share, $, "in", m.from, m.subject, m.body ?? "");
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
@@ -1863,6 +2244,8 @@ const register = (on) => {
 	const todos = newTodosPane();
 	registerTodos(on, todos);
 	registerMailCard(on);
+	const share = newSharePane();
+	registerShare(on, share);
 	const b = {
 		ns: "cortext",
 		turnId: void 0,
@@ -1876,11 +2259,13 @@ const register = (on) => {
 			perHour: 6,
 			perThread: 2
 		}),
-		preemptions: createBudget({ perHour: 3 })
+		preemptions: createBudget({ perHour: 3 }),
+		share
 	};
 	on("session.start", async ($, e, next) => {
 		const started = await next(e);
 		await startTodos(todos, $, e.cwd).catch((err) => $.ui.log(`cortext: the Todos pane did not start: ${err.message}`, { to: "debug" }));
+		await startShare(share, $, e.cwd).catch((err) => $.ui.log(`cortext: session sharing did not start: ${err.message}`, { to: "debug" }));
 		b.interactive = e.isInteractive;
 		b.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
 		const bootAt = await $.clock.now();
@@ -1936,11 +2321,16 @@ const register = (on) => {
 	});
 	on("tool.call", async ($, e, next) => {
 		if (e.agentId !== void 0) return next(e);
+		await shareToolCall(share, $, e.tool, e);
 		b.toolsInFlight++;
 		try {
 			const mailLine = mailCallLine(e.tool, e, await $.clock.now());
 			const ran = await next(e);
-			if (mailLine && !ran.deny && !ran.isError) $.ui.log(mailLine);
+			if (mailLine && !ran.deny && !ran.isError) {
+				$.ui.log(mailLine);
+				const sent = parseMailSend(e.tool, e);
+				if (sent) await shareMail(share, $, "out", sent.to, sent.subject, sent.body);
+			}
 			return ran;
 		} finally {
 			b.toolsInFlight--;
@@ -1958,6 +2348,7 @@ const register = (on) => {
 		if (e.agentId !== void 0) return next(e);
 		const done = await next(e);
 		b.turnId = void 0;
+		await shareReply(share, $, e.answer);
 		const now = await $.clock.now();
 		if (b.interactive && !b.waking && e.reason === "answer" && b.late.some((m) => m.urgent || b.wakeOn && b.wakes.take(m, now))) wake(b, $);
 		b.late = [];
