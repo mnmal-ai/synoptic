@@ -29,6 +29,7 @@ import {
   DECISION_STATUS_VOCAB,
   HOST_INSTALL_CHECK_STATES,
   HOST_INSTALL_FRAGMENT_STATES,
+  SESSION_FEED_EVENT_KINDS,
   TASK_STATUS_VOCAB,
   TODO_STATUS_ALIASES
 } from './namespace.js';
@@ -418,6 +419,37 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           'After a completed subtask, a blocker, or before a reset; point at files and rows, never retell them',
           'Treat the step as done only once the write is acknowledged; on a refused revision, re-read the latest and retry'
         ]
+      },
+      SessionFeed: {
+        purpose:
+          'A session its user chose to share read-only. Its owner is the key that created it (_metadata.createdBy): only the owner, or an operator, may change or delete it, and only the owner may add events',
+        fields: {
+          id: 'auto-generated',
+          instance:
+            '`session:<8 hex>`, the tag the session stamps on its mail; not unique, so match it together with the owner',
+          title: 'the first prompt, cut short',
+          sharing:
+            'false once the user turns sharing off; the feed then takes no events (default true)',
+          lastEventAt:
+            'when the latest event was written; compaction deletes feeds idle past 7 days',
+          archived: 'true if retired',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: ['Never by hand: the plugin writes it when its user turns sharing on']
+      },
+      SessionFeedEvent: {
+        purpose:
+          "One step of a shared session: a prompt, a reply, a tool call's name and short summary, or a mail. Written once by the feed's owner and never edited",
+        fields: {
+          id: 'auto-generated',
+          feed: 'UUID crossRef to the SessionFeed, cascade on delete',
+          step: "one higher than the feed's latest; unique per feed",
+          kind: vocabUnion(SESSION_FEED_EVENT_KINDS),
+          text: 'the prompt, the reply, the tool summary or the mail (not indexed)',
+          tool: 'the tool name on a tool event, the peer on a mail event (nullable)',
+          project: 'repo basename; null = cross-cutting'
+        },
+        writeWhen: ['Never by hand: the plugin writes it while its feed is sharing']
       }
     },
     mutations: buildMutations(),

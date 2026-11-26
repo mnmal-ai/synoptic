@@ -41,6 +41,7 @@ function jsonBody<T>(res: SubstrateResponse): T {
 interface Harness {
   server: MemorySubstrateServer;
   engine: EngineHandle;
+  sweep: () => Promise<unknown>;
   stop: () => Promise<void>;
 }
 
@@ -70,6 +71,7 @@ async function setup(retention = 3, auth?: CortextAuthConfig): Promise<Harness> 
   return {
     server,
     engine: composed.engine,
+    sweep: () => composed.runSweepNow(),
     stop: async (): Promise<void> => {
       await composed.stop();
     }
@@ -205,7 +207,8 @@ describe('runCompact', () => {
       sessionsArchived: 0,
       decisionsArchived: 0,
       sessionsRetained: 0,
-      messagesArchived: 0
+      messagesArchived: 0,
+      feedsDeleted: 0
     });
   });
 
@@ -313,6 +316,48 @@ describe('runCompact', () => {
       );
       expect(rows.find((r) => r.id === ackedId)?.archived).toBe(false);
     });
+  });
+
+  it('deletes shared-session feeds idle past 7 days, with their events', async () => {
+    harness = await setup();
+    const OWNER = {
+      id: 'synoptic-claude@host-a',
+      agentKeyId: 'synoptic-claude@host-a',
+      grants: { [NS]: ['read', 'mutate'] }
+    };
+    const write = async (key: string, params: Record<string, unknown>): Promise<string> => {
+      const env = await (harness as Harness).engine.mutate({
+        frame: { [`${NS}/${key}`]: { params, fields: { id: true } } },
+        ctx: { ...makeCtx(NS, 'mutate'), identity: OWNER }
+      });
+      expect(env.errors).toBeUndefined();
+      return (env.data[`${NS}/${key}`] as { id: string }).id;
+    };
+    const fresh = new Date().toISOString();
+    const idle = await write('createSessionFeed', {
+      instance: 'session:1a2b3c4d',
+      title: 'idle',
+      lastEventAt: '2026-01-01T00:00:00.000Z'
+    });
+    const live = await write('createSessionFeed', {
+      instance: 'session:5e6f7a8b',
+      title: 'live',
+      lastEventAt: fresh
+    });
+    await write('createSessionFeedEvent', { feed: idle, step: 1, kind: 'prompt', text: 'x' });
+    await write('createSessionFeedEvent', { feed: live, step: 1, kind: 'prompt', text: 'y' });
+
+    const dry = await runCompact(harness.engine, NS, 7, true);
+    expect(dry.feedsDeleted).toBe(1);
+    expect(await listRows(harness.server, 'SessionFeed', { id: true })).toHaveLength(2);
+
+    const result = await runCompact(harness.engine, NS, 7, false);
+    expect(result.feedsDeleted).toBe(1);
+    expect(await listRows(harness.server, 'SessionFeed', { id: true })).toEqual([{ id: live }]);
+    await harness.sweep(); // the engine's sweep applies onDelete: 'cascade'
+    expect(await listRows(harness.server, 'SessionFeedEvent', { text: true })).toEqual([
+      { text: 'y' }
+    ]);
   });
 
   it('archives sessions past the retention window (5 sessions, retention=3)', async () => {
