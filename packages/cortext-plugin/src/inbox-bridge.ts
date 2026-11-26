@@ -8,6 +8,8 @@ import {
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
+import { registerMailCard } from './mail-card.js';
+import { mailCallLine } from './mail-text.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -101,6 +103,7 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 }
 
 export const register: Register = (on) => {
+  registerMailCard(on);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,
@@ -178,11 +181,19 @@ export const register: Register = (on) => {
     return started;
   });
 
-  on('tool.call', async (_$, e, next) => {
+  on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e); // a subagent's tools run inside the main thread's Agent call
     b.toolsInFlight++;
     try {
-      return await next(e);
+      const mailLine = mailCallLine(
+        e.tool,
+        e as unknown as Record<string, unknown>,
+        await $.clock.now()
+      );
+      const ran = await next(e);
+      // Only a call that went through: a refused or failed send sent nothing.
+      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) $.ui.log(mailLine);
+      return ran;
     } finally {
       b.toolsInFlight--;
     }

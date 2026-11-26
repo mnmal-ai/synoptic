@@ -27,6 +27,8 @@ declare module 'claude-code' {
       inboxCursor: string;
       /** SYNOPTIC_INBOX_PROMPT_CHECK as the session found it, before any watcher set it; null = unset. */
       inboxPromptCheckOrig: string | null;
+      /** Mail cards shown open: `in-<shortId>` for received rows, `out-<tool_use_id>` for sends. */
+      mailOpen: Shaped<string[]>;
     };
   }
 }
