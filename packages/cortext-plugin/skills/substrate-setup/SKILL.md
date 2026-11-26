@@ -339,6 +339,7 @@ operator asks for it:
 | `SYNOPTIC_INBOX_PUSH` | on | `"off"` returns this repo to summary lines at the prompt and at Stop. This is the rollback, and it needs no release |
 | `SYNOPTIC_INBOX_WAKE` | off | `"on"` lets mail that arrives while the session is idle start a turn, within 6 per hour and 2 per thread |
 | `SYNOPTIC_INBOX_URGENT_FROM` | unset | the operator runs a coordinator: its kids, comma-separated, whose `priority:urgent` mail may stop a running turn. The tag alone grants nothing |
+| `SYNOPTIC_INBOX_NOTIFY` | off | raise a native notification (the harness's own, so it can reach a phone or desktop) on mail while away. `"all"` for every message; or comma-separated sender substrings (`"@ZorinMac"`, a kid) to notify only on those, in either direction of a thread |
 
 A change to any of these takes effect at the **next session start**, including
 `--continue`. `/reload-plugins` keeps an unchanged hooks module loaded, so the

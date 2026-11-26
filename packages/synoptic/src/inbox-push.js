@@ -203,3 +203,55 @@ export function readInboxKnobs(env) {
       .filter(Boolean)
   };
 }
+
+/**
+ * Parse SYNOPTIC_INBOX_NOTIFY into a rule for raising a native notification on new mail.
+ * Default off, so a session that sets nothing raises none:
+ *   unset or `off` -> { mode: 'off' };   `all` -> { mode: 'all' };
+ *   anything else  -> { mode: 'list', kids } of comma-separated sender substrings.
+ * @param {string | undefined} value
+ * @returns {{ mode: 'off' | 'all' | 'list', kids: string[] }}
+ */
+export function readNotifyRule(value) {
+  const v = (value ?? '').trim();
+  if (v === '' || v === 'off') return { mode: 'off', kids: [] };
+  if (v === 'all') return { mode: 'all', kids: [] };
+  return {
+    mode: 'list',
+    kids: v
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  };
+}
+
+/** A greeting card: mail tagged `greeting`, surfaced with a little flourish rather than filed. */
+export function isGreeting(tags) {
+  return Array.isArray(tags) && tags.includes('greeting');
+}
+
+/** Frames for the greeting flourish, cycled on the status line. */
+export const GREETING_FRAMES = [
+  '*    ',
+  ' *   ',
+  '  *  ',
+  '   * ',
+  '    *',
+  '   * ',
+  '  *  ',
+  ' *   '
+];
+
+/**
+ * Whether a message from the kid `from` should raise a notification under `rule`.
+ * A `list` rule matches when `from` contains any listed substring (so `@ZorinMac` or a bare
+ * host matches every agent on that host).
+ * @param {{ mode: 'off' | 'all' | 'list', kids: string[] }} rule
+ * @param {string} from
+ * @returns {boolean}
+ */
+export function shouldNotify(rule, from) {
+  if (rule.mode === 'all') return true;
+  if (rule.mode === 'list') return rule.kids.some((k) => from.includes(k));
+  return false;
+}

@@ -35,6 +35,8 @@ type Options = {
   env?: Record<string, string>;
   /** Registered above the default `turn.abort` answer, so it can refuse in its place. */
   abort?: (e: { turnId: string }) => unknown;
+  /** Register a default tool.call bottom (for tests that drive $.tool.call without their own). */
+  toolCall?: boolean;
 };
 
 /**
@@ -54,13 +56,28 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
   const state = new Map<string, { value: unknown; version: number }>();
   const held: (() => void)[] = [];
   const logs: string[] = [];
+  const notified: { title: string; text: string }[] = [];
+  const toasts: string[] = [];
+  const statuses: (string | undefined)[] = [];
   const queue = [...script, ...(opts.respawn ?? [])];
   const addr = (e: { plugin: string; key: string; id?: string }) =>
     `${e.plugin}/${e.key}/${e.id ?? ''}`;
 
   on('session.start', async (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }));
+  on('session.id', async () => ({ value: 'sess-test' }));
+  on('command.register', async () => ({ value: undefined }));
+  on('ui.open', async () => ({ value: { isPlaced: true } }));
+  on('ui.toast', async (_$: unknown, e: { text: string }) => {
+    toasts.push(e.text);
+    return { value: undefined };
+  });
+  on('ui.status', async (_$: unknown, e: { text?: string }) => {
+    statuses.push(e.text);
+    return { value: undefined };
+  });
   on('turn.start', async (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }));
   on('turn.complete', async () => ({ text: '' }));
+  if (opts.toolCall) on('tool.call', async (_$: unknown, _e: unknown) => ({ result: {} }));
   // biome-ignore lint/correctness/useYield: an empty step, answered whole with no chunks
   on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
     return {
@@ -79,10 +96,19 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     }
     return { value: { code: 0, signal: null } };
   });
-  on('session.append', async (_$: unknown, e: { message: { content: { text: string }[] } }) => {
-    appended.push(e.message.content[0].text);
-    return { message: e.message, uuid: `m${appended.length}` };
-  });
+  on(
+    'session.append',
+    async (
+      _$: unknown,
+      e: { message: { content: { text: string }[] } },
+      next: (e: unknown) => Promise<unknown>
+    ) => {
+      appended.push(e.message.content[0].text);
+      // The kit routes session.append through its own bottom, which stores the row; a hook that
+      // answers without next() is skipped. Record, then let the bottom keep it.
+      return next(e);
+    }
+  );
   on('prompt.submit', (_$: unknown, e: { text: string }) => {
     submitted.push(e.text);
     return new Promise((resolve) => held.push(() => resolve({ text: e.text })));
@@ -119,12 +145,28 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     logs.push(e.text);
     return { value: undefined };
   });
+  on('ui.notify', async (_$: unknown, e: { text: string; title?: string }) => {
+    notified.push({ title: e.title ?? '', text: e.text });
+    return { value: { isSent: true, channel: 'client' } };
+  });
 
   const releaseSubmits = async () => {
     for (const release of held.splice(0)) release();
     await clock.settle();
   };
-  return { logs, clock, appended, submitted, aborted, env, spawns, releaseSubmits };
+  return {
+    logs,
+    clock,
+    appended,
+    submitted,
+    aborted,
+    env,
+    spawns,
+    notified,
+    toasts,
+    statuses,
+    releaseSubmits
+  };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the engine's `$` as the kit hands it
@@ -336,7 +378,7 @@ test('a handled urgent message is not preempted after its grace', async ($, on) 
   on('tool.call', () => new Promise(() => {}));
   const h = harness(on, [[LIVE(), msg(1, { urgent: true }), { type: 'handled', id: 'u1' }]]);
   await $.turn.start({ text: 'x', turnId: 't1' });
-  void $.tool.call({ tool: 'Bash', command: 'sleep 99' });
+  void $.tool.call({ tool: 'Bash', command: 'sleep 99' }).catch(() => {}); // in flight; swallow teardown rejection
   await start($, h);
   await h.clock.advance(25_000);
   expect(h.appended).toHaveLength(1);
@@ -365,7 +407,7 @@ test("a subagent's step or tool call leaves late and the in-flight count alone",
   on('tool.call', () => new Promise(() => {}));
   const h = harness(on, [[LIVE(), msg(1, { urgent: true })]]);
   await $.turn.start({ text: 'x', turnId: 't1' });
-  void $.tool.call({ tool: 'Bash', command: 'x' }); // main thread: in flight
+  void $.tool.call({ tool: 'Bash', command: 'x' }).catch(() => {}); // main thread: in flight; swallow teardown rejection
   await start($, h);
   await step($, 't1', 'sub-1'); // a subagent step must NOT clear late
   await h.clock.advance(20_000);
@@ -410,4 +452,41 @@ test('respawns of a watcher that never went live back off 5 s × 2^n to 5 min; l
   // The eighth watcher went live: the count resets, so the next respawn is 5 s away.
   await h.clock.advance(5_000);
   expect(h.spawns).toHaveLength(9);
+});
+
+test('SYNOPTIC_INBOX_NOTIFY notifies only on mail from a watched sender', async ($, on) => {
+  const h = harness(on, [[LIVE(false), msg(1), msg(2, { from: 'horizon-claude@ZorinMac' })]], {
+    env: { SYNOPTIC_INBOX_NOTIFY: '@ZorinMac' }
+  });
+  await start($, h);
+  expect(h.appended).toHaveLength(2); // both land in the transcript
+  expect(h.notified).toEqual([{ title: 'Mail from horizon-claude@ZorinMac', text: 's2' }]);
+});
+
+test('no notification when SYNOPTIC_INBOX_NOTIFY is unset', async ($, on) => {
+  const h = harness(on, [[LIVE(false), msg(1, { from: 'horizon-claude@ZorinMac' })]]);
+  await start($, h);
+  expect(h.appended).toHaveLength(1);
+  expect(h.notified).toEqual([]);
+});
+
+test('a send to a watched recipient notifies; the own-mail row that returns does not double it', async ($, on) => {
+  const h = harness(on, [[LIVE(false)]], { env: { SYNOPTIC_INBOX_NOTIFY: 'all' }, toolCall: true });
+  await start($, h);
+  await $.tool.call({
+    tool: 'mcp__substrate__act',
+    sketch: 'send AgentMessage to=horizon-claude@ZorinMac subject="please merge" body="x"'
+  });
+  expect(h.notified).toEqual([
+    { title: 'Mail sent to horizon-claude@ZorinMac', text: 'please merge' }
+  ]);
+});
+
+test('a greeting-tagged message toasts and runs a status flourish that clears', async ($, on) => {
+  const h = harness(on, [[LIVE(false), msg(1, { tags: ['greeting'], subject: 'happy friday' })]]);
+  await start($, h);
+  await h.clock.advance(3_000); // let every frame fire
+  expect(h.toasts).toEqual(['Greeting card from peer@Host: happy friday']);
+  expect(h.statuses.length).toBeGreaterThan(1);
+  expect(h.statuses.at(-1)).toBeUndefined(); // the flourish clears itself
 });

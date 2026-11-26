@@ -3,11 +3,15 @@ import { renderInbox, resolveIdentityId } from '../src/inbox.js';
 import {
   createBudget,
   fromRow,
+  GREETING_FRAMES,
+  isGreeting,
   laterCursor,
   lineSplitter,
   readInboxKnobs,
+  readNotifyRule,
   renderMessageBlock,
   renderPushRow,
+  shouldNotify,
   toWatchMessage,
   urgentNotice
 } from '../src/inbox-push.js';
@@ -296,6 +300,38 @@ describe('readInboxKnobs', () => {
   });
 });
 
+describe('readNotifyRule', () => {
+  it('defaults to off when unset or "off"', () => {
+    expect(readNotifyRule(undefined)).toEqual({ mode: 'off', kids: [] });
+    expect(readNotifyRule('')).toEqual({ mode: 'off', kids: [] });
+    expect(readNotifyRule('  off  ')).toEqual({ mode: 'off', kids: [] });
+  });
+  it('"all" notifies on everything', () => {
+    expect(readNotifyRule('all')).toEqual({ mode: 'all', kids: [] });
+  });
+  it('any other value is a trimmed substring list', () => {
+    expect(readNotifyRule(' @ZorinMac , peer@H ,')).toEqual({
+      mode: 'list',
+      kids: ['@ZorinMac', 'peer@H']
+    });
+  });
+  it('is a settings-overlay key', () => {
+    expect(LOCAL_ENV_KEYS).toContain('SYNOPTIC_INBOX_NOTIFY');
+  });
+});
+
+describe('shouldNotify', () => {
+  it('off raises nothing; all raises everything', () => {
+    expect(shouldNotify({ mode: 'off', kids: [] }, 'peer@Host')).toBe(false);
+    expect(shouldNotify({ mode: 'all', kids: [] }, 'peer@Host')).toBe(true);
+  });
+  it('a list matches a sender that contains any listed substring', () => {
+    const rule = { mode: 'list', kids: ['@ZorinMac'] };
+    expect(shouldNotify(rule, 'horizon-claude@ZorinMac')).toBe(true);
+    expect(shouldNotify(rule, 'n8-horizon@n8server')).toBe(false);
+  });
+});
+
 describe('laterCursor', () => {
   it('only ever advances, comparing as timestamps', () => {
     expect(laterCursor(undefined, '2026-10-06T01:00:00Z')).toBe('2026-10-06T01:00:00Z');
@@ -359,5 +395,18 @@ describe('renderInbox stays bounded', () => {
     const out = renderInbox(rows, { kid: 'me@Host' });
     expect(out).toContain('50+ unread — #900, #901, #902, #903, #904, …');
     expect(out).not.toContain('#905');
+  });
+});
+
+describe('isGreeting', () => {
+  it('is true only when the tags include "greeting"', () => {
+    expect(isGreeting(['greeting'])).toBe(true);
+    expect(isGreeting(['psa', 'greeting'])).toBe(true);
+    expect(isGreeting(['psa'])).toBe(false);
+    expect(isGreeting(null)).toBe(false);
+    expect(isGreeting(undefined)).toBe(false);
+  });
+  it('has frames to cycle', () => {
+    expect(GREETING_FRAMES.length).toBeGreaterThan(1);
   });
 });

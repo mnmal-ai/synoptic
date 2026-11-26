@@ -2,11 +2,18 @@ import type { EngineInterface, Register } from 'claude-code';
 import { update } from 'claude-code';
 import {
   createBudget,
+  GREETING_FRAMES,
+  isGreeting,
   laterCursor,
   lineSplitter,
+  readNotifyRule,
   renderPushRow,
+  shouldNotify,
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
+
+type NotifyRule = { mode: 'off' | 'all' | 'list'; kids: string[] };
+
 import type { InboxMessage, WatchEvent } from '../types';
 import {
   newPanes,
@@ -36,6 +43,7 @@ type Bridge = {
   interactive: boolean;
   waking: boolean;
   wakeOn: boolean; // from the watcher's `live` line (D1: off by default)
+  notify: NotifyRule; // SYNOPTIC_INBOX_NOTIFY, read once at session.start
   toolsInFlight: number;
   failedSpawns: number; // consecutive watcher exits with no `live`, for the respawn backoff
   late: InboxMessage[]; // appended since the latest main-thread step began
@@ -72,6 +80,23 @@ async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   $.prompt.submit({ text: urgentNotice(m, { interrupted }) }).catch(() => {}); // as in wake()
 }
 
+// A greeting card: a toast, then a brief flourish cycled on the status line, cleared when it ends.
+// The card itself (any video or gif link in the body) is drawn by the mail pane like other mail.
+function playGreeting($: EngineInterface, m: InboxMessage): void {
+  $.ui.toast(`Greeting card from ${m.from}: ${m.subject || 'hello'}`);
+  let i = 0;
+  const tick = (): void => {
+    if (i >= GREETING_FRAMES.length * 2) {
+      void $.ui.status(undefined);
+      return;
+    }
+    void $.ui.status(`${GREETING_FRAMES[i % GREETING_FRAMES.length]}  a card from ${m.from}`);
+    i += 1;
+    $.clock.after(150, tick);
+  };
+  tick();
+}
+
 async function deliver(b: Bridge, p: Panes, $: EngineInterface, m: InboxMessage): Promise<void> {
   const { value: ids = [] } = await $.state.get(DELIVERED);
   if (ids.includes(m.id)) return;
@@ -83,6 +108,17 @@ async function deliver(b: Bridge, p: Panes, $: EngineInterface, m: InboxMessage)
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
+  if (isGreeting(m.tags)) playGreeting($, m);
+  // SYNOPTIC_INBOX_NOTIFY (default off): raise a native notification, so mail reaches the person
+  // on their phone or desktop while they are away from this session. Independent of wake.
+  if (shouldNotify(b.notify, m.from)) {
+    void $.ui
+      .notify(m.subject || '(no subject)', {
+        title: `Mail from ${m.from}`,
+        key: `cortext-mail-${m.id}`
+      })
+      .catch(() => {});
+  }
   const now = await $.clock.now();
   if (m.urgent && b.preemptions.take(m, now)) {
     if (b.turnId === undefined || b.toolsInFlight === 0) return preempt(b, $, m);
@@ -123,6 +159,7 @@ export const register: Register = (on) => {
     interactive: false,
     waking: false,
     wakeOn: false,
+    notify: { mode: 'off', kids: [] },
     toolsInFlight: 0,
     failedSpawns: 0,
     late: [],
@@ -135,6 +172,7 @@ export const register: Register = (on) => {
     await startPanes(panes, $, e.cwd);
     b.interactive = e.isInteractive;
     b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
+    b.notify = readNotifyRule(await $.env.get('SYNOPTIC_INBOX_NOTIFY'));
     const bootAt = await $.clock.now();
     const promptCheck = await originalPromptCheck($); // restored when the watcher drops
 
@@ -210,7 +248,16 @@ export const register: Register = (on) => {
       if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) {
         $.ui.log(mailLine);
         const sent = parseMailSend(e.tool, e);
-        if (sent) await shareMail(panes, $, 'out', sent.to, sent.subject, sent.body);
+        if (sent) {
+          await shareMail(panes, $, 'out', sent.to, sent.subject, sent.body);
+          // Mirror the incoming rule: notify on a send to a watched recipient, so a back-and-forth
+          // thread raises both sides. `sent.to` is the recipient kids, comma-joined.
+          if (shouldNotify(b.notify, sent.to)) {
+            void $.ui
+              .notify(sent.subject || '(no subject)', { title: `Mail sent to ${sent.to}` })
+              .catch(() => {});
+          }
+        }
       }
       return ran;
     } finally {

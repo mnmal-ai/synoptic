@@ -125,6 +125,57 @@ function laterCursor(cursor, createdAt) {
 	const prev = Date.parse(cursor);
 	return Number.isNaN(prev) || next > prev ? createdAt : cursor;
 }
+/**
+* Parse SYNOPTIC_INBOX_NOTIFY into a rule for raising a native notification on new mail.
+* Default off, so a session that sets nothing raises none:
+*   unset or `off` -> { mode: 'off' };   `all` -> { mode: 'all' };
+*   anything else  -> { mode: 'list', kids } of comma-separated sender substrings.
+* @param {string | undefined} value
+* @returns {{ mode: 'off' | 'all' | 'list', kids: string[] }}
+*/
+function readNotifyRule(value) {
+	const v = (value ?? "").trim();
+	if (v === "" || v === "off") return {
+		mode: "off",
+		kids: []
+	};
+	if (v === "all") return {
+		mode: "all",
+		kids: []
+	};
+	return {
+		mode: "list",
+		kids: v.split(",").map((s) => s.trim()).filter(Boolean)
+	};
+}
+/** A greeting card: mail tagged `greeting`, surfaced with a little flourish rather than filed. */
+function isGreeting(tags) {
+	return Array.isArray(tags) && tags.includes("greeting");
+}
+/** Frames for the greeting flourish, cycled on the status line. */
+const GREETING_FRAMES = [
+	"*    ",
+	" *   ",
+	"  *  ",
+	"   * ",
+	"    *",
+	"   * ",
+	"  *  ",
+	" *   "
+];
+/**
+* Whether a message from the kid `from` should raise a notification under `rule`.
+* A `list` rule matches when `from` contains any listed substring (so `@ZorinMac` or a bare
+* host matches every agent on that host).
+* @param {{ mode: 'off' | 'all' | 'list', kids: string[] }} rule
+* @param {string} from
+* @returns {boolean}
+*/
+function shouldNotify(rule, from) {
+	if (rule.mode === "all") return true;
+	if (rule.mode === "list") return rule.kids.some((k) => from.includes(k));
+	return false;
+}
 
 //#endregion
 //#region src/brand.ts
@@ -2243,6 +2294,20 @@ async function preempt(b, $, m) {
 	} catch {}
 	$.prompt.submit({ text: urgentNotice(m, { interrupted }) }).catch(() => {});
 }
+function playGreeting($, m) {
+	$.ui.toast(`Greeting card from ${m.from}: ${m.subject || "hello"}`);
+	let i = 0;
+	const tick = () => {
+		if (i >= GREETING_FRAMES.length * 2) {
+			$.ui.status(void 0);
+			return;
+		}
+		$.ui.status(`${GREETING_FRAMES[i % GREETING_FRAMES.length]}  a card from ${m.from}`);
+		i += 1;
+		$.clock.after(150, tick);
+	};
+	tick();
+}
 async function deliver(b, p, $, m) {
 	const { value: ids = [] } = await $.state.get(DELIVERED);
 	if (ids.includes(m.id)) return;
@@ -2257,6 +2322,11 @@ async function deliver(b, p, $, m) {
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
+	if (isGreeting(m.tags)) playGreeting($, m);
+	if (shouldNotify(b.notify, m.from)) $.ui.notify(m.subject || "(no subject)", {
+		title: `Mail from ${m.from}`,
+		key: `cortext-mail-${m.id}`
+	}).catch(() => {});
 	const now = await $.clock.now();
 	if (m.urgent && b.preemptions.take(m, now)) {
 		if (b.turnId === void 0 || b.toolsInFlight === 0) return preempt(b, $, m);
@@ -2293,6 +2363,10 @@ const register = (on) => {
 		interactive: false,
 		waking: false,
 		wakeOn: false,
+		notify: {
+			mode: "off",
+			kids: []
+		},
 		toolsInFlight: 0,
 		failedSpawns: 0,
 		late: [],
@@ -2307,6 +2381,7 @@ const register = (on) => {
 		await startPanes(panes, $, e.cwd);
 		b.interactive = e.isInteractive;
 		b.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
+		b.notify = readNotifyRule(await $.env.get("SYNOPTIC_INBOX_NOTIFY"));
 		const bootAt = await $.clock.now();
 		const promptCheck = await originalPromptCheck($);
 		const run = async () => {
@@ -2368,7 +2443,10 @@ const register = (on) => {
 			if (mailLine && !ran.deny && !ran.isError) {
 				$.ui.log(mailLine);
 				const sent = parseMailSend(e.tool, e);
-				if (sent) await shareMail(panes, $, "out", sent.to, sent.subject, sent.body);
+				if (sent) {
+					await shareMail(panes, $, "out", sent.to, sent.subject, sent.body);
+					if (shouldNotify(b.notify, sent.to)) $.ui.notify(sent.subject || "(no subject)", { title: `Mail sent to ${sent.to}` }).catch(() => {});
+				}
 			}
 			return ran;
 		} finally {
