@@ -22,6 +22,16 @@ describe('toolSummary', () => {
       'example.com'
     );
   });
+  it('drops credentials and the port from a URL', () => {
+    for (const url of [
+      'https://user:secret@example.com/',
+      'https://a@b@example.com:8443/x',
+      'HTTP://token@example.com'
+    ])
+      expect(toolSummary('WebFetch', { url }), url).toBe('example.com');
+    expect(toolSummary('WebFetch', { url: 'https://user:secret@/' })).toBe('WebFetch');
+    expect(toolSummary('WebFetch', { url: 'example.com/no-scheme' })).toBe('WebFetch');
+  });
   it('falls back to the tool name, so a command line is never shared', () => {
     expect(toolSummary('Bash', { command: 'cat ~/.ssh/id_ed25519' })).toBe('Bash');
   });

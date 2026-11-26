@@ -14,8 +14,14 @@ export function toolSummary(tool: string, input: Record<string, unknown>): strin
   const file = pick('file_path') ?? pick('notebook_path') ?? pick('path');
   if (file !== undefined) return file.split('/').filter(Boolean).at(-1) ?? file;
   const url = pick('url');
-  if (url !== undefined) return /^[a-z]+:\/\/([^/?#]+)/i.exec(url)?.[1] ?? tool;
+  if (url !== undefined) return urlHost(url) || tool;
   return tool;
+}
+
+/** A URL's host alone: no credentials before an `@`, no port, no path. '' when it has none. */
+function urlHost(url: string): string {
+  const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#\\]*)/i.exec(url)?.[1] ?? '';
+  return authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d*$/, '');
 }
 
 /** A mail feed event's text: subject, a blank line, then the body. */
