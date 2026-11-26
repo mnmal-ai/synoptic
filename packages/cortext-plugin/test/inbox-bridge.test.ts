@@ -52,6 +52,7 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
   const state = new Map<string, { value: unknown; version: number }>();
   const held: (() => void)[] = [];
   const logs: string[] = [];
+  const notified: { title: string; text: string }[] = [];
   const queue = [...script, ...(opts.respawn ?? [])];
   const addr = (e: { plugin: string; key: string; id?: string }) =>
     `${e.plugin}/${e.key}/${e.id ?? ''}`;
@@ -125,11 +126,16 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     return { value: undefined };
   });
 
+  on('ui.notify', async (_$: unknown, e: { text: string; title?: string }) => {
+    notified.push({ title: e.title ?? '', text: e.text });
+    return { value: { isSent: true, channel: 'client' } };
+  });
+
   const releaseSubmits = async () => {
     for (const release of held.splice(0)) release();
     await clock.settle();
   };
-  return { logs, clock, appended, submitted, aborted, env, spawns, releaseSubmits };
+  return { logs, clock, appended, submitted, aborted, env, spawns, notified, releaseSubmits };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the engine's `$` as the kit hands it
@@ -415,4 +421,33 @@ test('respawns of a watcher that never went live back off 5 s × 2^n to 5 min; l
   // The eighth watcher went live: the count resets, so the next respawn is 5 s away.
   await h.clock.advance(5_000);
   expect(h.spawns).toHaveLength(9);
+});
+
+test('SYNOPTIC_INBOX_NOTIFY notifies only on mail from a listed host', async ($, on) => {
+  const h = harness(
+    on,
+    [[LIVE(false), msg(1), msg(2, { from: 'peer@Host-A' }), msg(3, { from: 'other@host-a' })]],
+    { env: { SYNOPTIC_INBOX_NOTIFY: '@host-a' } }
+  );
+  await start($, h);
+  expect(h.appended).toHaveLength(3); // every message lands in the transcript
+  expect(h.notified).toEqual([
+    { title: 'Mail from peer@Host-A', text: 's2' },
+    { title: 'Mail from other@host-a', text: 's3' }
+  ]);
+});
+
+test('no notification when SYNOPTIC_INBOX_NOTIFY is unset', async ($, on) => {
+  const h = harness(on, [[LIVE(false), msg(1)]]);
+  await start($, h);
+  expect(h.appended).toHaveLength(1);
+  expect(h.notified).toEqual([]);
+});
+
+test("no notification for mail this repo's key sent, even under all", async ($, on) => {
+  const h = harness(on, [[LIVE(false), msg(1, { fromSelf: true }), msg(2)]], {
+    env: { SYNOPTIC_INBOX_NOTIFY: 'all' }
+  });
+  await start($, h);
+  expect(h.notified).toEqual([{ title: 'Mail from peer@Host', text: 's2' }]);
 });

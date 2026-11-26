@@ -6,8 +6,10 @@ import {
   laterCursor,
   lineSplitter,
   readInboxKnobs,
+  readNotifyRule,
   renderMessageBlock,
   renderPushRow,
+  shouldNotify,
   toWatchMessage,
   urgentNotice
 } from '../src/inbox-push.js';
@@ -293,6 +295,50 @@ describe('readInboxKnobs', () => {
   it('the three keys are settings-overlay keys', () => {
     for (const k of ['SYNOPTIC_INBOX_PUSH', 'SYNOPTIC_INBOX_WAKE', 'SYNOPTIC_INBOX_URGENT_FROM'])
       expect(LOCAL_ENV_KEYS).toContain(k);
+  });
+});
+
+describe('readNotifyRule', () => {
+  it('is off when unset, empty or "off"', () => {
+    const off = { mode: 'off', kids: [], hosts: [] };
+    expect(readNotifyRule(undefined)).toEqual(off);
+    expect(readNotifyRule('')).toEqual(off);
+    expect(readNotifyRule('  OFF  ')).toEqual(off);
+  });
+  it('"all" notifies on every message', () => {
+    expect(readNotifyRule('all')).toEqual({ mode: 'all', kids: [], hosts: [] });
+  });
+  it('splits a list into whole kids and hosts, lowercase, skipping empty entries', () => {
+    expect(readNotifyRule(' @Host-A , Peer@Host-B ,host-c,, @ ,x@')).toEqual({
+      mode: 'list',
+      kids: ['peer@host-b'],
+      hosts: ['host-a', 'host-c']
+    });
+  });
+  it('is a settings-overlay key', () => {
+    expect(LOCAL_ENV_KEYS).toContain('SYNOPTIC_INBOX_NOTIFY');
+  });
+});
+
+describe('shouldNotify', () => {
+  it('off raises nothing; all raises everything', () => {
+    expect(shouldNotify(readNotifyRule('off'), 'peer@host-a')).toBe(false);
+    expect(shouldNotify(readNotifyRule('all'), 'peer@host-a')).toBe(true);
+  });
+  it('a host matches every kid on exactly that host, ignoring case', () => {
+    const rule = readNotifyRule('@host');
+    expect(shouldNotify(rule, 'peer@Host')).toBe(true);
+    expect(shouldNotify(rule, 'other@HOST')).toBe(true);
+    expect(shouldNotify(rule, 'peer@Host-A')).toBe(false);
+    expect(shouldNotify(rule, 'peer@myhost')).toBe(false);
+    expect(shouldNotify(readNotifyRule('host'), 'peer@host')).toBe(true);
+  });
+  it('a kid matches only that whole kid, ignoring case', () => {
+    const rule = readNotifyRule('peer@host-a');
+    expect(shouldNotify(rule, 'Peer@Host-A')).toBe(true);
+    expect(shouldNotify(rule, 'other-peer@host-a')).toBe(false);
+    expect(shouldNotify(rule, 'peer@host-a-b')).toBe(false);
+    expect(shouldNotify(rule, 'peer')).toBe(false);
   });
 });
 

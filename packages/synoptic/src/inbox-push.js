@@ -203,3 +203,47 @@ export function readInboxKnobs(env) {
       .filter(Boolean)
   };
 }
+
+/**
+ * Which incoming mail raises a native notification, parsed from SYNOPTIC_INBOX_NOTIFY.
+ * @typedef {{ mode: 'off' | 'all' | 'list', kids: string[], hosts: string[] }} NotifyRule
+ */
+
+/**
+ * SYNOPTIC_INBOX_NOTIFY as a rule. Unset or `off` notifies on nothing, `all` on every message.
+ * Any other value is a comma-separated list: an entry with a name before its `@` is a whole kid
+ * (`peer@host-a`); `@host-a` or a bare `host-a` is a host. Both are kept lowercase.
+ * @param {string | undefined} value
+ * @returns {NotifyRule}
+ */
+export function readNotifyRule(value) {
+  const v = (value ?? '').trim();
+  if (v === '' || v.toLowerCase() === 'off') return { mode: 'off', kids: [], hosts: [] };
+  if (v.toLowerCase() === 'all') return { mode: 'all', kids: [], hosts: [] };
+  const kids = [];
+  const hosts = [];
+  for (const raw of v.split(',')) {
+    const entry = raw.trim().toLowerCase();
+    const at = entry.lastIndexOf('@');
+    if (entry === '' || at === entry.length - 1) continue;
+    if (at > 0) kids.push(entry);
+    else hosts.push(at === 0 ? entry.slice(1) : entry);
+  }
+  return { mode: 'list', kids, hosts };
+}
+
+/**
+ * Whether mail from the kid `from` raises a notification under `rule`. A list matches the whole
+ * kid or the kid's exact host, ignoring case: `@host` matches `peer@host`, never `peer@host-a`.
+ * @param {NotifyRule} rule
+ * @param {string} from
+ * @returns {boolean}
+ */
+export function shouldNotify(rule, from) {
+  if (rule.mode === 'all') return true;
+  if (rule.mode !== 'list') return false;
+  const kid = from.trim().toLowerCase();
+  const at = kid.lastIndexOf('@');
+  const host = at < 0 ? '' : kid.slice(at + 1);
+  return rule.kids.includes(kid) || (host !== '' && rule.hosts.includes(host));
+}

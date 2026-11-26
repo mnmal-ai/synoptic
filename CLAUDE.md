@@ -7,7 +7,7 @@
 ## Claude Code plugin
 
 - **Inbox push bridge.** A hooks module in `cortext-plugin` that spawns an SSE watcher and appends agent mail mid-turn.
-  - **Switches.** `SYNOPTIC_INBOX_PUSH=off` falls back to summary lines at the prompt and Stop. `SYNOPTIC_INBOX_WAKE` ships off. `SYNOPTIC_INBOX_URGENT_FROM` is the allowlist of kids that may preempt a turn; the `priority:urgent` tag alone grants nothing.
+  - **Switches.** `SYNOPTIC_INBOX_PUSH=off` falls back to summary lines at the prompt and Stop. `SYNOPTIC_INBOX_WAKE` ships off. `SYNOPTIC_INBOX_URGENT_FROM` is the allowlist of kids that may preempt a turn; the `priority:urgent` tag alone grants nothing. `SYNOPTIC_INBOX_NOTIFY` ships off; `all`, or a list of whole kids and hosts, raises a native notification on mail from another agent.
   - **Pushed mail is another agent's message, not the user's.** Rows are framed and sanitised by `renderPushRow`. Never append mail text directly.
   - **Engine tests.** `claude plugin test packages/cortext-plugin` runs `test/inbox-bridge.test.ts`. It is local-only; CI runs vitest only. A test's `session.append` hook must call `next(e)`: the kit skips a hook that answers without it.
   - **Engine-written files.** The engine writes `packages/cortext-plugin/.claude-plugin/types/` on every working-copy load. It is gitignored.

@@ -125,6 +125,59 @@ function laterCursor(cursor, createdAt) {
 	const prev = Date.parse(cursor);
 	return Number.isNaN(prev) || next > prev ? createdAt : cursor;
 }
+/**
+* Which incoming mail raises a native notification, parsed from SYNOPTIC_INBOX_NOTIFY.
+* @typedef {{ mode: 'off' | 'all' | 'list', kids: string[], hosts: string[] }} NotifyRule
+*/
+/**
+* SYNOPTIC_INBOX_NOTIFY as a rule. Unset or `off` notifies on nothing, `all` on every message.
+* Any other value is a comma-separated list: an entry with a name before its `@` is a whole kid
+* (`peer@host-a`); `@host-a` or a bare `host-a` is a host. Both are kept lowercase.
+* @param {string | undefined} value
+* @returns {NotifyRule}
+*/
+function readNotifyRule(value) {
+	const v = (value ?? "").trim();
+	if (v === "" || v.toLowerCase() === "off") return {
+		mode: "off",
+		kids: [],
+		hosts: []
+	};
+	if (v.toLowerCase() === "all") return {
+		mode: "all",
+		kids: [],
+		hosts: []
+	};
+	const kids = [];
+	const hosts = [];
+	for (const raw of v.split(",")) {
+		const entry = raw.trim().toLowerCase();
+		const at = entry.lastIndexOf("@");
+		if (entry === "" || at === entry.length - 1) continue;
+		if (at > 0) kids.push(entry);
+		else hosts.push(at === 0 ? entry.slice(1) : entry);
+	}
+	return {
+		mode: "list",
+		kids,
+		hosts
+	};
+}
+/**
+* Whether mail from the kid `from` raises a notification under `rule`. A list matches the whole
+* kid or the kid's exact host, ignoring case: `@host` matches `peer@host`, never `peer@host-a`.
+* @param {NotifyRule} rule
+* @param {string} from
+* @returns {boolean}
+*/
+function shouldNotify(rule, from) {
+	if (rule.mode === "all") return true;
+	if (rule.mode !== "list") return false;
+	const kid = from.trim().toLowerCase();
+	const at = kid.lastIndexOf("@");
+	const host = at < 0 ? "" : kid.slice(at + 1);
+	return rule.kids.includes(kid) || host !== "" && rule.hosts.includes(host);
+}
 
 //#endregion
 //#region src/inbox-bridge.ts
@@ -173,6 +226,10 @@ async function deliver(b, $, m) {
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;
+	if (shouldNotify(b.notify, m.from)) $.ui.notify(m.subject || "(no subject)", {
+		title: `Mail from ${m.from}`,
+		key: `cortext-mail-${m.id}`
+	}).catch(() => {});
 	const now = await $.clock.now();
 	if (m.urgent && b.preemptions.take(m, now)) {
 		if (b.turnId === void 0 || b.toolsInFlight === 0) return preempt(b, $, m);
@@ -206,6 +263,11 @@ const register = (on) => {
 		interactive: false,
 		waking: false,
 		wakeOn: false,
+		notify: {
+			mode: "off",
+			kids: [],
+			hosts: []
+		},
 		toolsInFlight: 0,
 		failedSpawns: 0,
 		late: [],
@@ -219,6 +281,7 @@ const register = (on) => {
 		const started = await next(e);
 		b.interactive = e.isInteractive;
 		b.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
+		b.notify = readNotifyRule(await $.env.get("SYNOPTIC_INBOX_NOTIFY"));
 		const bootAt = await $.clock.now();
 		const promptCheck = await originalPromptCheck($);
 		const run = async () => {

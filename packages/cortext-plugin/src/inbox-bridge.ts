@@ -4,7 +4,10 @@ import {
   createBudget,
   laterCursor,
   lineSplitter,
+  type NotifyRule,
+  readNotifyRule,
   renderPushRow,
+  shouldNotify,
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
@@ -25,6 +28,7 @@ type Bridge = {
   interactive: boolean;
   waking: boolean;
   wakeOn: boolean; // from the watcher's `live` line (D1: off by default)
+  notify: NotifyRule; // SYNOPTIC_INBOX_NOTIFY, read once at session.start
   toolsInFlight: number;
   failedSpawns: number; // consecutive watcher exits with no `live`, for the respawn backoff
   late: InboxMessage[]; // appended since the latest main-thread step began
@@ -70,6 +74,16 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
+  // A native notification reaches the person away from this session. Mail this repo's key
+  // sent returned above, so a session is never notified of its own sends.
+  if (shouldNotify(b.notify, m.from)) {
+    $.ui
+      .notify(m.subject || '(no subject)', {
+        title: `Mail from ${m.from}`,
+        key: `cortext-mail-${m.id}`
+      })
+      .catch(() => {});
+  }
   const now = await $.clock.now();
   if (m.urgent && b.preemptions.take(m, now)) {
     if (b.turnId === undefined || b.toolsInFlight === 0) return preempt(b, $, m);
@@ -107,6 +121,7 @@ export const register: Register = (on) => {
     interactive: false,
     waking: false,
     wakeOn: false,
+    notify: { mode: 'off', kids: [], hosts: [] },
     toolsInFlight: 0,
     failedSpawns: 0,
     late: [],
@@ -118,6 +133,7 @@ export const register: Register = (on) => {
     const started = await next(e);
     b.interactive = e.isInteractive;
     b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
+    b.notify = readNotifyRule(await $.env.get('SYNOPTIC_INBOX_NOTIFY'));
     const bootAt = await $.clock.now();
     const promptCheck = await originalPromptCheck($); // restored when the watcher drops
 
