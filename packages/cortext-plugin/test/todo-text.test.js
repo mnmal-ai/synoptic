@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { cut } from '../src/text.ts';
-import { ago, laneRows, viewTodos, wrapLines } from '../src/todo-text.ts';
+import {
+  ago,
+  BRAIN_FACTS,
+  brainFactLine,
+  EMPTY_BOARD,
+  laneRows,
+  rollBrainFact,
+  viewTodos,
+  wrapLines
+} from '../src/todo-text.ts';
 
 describe('cut', () => {
   it('trims and ellipsizes', () => {
@@ -89,5 +98,29 @@ describe('wrapLines', () => {
   });
   it('splits a word wider than the line', () => {
     expect(wrapLines('abcdefghij', 4, 2)).toEqual(['abcd', 'efg…']);
+  });
+});
+
+describe('the empty state and the brain fact', () => {
+  it('says the cortex is clear when no Todos are open', () => {
+    expect(EMPTY_BOARD).toBe('No open Todos. Your cortex is clear.');
+  });
+  it('fires on a forced roll and names the live open count', () => {
+    // The first draw decides whether it fires (under 1 in 50), the second which fact.
+    const draws = [0, 0.99];
+    const fact = rollBrainFact(() => draws.shift() ?? 0);
+    expect(fact).toBe(BRAIN_FACTS.length - 1);
+    expect(brainFactLine(fact, 14)).toBe(
+      'Some nerve signals travel at about 120 meters per second. This board has 14 open Todos.'
+    );
+    expect(brainFactLine(0, 1)).toBe(
+      'Your brain has about 86 billion neurons. This board has 1 open Todo.'
+    );
+  });
+  it('stays quiet on most opens and on an empty board', () => {
+    expect(rollBrainFact(() => 1 / 50)).toBeNull();
+    expect(rollBrainFact(() => 0.5)).toBeNull();
+    expect(brainFactLine(null, 14)).toBeNull();
+    expect(brainFactLine(0, 0)).toBeNull();
   });
 });

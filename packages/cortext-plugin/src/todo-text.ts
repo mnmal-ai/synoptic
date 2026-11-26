@@ -139,3 +139,35 @@ export function wrapLines(text: string, width: number, max: number): string[] {
   }
   return lines;
 }
+
+/** The pane's empty state when the board holds no open Todos. */
+export const EMPTY_BOARD = 'No open Todos. Your cortex is clear.';
+
+/**
+ * The facts the pane's footer may show, about once in `BRAIN_FACT_ODDS` opens. They are for the
+ * person looking at the pane only: nothing here reaches the model, a hook's output or the transcript.
+ */
+export const BRAIN_FACTS = [
+  'Your brain has about 86 billion neurons.',
+  'Your brain is about 2% of your body weight but uses about 20% of its energy.',
+  'Your cortex is only about 2 to 4 millimeters thick.',
+  'The hippocampus is named for the seahorse it looks like.',
+  'Some nerve signals travel at about 120 meters per second.'
+] as const;
+export const BRAIN_FACT_ODDS = 50;
+
+/**
+ * Rolled once per open of the pane: the index of the fact to show, or null on most opens. `rng`
+ * returns a number in [0, 1); tests pass their own. Nothing is picked at build time.
+ */
+export function rollBrainFact(rng: () => number = Math.random): number | null {
+  if (rng() >= 1 / BRAIN_FACT_ODDS) return null;
+  return Math.min(BRAIN_FACTS.length - 1, Math.floor(rng() * BRAIN_FACTS.length));
+}
+
+/** The footer line for a rolled fact and the board's live open count, or null when there is none. */
+export function brainFactLine(fact: number | null, open: number): string | null {
+  const text = fact === null ? undefined : BRAIN_FACTS[fact];
+  if (!text || open < 1) return null;
+  return `${text} This board has ${open} open ${open === 1 ? 'Todo' : 'Todos'}.`;
+}

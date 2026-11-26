@@ -60,6 +60,8 @@ export type GroupedArgs = {
   heading: string;
   statuses: readonly string[];
   rows: readonly GroupedRow[];
+  /** What the empty state says in place of "Nothing open."; the pane passes it for an empty board. */
+  emptyText?: string;
   allProjects: boolean;
   picked: string | null;
   pickerFor: string | null;
@@ -285,7 +287,7 @@ export function groupedView(a: GroupedArgs): RenderElement {
       ? el(
           Box,
           { flexDirection: 'column', borderStyle: 'round', borderDimColor: true, paddingX: 1 },
-          el(Text, {}, 'Nothing open.'),
+          el(Text, {}, a.emptyText ?? 'Nothing open.'),
           el(Text, { dimColor: true }, 'Add a todo above, or ask Claude to put one on the list.')
         )
       : null,

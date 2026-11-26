@@ -7,9 +7,12 @@ import { groupedView } from './grouped.js';
 import { clockTime, cut } from './text.js';
 import {
   ago,
+  brainFactLine,
+  EMPTY_BOARD,
   FALLBACK_VOCAB,
   humanize,
   laneRows,
+  rollBrainFact,
   type TodoSort,
   type TodoView,
   viewTodos,
@@ -55,6 +58,8 @@ const todoView = atom(
 const paneNote = atom({ plugin: 'cortext', key: 'paneNote' }, '');
 const selected = atom({ plugin: 'cortext', key: 'paneSelected' }, null);
 const detail = atom({ plugin: 'cortext', key: 'paneDetail' }, null);
+// The brain fact rolled when the pane opened, as an index into BRAIN_FACTS, or null on most opens.
+const brainFact = atom({ plugin: 'cortext', key: 'paneBrainFact' }, null);
 
 // What the hooks share. Module variables reset on every reload; what must survive one lives in $.state.
 export type TodosPane = {
@@ -63,6 +68,7 @@ export type TodosPane = {
   project: string;
   todoPoll: { cancel: () => void } | undefined;
   cols: number; // the pane's body width, as its last draw reported
+  rng: () => number; // rolls the footer's brain fact on each open; tests pass their own
 };
 
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
@@ -755,9 +761,15 @@ async function drawTodos(
       ? el(
           Text,
           { color: 'subtle' },
-          all.length === 0 ? 'Nothing open here.' : 'No todo matches these filters.'
+          all.length === 0 ? EMPTY_BOARD : 'No todo matches these filters.'
         )
       : null;
+
+  // A small Easter egg on about one open in 50: a brain fact and the board's live open count.
+  const fun = brainFactLine(
+    await read($, brainFact),
+    all.filter((t) => t.status !== 'closed').length
+  );
 
   const split = await read($, splitPct);
   p.cols = (e as { props?: { bodyColumns?: number } }).props?.bodyColumns ?? p.cols;
@@ -789,6 +801,7 @@ async function drawTodos(
       heading: allProjects ? 'All projects' : p.project,
       statuses: voc.status,
       rows,
+      emptyText: all.length === 0 ? EMPTY_BOARD : undefined,
       allProjects,
       picked: opened ? pick : null,
       pickerFor: await read($, pickerFor),
@@ -984,15 +997,23 @@ async function drawTodos(
     { flexDirection: 'column', gap: 1 },
     head,
     said ? el(Text, { color: said.startsWith('Could not') ? 'error' : 'subtle' }, said) : null,
-    body
+    body,
+    fun ? el(Text, { key: 'todo-brain-fact', color: 'subtle' }, fun) : null
   );
 }
 
 // --- Wiring ---------------------------------------------------------------
 
 /** The pane's shared state, made by the bridge and handed to registerTodos and startTodos. */
-export function newTodosPane(): TodosPane {
-  return { ns: 'cortext', server: 'substrate', project: 'unknown', todoPoll: undefined, cols: 120 };
+export function newTodosPane(rng: () => number = Math.random): TodosPane {
+  return {
+    ns: 'cortext',
+    server: 'substrate',
+    project: 'unknown',
+    todoPoll: undefined,
+    cols: 120,
+    rng
+  };
 }
 
 /** Called from the bridge's session.start hook: one module registers that hook once. */
@@ -1008,6 +1029,7 @@ export async function startTodos(p: TodosPane, $: EngineInterface, cwd: string):
 
 export function registerTodos(on: On, p: TodosPane): void {
   on('command.run', { command: 'cortext-todos' }, async ($) => {
+    await update($, brainFact, () => rollBrainFact(p.rng));
     await refreshTodos(p, $);
     p.todoPoll?.cancel();
     p.todoPoll = $.clock.every(AUTO_REFRESH_MS, () => void refreshTodos(p, $));
