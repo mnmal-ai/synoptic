@@ -8,6 +8,7 @@ import {
   urgentNotice
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
+import { newTodosPane, registerTodos, startTodos } from './todos-pane.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
 const CURSOR = { plugin: 'cortext', key: 'inboxCursor' } as const;
@@ -101,6 +102,8 @@ async function originalPromptCheck($: EngineInterface): Promise<string | undefin
 }
 
 export const register: Register = (on) => {
+  const todos = newTodosPane();
+  registerTodos(on, todos);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,
@@ -116,6 +119,10 @@ export const register: Register = (on) => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e);
+    // The Todos pane is extra: a refused command registration must not stop mail delivery.
+    await startTodos(todos, $, e.cwd).catch((err) =>
+      $.ui.log(`cortext: the Todos pane did not start: ${(err as Error).message}`, { to: 'debug' })
+    );
     b.interactive = e.isInteractive;
     b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
     const bootAt = await $.clock.now();
