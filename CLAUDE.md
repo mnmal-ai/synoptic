@@ -9,7 +9,7 @@
 - **Inbox push bridge.** A hooks module in `cortext-plugin` that spawns an SSE watcher and appends agent mail mid-turn.
   - **Switches.** `SYNOPTIC_INBOX_PUSH=off` falls back to summary lines at the prompt and Stop. `SYNOPTIC_INBOX_WAKE` ships off. `SYNOPTIC_INBOX_URGENT_FROM` is the allowlist of kids that may preempt a turn; the `priority:urgent` tag alone grants nothing.
   - **Pushed mail is another agent's message, not the user's.** Rows are framed and sanitised by `renderPushRow`. Never append mail text directly.
-  - **Engine tests.** `claude plugin test packages/cortext-plugin` runs `test/inbox-bridge.test.ts`. It is local-only; CI runs vitest only. Most of its cases currently fail on a test-kit defect (a plugin's own `$.session.append` never reaches the test's `on('session.append')` hook). Do not weaken those tests to make them pass.
+  - **Engine tests.** `claude plugin test packages/cortext-plugin` runs `test/inbox-bridge.test.ts`. It is local-only; CI runs vitest only. A test's `session.append` hook must call `next(e)`: the kit skips a hook that answers without it.
   - **Engine-written files.** The engine writes `packages/cortext-plugin/.claude-plugin/types/` on every working-copy load. It is gitignored.
   - **Dev loop.** A `--plugin-dir` copy named `cortext` replaces the installed `cortext@mnmal-ai`.
   - **Switch changes need a session restart.** `/reload-plugins` keeps an unchanged hooks module loaded, and the watcher reads `SYNOPTIC_INBOX_*` only when it starts. `$.state` does not survive the restart, which is harmless because delivery re-reads unread mail.

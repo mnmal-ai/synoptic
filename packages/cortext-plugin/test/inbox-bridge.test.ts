@@ -2,11 +2,9 @@
 // The test's `on` hooks sit beneath the plugin and stand for the engine; vitest never sees this
 // file (it collects only *.test.js).
 //
-// Known kit defect (measured on 2.1.290 and 2.1.291): a plugin's own `$.session.append` is
-// dispatched over the process's global hook chain, not the test engine's, so it never reaches
-// `on('session.append')` here and rejects "no implementation for session.append". Every case
-// whose bridge path appends fails on that until the kit routes it; the first case asserts the
-// watcher logged nothing, which names the defect when it fires.
+// The kit runs `session.append` through its own bottom, which stores the row, and skips a hook
+// that answers without calling next(). The harness's `session.append` hook records the row and
+// then calls next(e).
 import { expect, mock, test } from 'claude-code/testing';
 
 type Ev = Record<string, unknown>;
@@ -59,6 +57,7 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     `${e.plugin}/${e.key}/${e.id ?? ''}`;
 
   on('session.start', async (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }));
+  on('command.register', async () => ({ value: undefined })); // the Todos pane's command
   on('turn.start', async (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }));
   on('turn.complete', async () => ({ text: '' }));
   // biome-ignore lint/correctness/useYield: an empty step, answered whole with no chunks
@@ -79,10 +78,17 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     }
     return { value: { code: 0, signal: null } };
   });
-  on('session.append', async (_$: unknown, e: { message: { content: { text: string }[] } }) => {
-    appended.push(e.message.content[0].text);
-    return { message: e.message, uuid: `m${appended.length}` };
-  });
+  on(
+    'session.append',
+    async (
+      _$: unknown,
+      e: { message: { content: { text: string }[] } },
+      next: (e: unknown) => Promise<unknown>
+    ) => {
+      appended.push(e.message.content[0].text);
+      return next(e);
+    }
+  );
   on('prompt.submit', (_$: unknown, e: { text: string }) => {
     submitted.push(e.text);
     return new Promise((resolve) => held.push(() => resolve({ text: e.text })));
@@ -336,7 +342,7 @@ test('a handled urgent message is not preempted after its grace', async ($, on) 
   on('tool.call', () => new Promise(() => {}));
   const h = harness(on, [[LIVE(), msg(1, { urgent: true }), { type: 'handled', id: 'u1' }]]);
   await $.turn.start({ text: 'x', turnId: 't1' });
-  void $.tool.call({ tool: 'Bash', command: 'sleep 99' });
+  void $.tool.call({ tool: 'Bash', command: 'sleep 99' }).catch(() => {}); // still in flight at teardown
   await start($, h);
   await h.clock.advance(25_000);
   expect(h.appended).toHaveLength(1);
@@ -365,7 +371,7 @@ test("a subagent's step or tool call leaves late and the in-flight count alone",
   on('tool.call', () => new Promise(() => {}));
   const h = harness(on, [[LIVE(), msg(1, { urgent: true })]]);
   await $.turn.start({ text: 'x', turnId: 't1' });
-  void $.tool.call({ tool: 'Bash', command: 'x' }); // main thread: in flight
+  void $.tool.call({ tool: 'Bash', command: 'x' }).catch(() => {}); // main thread: in flight at teardown
   await start($, h);
   await step($, 't1', 'sub-1'); // a subagent step must NOT clear late
   await h.clock.advance(20_000);

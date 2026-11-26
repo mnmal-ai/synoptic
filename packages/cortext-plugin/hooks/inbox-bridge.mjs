@@ -127,114 +127,6 @@ function laterCursor(cursor, createdAt) {
 }
 
 //#endregion
-//#region src/el.ts
-/** One element: `h` with its result narrowed to what a Box child and a render hook take. */
-function el(...args) {
-	const [tag, props, ...children] = args;
-	const set = props ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== void 0)) : props;
-	return h(tag, set, ...children);
-}
-
-//#endregion
-//#region src/text.ts
-function cut(text, max) {
-	const one = text.trim();
-	return one.length <= max ? one : `${one.slice(0, max - 1)}…`;
-}
-/** `HH:MM` in the host's local time. */
-function clockTime(ms) {
-	const d = new Date(ms);
-	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-//#endregion
-//#region src/mail-text.ts
-/**
-* The dim transcript line for a mailbox call this session made through the substrate MCP
-* server, or undefined when the call is not one. Reads the `act` sketch or the `mutate` frame.
-*/
-function mailCallLine(tool, input, now) {
-	const at = clockTime(now);
-	if (/__act$/.test(tool) && typeof input.sketch === "string") {
-		const sketch = input.sketch.trim();
-		if (/^send\s+AgentMessage\b/i.test(sketch)) {
-			const to = /\bto=("[^"]*"|\S+)/.exec(sketch)?.[1]?.replace(/"/g, "") ?? "someone";
-			const subject = /\bsubject="([^"]*)"/.exec(sketch)?.[1] ?? "";
-			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
-		}
-		const closed = /^(ack|read)\s+AgentMessage\s+([#\d,\s]+)/i.exec(sketch);
-		if (closed) return `Mail ${closed[1]?.toLowerCase() === "ack" ? "acked" : "marked read"} · ${closed[2]?.trim()} · ${at}`;
-		return;
-	}
-	if (/__mutate$/.test(tool) && input.payload && typeof input.payload === "object") for (const [key, frame] of Object.entries(input.payload)) {
-		const params = frame?.params ?? {};
-		if (key.endsWith("/sendAgentMessage")) {
-			const to = Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone");
-			const subject = typeof params.subject === "string" ? params.subject : "";
-			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
-		}
-		if (key.endsWith("/ackAgentMessage")) return `Mail acked · ${at}`;
-		if (key.endsWith("/markAgentMessageRead")) return `Mail marked read · ${at}`;
-	}
-}
-function oneLine(text) {
-	let out = "";
-	for (const ch of text) {
-		const c = ch.charCodeAt(0);
-		out += c < 32 || c === 127 || c >= 128 && c <= 159 || c === 8232 || c === 8233 ? " " : ch;
-	}
-	return out.trim();
-}
-/** Reads a pushed mail row's text; undefined when the text is not one. */
-function parseMailRow(text) {
-	const head = /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(text);
-	if (!head) return void 0;
-	const lines = text.split("\n");
-	const titleAt = lines.findIndex((l) => /^### #\d+ — /.test(l));
-	const title = titleAt < 0 ? "" : (lines[titleAt] ?? "").replace(/^### #\d+ — /, "");
-	const isReply = title.endsWith(" (reply)");
-	const body = [];
-	for (const l of titleAt < 0 ? [] : lines.slice(titleAt + 1)) if (l.startsWith("> ") || l === ">") body.push(l.slice(2));
-	else if (body.length > 0) break;
-	return {
-		shortId: Number(head[1]),
-		id: /ackAgentMessage \{ id: "([^"]+)" \}/.exec(text)?.[1],
-		from: oneLine(head[2] ?? ""),
-		date: head[3] ?? "",
-		subject: oneLine(isReply ? title.slice(0, -8) : title),
-		isReply,
-		body: body.join("\n")
-	};
-}
-/** The send in a substrate `act` sketch or `mutate` frame; undefined when the call sends none. */
-function parseMailSend(tool, input) {
-	const i = input ?? {};
-	if (/__act$/.test(tool) && typeof i.sketch === "string") {
-		const sketch = i.sketch.trim();
-		if (!/^send\s+AgentMessage\b/i.test(sketch)) return void 0;
-		const arg = (k) => {
-			const m = new RegExp(`\\b${k}=("((?:[^"\\\\]|\\\\.)*)"|\\S+)`).exec(sketch);
-			if (!m) return "";
-			return m[2] !== void 0 ? m[2].replace(/\\n/g, "\n").replace(/\\(.)/g, "$1") : m[1] ?? "";
-		};
-		return {
-			to: arg("to") || "someone",
-			subject: arg("subject"),
-			body: arg("body")
-		};
-	}
-	if (/__mutate$/.test(tool) && i.payload && typeof i.payload === "object") for (const [key, frame] of Object.entries(i.payload)) {
-		if (!key.endsWith("/sendAgentMessage")) continue;
-		const params = (Array.isArray(frame) ? frame[0] : frame)?.params ?? {};
-		return {
-			to: Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone"),
-			subject: typeof params.subject === "string" ? params.subject : "",
-			body: typeof params.body === "string" ? params.body : ""
-		};
-	}
-}
-
-//#endregion
 //#region src/brand.ts
 const BRAND = {
 	/** The site's `--accent` (#00aeef), a shade deeper so it reads on white. */
@@ -260,6 +152,35 @@ const STATUS_HEX = {
 	deferred: BRAND.slate,
 	closed: BRAND.slate
 };
+const STATUS_KEY = {
+	open: "suggestion",
+	in_progress: "claude",
+	blocked: "warning",
+	deferred: "subtle",
+	closed: "subtle"
+};
+/** A status's color: a theme key on the terminal, a brand color elsewhere. */
+function statusTone(status, tty) {
+	return tty ? STATUS_KEY[status] ?? "text" : STATUS_HEX[status] ?? BRAND.slate;
+}
+/** The accent: the theme's suggestion color on the terminal, brand cyan elsewhere. */
+function accent(tty) {
+	return tty ? "suggestion" : BRAND.accent;
+}
+/** A quiet border: the prompt's on the terminal, slate at low weight elsewhere. */
+function rule(tty) {
+	return tty ? "promptBorder" : tint(BRAND.slate, "59");
+}
+const MARK_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 72 72\"><rect width=\"72\" height=\"72\" rx=\"14\" fill=\"#ff3794\"/><path fill=\"#1a1a1a\" d=\"M12.33 36 L23.698 24.632 L31.737 24.632 L31.737 36 L28.407 36 L17.039 47.368 L9 47.368 L9 36 Z M35.067 36 L46.435 24.632 L54.474 24.632 L54.474 36 L51.144 36 L39.776 47.368 L31.737 47.368 L31.737 36 Z M54.474 47.368 L54.474 36 L63 36 L63 47.368 Z\"/></svg>";
+
+//#endregion
+//#region src/el.ts
+/** One element: `h` with its result narrowed to what a Box child and a render hook take. */
+function el(...args) {
+	const [tag, props, ...children] = args;
+	const set = props ? Object.fromEntries(Object.entries(props).filter(([, v]) => v !== void 0)) : props;
+	return h(tag, set, ...children);
+}
 
 //#endregion
 //#region src/icons.ts
@@ -356,6 +277,1220 @@ function icon(name, color, size = 16) {
 /** A round avatar: a filled circle in `color` with the Tabler icon in white, as a chat draws one. */
 function avatar(name, color, size = 28) {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="${color}"/><g transform="translate(5.5 5.5) scale(0.54)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${(PATHS[name] ?? []).map((d) => `<path d="${d}"/>`).join("")}</g></svg>`;
+}
+
+//#endregion
+//#region src/todo-text.ts
+/** What the pane uses until the server's schema has been read. */
+const FALLBACK_VOCAB = {
+	status: [
+		"open",
+		"in_progress",
+		"blocked",
+		"deferred",
+		"closed"
+	],
+	priority: [
+		"low",
+		"medium",
+		"high"
+	]
+};
+/** Reads status and priority values from a `schema` answer for the Todo type, or undefined. */
+function vocabFromSchema(answer) {
+	const fields = answer?.fields;
+	const list = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string") ? v : void 0;
+	const status = list(fields?.status?.enum);
+	const priority = list(fields?.priority?.enum);
+	return status && priority ? {
+		status,
+		priority
+	} : void 0;
+}
+/** `in_progress` → `In progress`. */
+function humanize(value) {
+	const words = value.replace(/_/g, " ");
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+/** The list as the pane shows it: filtered by status, priority and a search, then sorted. */
+function viewTodos(rows, view, vocab = FALLBACK_VOCAB) {
+	const needle = view.search.trim().toLowerCase();
+	const kept = rows.filter((t) => (view.status === "any" || t.status === view.status) && (view.priority === "any" || t.priority === view.priority) && (needle === "" || t.title.toLowerCase().includes(needle) || `#${t.shortId}`.includes(needle) || (t.tags ?? []).some((g) => g.toLowerCase().includes(needle))));
+	const pRank = (v) => {
+		const i = vocab.priority.indexOf(v);
+		return i < 0 ? 99 : vocab.priority.length - i;
+	};
+	const sRank = (v) => {
+		const i = vocab.status.indexOf(v);
+		return i < 0 ? 99 : i;
+	};
+	const time = (iso) => iso ? Date.parse(iso) || 0 : 0;
+	const byPriority = (a, b) => pRank(a.priority) - pRank(b.priority);
+	const newest = (a, b) => b.shortId - a.shortId;
+	const order = {
+		priority: (a, b) => byPriority(a, b) || newest(a, b),
+		created: (a, b) => time(b.createdAt) - time(a.createdAt) || newest(a, b),
+		updated: (a, b) => time(b.updatedAt) - time(a.updatedAt) || newest(a, b),
+		status: (a, b) => sRank(a.status) - sRank(b.status) || byPriority(a, b) || newest(a, b),
+		title: (a, b) => a.title.localeCompare(b.title)
+	};
+	return [...kept].sort(order[view.sort]);
+}
+/** "3m ago", "5h ago", "2d ago". */
+function ago(iso, now) {
+	const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1e3));
+	if (s < 90) return `${s}s ago`;
+	if (s < 5400) return `${Math.round(s / 60)}m ago`;
+	if (s < 129600) return `${Math.round(s / 3600)}h ago`;
+	return `${Math.round(s / 86400)}d ago`;
+}
+const LANE_TONES = {
+	open: "suggestion",
+	in_progress: "success",
+	blocked: "error",
+	deferred: "subtle",
+	closed: "subtle"
+};
+/** One board lane per status the schema lists, in its order, each keeping the list's order. */
+function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
+	return statuses.map((s) => ({
+		lane: {
+			key: s,
+			title: humanize(s),
+			tone: LANE_TONES[s] ?? "text"
+		},
+		rows: rows.filter((r) => r.status === s)
+	}));
+}
+
+//#endregion
+//#region src/grouped.ts
+const HEX = {
+	open: BRAND.accent,
+	in_progress: BRAND.magenta,
+	blocked: BRAND.yellow,
+	deferred: BRAND.slate,
+	closed: BRAND.slate
+};
+const THEME = {
+	open: "suggestion",
+	in_progress: "claude",
+	blocked: "warning",
+	deferred: "subtle",
+	closed: "subtle"
+};
+const GLYPH = {
+	open: "○",
+	in_progress: "◐",
+	blocked: "■",
+	deferred: "◌",
+	closed: "✓"
+};
+const ICON = {
+	open: "circle",
+	in_progress: "progress",
+	blocked: "hand-stop",
+	deferred: "clock-pause",
+	closed: "circle-check"
+};
+const TRACK = tint(BRAND.slate, "33");
+const ROW_HOVER = HOVER_FILL;
+const NEUTRAL = BRAND.slate;
+/** The Grouped view's tree: heading and progress, then a group per status that has rows. */
+function groupedView(a) {
+	const { el } = a;
+	const { Box, Text, Button } = a.els;
+	const Svg = a.surface !== "terminal" ? a.els.Svg : void 0;
+	const tty = a.surface === "terminal";
+	const tone = (s) => tty ? THEME[s] ?? null : HEX[s] ?? null;
+	const glyph = (s) => {
+		const color = tone(s);
+		return color ? el(Text, { color }, GLYPH[s] ?? "•") : el(Text, {}, GLYPH[s] ?? "•");
+	};
+	const mark = (s) => Svg ? el(Svg, {
+		source: icon(ICON[s] ?? "circle", HEX[s] ?? NEUTRAL),
+		alt: humanize(s),
+		width: 16,
+		height: 16
+	}) : glyph(s);
+	const border = (s) => {
+		const color = tone(s);
+		if (!color) return { borderDimColor: true };
+		return tty ? {
+			borderColor: color,
+			borderDimColor: true
+		} : { borderColor: `${color}59` };
+	};
+	const rowHover = tty ? {} : { hover: { backgroundColor: ROW_HOVER } };
+	const row = (r) => {
+		const done = r.status === "closed";
+		const meta = [
+			r.priority === "high" ? el(Text, { color: tty ? "warning" : BRAND.yellow }, "high") : null,
+			a.allProjects ? el(Text, { dimColor: true }, r.project ?? "cross-cutting") : null,
+			el(Text, { dimColor: true }, `#${r.shortId}`)
+		].filter(Boolean);
+		return el(Box, { flexDirection: "column" }, el(Box, {
+			key: `grow-${r.id}`,
+			flexDirection: "row",
+			gap: 1,
+			...rowHover
+		}, el(Box, { flexShrink: 0 }, el(Button, {
+			key: `gstatus-${r.id}`,
+			label: GLYPH[r.status] ?? "•",
+			plain: true,
+			onPress: () => a.onTogglePicker(r)
+		}, glyph(r.status))), el(Box, {
+			flexGrow: 1,
+			flexShrink: 1,
+			minWidth: 0
+		}, el(Button, {
+			key: `gopen-${r.id}`,
+			label: r.title,
+			plain: true,
+			onPress: () => a.onOpen(r)
+		}, el(Text, {
+			wrap: "truncate-end",
+			strikethrough: done,
+			dimColor: done,
+			bold: r.id === a.picked
+		}, r.title))), el(Box, {
+			flexShrink: 0,
+			flexDirection: "row",
+			gap: 1
+		}, ...meta)), a.pickerFor === r.id ? picker(r) : null);
+	};
+	const picker = (r) => el(Box, {
+		flexDirection: "column",
+		alignSelf: "flex-start",
+		borderStyle: "round",
+		borderDimColor: true,
+		paddingX: 1
+	}, ...a.statuses.map((s) => el(Button, {
+		key: `gset-${r.id}-${s}`,
+		label: `${GLYPH[s] ?? "•"} ${humanize(s)}`,
+		plain: true,
+		onPress: () => a.onSetStatus(r, s)
+	}, glyph(s), el(Text, { bold: s === r.status }, ` ${humanize(s)}`))));
+	const total = a.rows.length;
+	const count = (s) => a.rows.filter((r) => r.status === s).length;
+	const parts = [
+		["closed", count("closed")],
+		["in_progress", count("in_progress")],
+		["blocked", count("blocked")]
+	];
+	const progress = () => {
+		if (total === 0) return null;
+		if (Svg) {
+			const [width, height] = [1e3, 8];
+			let x = 0;
+			const rects = parts.map(([s, n]) => {
+				const w = Math.round(width * n / total);
+				const rect = `<rect x="${x}" width="${w}" height="${height}" fill="${HEX[s]}"/>`;
+				x += w;
+				return rect;
+			});
+			const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><clipPath id="bar"><rect width="${width}" height="${height}" rx="${height / 2}"/></clipPath><g clip-path="url(#bar)"><rect width="${width}" height="${height}" fill="${TRACK}"/>${rects.join("")}</g></svg>`;
+			return el(Svg, {
+				source,
+				alt: `${count("closed")} of ${total} closed`
+			});
+		}
+		const width = Math.max(10, Math.min(60, a.columns - 2));
+		const [done, doing, waiting] = parts.map(([, n]) => Math.round(width * n / total));
+		return el(Text, {}, el(Text, { color: tty ? "success" : BRAND.accent }, "━".repeat(done ?? 0)), el(Text, { color: tty ? "claude" : BRAND.magenta }, "━".repeat(doing ?? 0)), el(Text, { color: tty ? "warning" : BRAND.yellow }, "━".repeat(waiting ?? 0)), el(Text, { dimColor: true }, "━".repeat(Math.max(0, width - (done ?? 0) - (doing ?? 0) - (waiting ?? 0)))));
+	};
+	const group = (s, rows) => {
+		const open = !a.folded.includes(s);
+		return el(Box, {
+			key: `group-${s}`,
+			flexDirection: "column",
+			gap: 1
+		}, el(Box, {
+			flexDirection: "row",
+			justifyContent: "space-between",
+			paddingX: 1
+		}, el(Box, {
+			flexDirection: "row",
+			gap: 1,
+			alignItems: "center"
+		}, mark(s), el(Button, {
+			key: `gfold-${s}`,
+			label: humanize(s),
+			plain: true,
+			onPress: () => a.onToggleGroup(s)
+		})), el(Box, {
+			flexDirection: "row",
+			gap: 2
+		}, el(Text, {
+			dimColor: true,
+			tabular: true
+		}, String(rows.length)), el(Button, {
+			key: `gfold-${s}-chev`,
+			label: open ? "▾" : "▸",
+			plain: true,
+			dimColor: true,
+			onPress: () => a.onToggleGroup(s)
+		}))), open ? el(Box, {
+			flexDirection: "column",
+			borderStyle: "round",
+			...border(s),
+			paddingX: 1
+		}, ...rows.map(row)) : null);
+	};
+	const groups = a.statuses.map((s) => ({
+		s,
+		rows: a.rows.filter((r) => r.status === s)
+	})).filter((g) => g.rows.length > 0);
+	return el(Box, {
+		flexDirection: "column",
+		gap: 2
+	}, el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Box, {
+		flexDirection: "row",
+		justifyContent: "space-between"
+	}, el(Text, { bold: true }, a.heading), total > 0 ? el(Text, { dimColor: true }, `${count("closed")} of ${total} closed`) : null), progress()), groups.length === 0 ? el(Box, {
+		flexDirection: "column",
+		borderStyle: "round",
+		borderDimColor: true,
+		paddingX: 1
+	}, el(Text, {}, "Nothing open."), el(Text, { dimColor: true }, "Add a todo above, or ask Claude to put one on the list.")) : null, ...groups.map((g) => group(g.s, g.rows)));
+}
+
+//#endregion
+//#region src/text.ts
+function cut(text, max) {
+	const one = text.trim();
+	return one.length <= max ? one : `${one.slice(0, max - 1)}…`;
+}
+/** `HH:MM` in the host's local time. */
+function clockTime(ms) {
+	const d = new Date(ms);
+	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+//#endregion
+//#region src/todos-pane.ts
+const TODOS_PANE = "cortext-todos";
+const AUTO_REFRESH_MS = 6e4;
+const PAGE_ROWS = 100;
+const todos = atom({
+	plugin: "cortext",
+	key: "paneTodos"
+}, [], { shape: "todos-2" });
+const todoScope = atom({
+	plugin: "cortext",
+	key: "paneTodoScope"
+}, "project");
+const drafts = atom({
+	plugin: "cortext",
+	key: "paneDrafts"
+}, {});
+const vocab = atom({
+	plugin: "cortext",
+	key: "paneVocab"
+}, FALLBACK_VOCAB);
+const refreshedAt = atom({
+	plugin: "cortext",
+	key: "paneRefreshedAt"
+}, 0);
+const splitPct = atom({
+	plugin: "cortext",
+	key: "paneSplit"
+}, 34);
+const LIST_ROW_LINES = 3;
+const LIST_MAX_ROWS = 120;
+const layout = atom({
+	plugin: "cortext",
+	key: "paneLayout"
+}, "list");
+const folds = atom({
+	plugin: "cortext",
+	key: "paneFolds"
+}, ["closed"]);
+const pickerFor = atom({
+	plugin: "cortext",
+	key: "panePicker"
+}, null);
+const cardOpen = atom({
+	plugin: "cortext",
+	key: "paneCardOpen"
+}, false);
+const todoView = atom({
+	plugin: "cortext",
+	key: "paneTodoView"
+}, {
+	sort: "priority",
+	status: "any",
+	priority: "any",
+	search: ""
+});
+const paneNote = atom({
+	plugin: "cortext",
+	key: "paneNote"
+}, "");
+const selected = atom({
+	plugin: "cortext",
+	key: "paneSelected"
+}, null);
+const detail = atom({
+	plugin: "cortext",
+	key: "paneDetail"
+}, null);
+/** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
+async function sub(p, $, tool, args) {
+	const r = await $.mcp.call(p.server, tool, args);
+	const text = r.content.map((c) => c.type === "text" ? c.text : "").join("");
+	if (r.isError) throw new Error(cut(text || `${tool} failed`, 200));
+	let parsed;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		throw new Error(`${tool} answered ${text.length} characters that are not JSON: ${cut(text, 120)}`);
+	}
+	const body = parsed;
+	if (body.errors && body.errors.length > 0) {
+		const err = new Error(cut(body.errors[0]?.message ?? "refused", 200));
+		err.code = body.errors[0]?.code;
+		throw err;
+	}
+	return body;
+}
+async function query(p, $, type, frame) {
+	const key = `${p.ns}/${type}`;
+	const rows = (await sub(p, $, "query", { payload: { [key]: frame } })).data?.[key];
+	if (!Array.isArray(rows)) throw new Error(`${key} did not come back`);
+	return rows;
+}
+async function mutate(p, $, op, params) {
+	const key = `${p.ns}/${op}`;
+	const row = (await sub(p, $, "mutate", { payload: { [key]: {
+		params,
+		fields: { id: true }
+	} } })).data?.[key];
+	if (row === void 0) throw new Error(`${key} did not come back`);
+	return row;
+}
+async function note($, text) {
+	await update($, paneNote, () => text);
+}
+const SORTS = [
+	{
+		value: "priority",
+		label: "Priority"
+	},
+	{
+		value: "updated",
+		label: "Recently updated"
+	},
+	{
+		value: "created",
+		label: "Recently created"
+	},
+	{
+		value: "status",
+		label: "Status"
+	},
+	{
+		value: "title",
+		label: "Title"
+	}
+];
+async function loadTodos(p, $) {
+	const scope = await read($, todoScope);
+	const and = [{ archived: { eq: false } }];
+	if (scope === "project") and.push({ OR: [{ project: { eq: p.project } }, { project: { eq: null } }] });
+	const rows = [];
+	const key = `${p.ns}/Todo`;
+	let cursor;
+	for (;;) {
+		const body = await sub(p, $, "query", { payload: { [key]: {
+			params: {
+				where: { AND: and },
+				limit: PAGE_ROWS,
+				...cursor ? { cursor } : {}
+			},
+			fields: {
+				id: true,
+				shortId: true,
+				title: true,
+				area: true,
+				status: true,
+				priority: true,
+				project: true,
+				tags: true,
+				_metadata: {
+					createdAt: true,
+					updatedAt: true
+				}
+			}
+		} } });
+		const got = body.data?.[key];
+		if (!Array.isArray(got)) throw new Error(`${key} did not come back`);
+		for (const r of got) rows.push({
+			...r,
+			createdAt: r._metadata?.createdAt,
+			updatedAt: r._metadata?.updatedAt
+		});
+		const pg = body._pagination?.[key];
+		if (!pg?.hasMore) break;
+		if (!pg.nextCursor || pg.nextCursor === cursor) throw new Error(`${key} said more rows follow ${rows.length} but gave no next cursor`);
+		cursor = pg.nextCursor;
+	}
+	await update($, todos, () => rows);
+}
+/** The rows the list shows now, in its order. */
+async function shown($) {
+	return viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
+}
+/** Keeps a pick that is still listed; otherwise picks the first row, as a settings sidebar does. */
+async function keepPick(p, $) {
+	const rows = await shown($);
+	const pick = await read($, selected);
+	if (rows.some((t) => t.id === pick)) return;
+	const first = rows[0];
+	if (first) await selectTodo(p, $, first);
+	else {
+		await update($, selected, () => null);
+		await update($, detail, () => null);
+	}
+}
+async function refreshTodos(p, $) {
+	try {
+		try {
+			const answer = await sub(p, $, "schema", {
+				namespace: p.ns,
+				type: "Todo",
+				shape: "fields"
+			});
+			const got = vocabFromSchema(answer);
+			if (got) await update($, vocab, () => got);
+		} catch {}
+		await loadTodos(p, $);
+		await keepPick(p, $);
+		const at = await $.clock.now();
+		await update($, refreshedAt, () => at);
+		await note($, "");
+	} catch (err) {
+		await note($, `Could not load todos: ${err.message}`);
+	}
+}
+async function setView(p, $, patch) {
+	await update($, todoView, (v) => ({
+		...v,
+		...patch
+	}));
+	await keepPick(p, $);
+}
+async function selectTodo(p, $, t) {
+	await update($, selected, () => t.id);
+	try {
+		const rows = await query(p, $, "Todo", {
+			params: {
+				where: { id: { eq: t.id } },
+				limit: 1
+			},
+			fields: {
+				id: true,
+				notes: true,
+				body: true,
+				blockedBy: true,
+				revisitWhen: true,
+				targetDate: true,
+				_metadata: {
+					createdAt: true,
+					updatedAt: true
+				}
+			}
+		});
+		await update($, detail, () => rows[0] ?? null);
+	} catch (err) {
+		await note($, `Could not load #${t.shortId}: ${err.message}`);
+	}
+}
+async function createTodo(p, $, title) {
+	const clean = cut(title, 300);
+	if (clean === "") return;
+	try {
+		const row = await mutate(p, $, "createTodo", {
+			title: clean,
+			area: "general",
+			priority: "medium",
+			project: p.project
+		});
+		await loadTodos(p, $);
+		const made = (await read($, todos)).find((t) => t.id === row.id);
+		if (made) await selectTodo(p, $, made);
+		await note($, "");
+	} catch (err) {
+		await note($, `Could not create the todo: ${err.message}`);
+	}
+}
+async function closeTodo(p, $, t) {
+	try {
+		await sub(p, $, "act", { sketch: `close Todo #${t.shortId}` });
+		const at = (await shown($)).findIndex((r) => r.id === t.id);
+		await loadTodos(p, $);
+		const after = await shown($);
+		const next = after[Math.min(Math.max(at, 0), after.length - 1)];
+		if (next) await selectTodo(p, $, next);
+		else await keepPick(p, $);
+		await note($, `Closed #${t.shortId}.`);
+		return true;
+	} catch (err) {
+		await note($, `Could not close #${t.shortId}: ${err.message}`);
+		await loadTodos(p, $).catch(() => {});
+		return false;
+	}
+}
+/**
+* Moves a todo to `status`. Closed goes through `close`, as the Close button does, so the row is
+* also resolved and archived; any other status is a plain field save.
+*/
+async function setStatus(p, $, t, status) {
+	if (status === "closed") return closeTodo(p, $, t);
+	return saveField(p, $, t, { status });
+}
+/** Saves one field, or the priority or status, of the picked todo. */
+async function saveField(p, $, t, patch) {
+	try {
+		const clean = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, typeof v === "string" && v.trim() === "" ? null : v]));
+		if (clean.title === null) clean.title = t.title;
+		if (clean.area === null) clean.area = "general";
+		await mutate(p, $, "updateTodo", {
+			id: t.id,
+			...clean
+		});
+		await update($, drafts, (d) => dropDrafts(d, t.id, Object.keys(patch)));
+		await loadTodos(p, $);
+		const fresh = (await read($, todos)).find((r) => r.id === t.id);
+		if (fresh) await selectTodo(p, $, fresh);
+		await note($, "");
+		return true;
+	} catch (err) {
+		await note($, `Could not save #${t.shortId}: ${err.message}`);
+		await loadTodos(p, $).catch(() => {});
+		return false;
+	}
+}
+function dropDrafts(d, id, fields) {
+	const out = { ...d };
+	for (const f of fields) delete out[`${id}:${f}`];
+	return out;
+}
+/** A caption over a control or value. */
+function labelled(els, label, child) {
+	const { Box, Text } = els;
+	return el(Box, { flexDirection: "column" }, el(Text, { color: "subtle" }, label), child);
+}
+/** Tags as one quiet line: `quote-lane · psa`. */
+function tagLine(t) {
+	return (t.tags ?? []).join(" · ");
+}
+/** One list row: a single Button holding plain Text parts, the picked one in the app's primary style. */
+function listRow(els, t, on, onPress) {
+	const { Text, Button } = els;
+	return el(Button, {
+		key: `pick-${t.id}`,
+		label: `#${t.shortId} ${t.title}`,
+		plain: on ? void 0 : true,
+		variant: on ? "primary" : void 0,
+		onPress
+	}, el(Text, { dimColor: !on }, `#${t.shortId} `), el(Text, {}, t.title));
+}
+/** One board card: a bordered Box around one Button whose Text parts are the title, the id and the tags. */
+function card(els, t, showProject, on, onPress) {
+	const { Box, Text, Button } = els;
+	const tags = tagLine(t);
+	const where = showProject ? `${t.project ?? "cross-cutting"} · ` : "";
+	return el(Box, {
+		key: `card-${t.id}`,
+		borderStyle: "round",
+		borderColor: on ? BRAND.accent : rule(false),
+		paddingX: 1,
+		hover: { borderColor: BRAND.accent }
+	}, el(Button, {
+		key: `open-${t.id}`,
+		label: t.title,
+		plain: true,
+		onPress
+	}, el(Text, { bold: t.priority === "high" }, t.title), "\n", el(Text, { dimColor: true }, `${where}#${t.shortId} · ${t.priority}${t.area ? ` · ${t.area}` : ""}`), tags ? "\n" : "", tags ? el(Text, { color: BRAND.accent }, tags) : ""));
+}
+/**
+* A field that is always editable: click into the text and type. Enter saves (Shift+Enter is a
+* new line in a tall field); while it differs from what is stored, Save and Revert sit under it.
+*/
+function textField(els, o) {
+	const { Box, Button, Input } = els;
+	const dirty = o.draft !== void 0 && o.draft !== o.stored;
+	return labelled(els, o.label, el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Input, {
+		key: `f-${o.name}-${o.id}`,
+		value: o.draft ?? o.stored,
+		rows: o.rows,
+		placeholder: o.placeholder,
+		submitLabel: "save",
+		onInput: (v) => o.onDraft(v),
+		onSubmit: (v) => o.onSave(v)
+	}), dirty ? el(Box, {
+		flexDirection: "row",
+		gap: 1
+	}, el(Button, {
+		key: `save-${o.name}`,
+		label: "Save",
+		variant: "primary",
+		onPress: () => o.onSave(o.draft ?? "")
+	}), el(Button, {
+		key: `revert-${o.name}`,
+		label: "Revert",
+		onPress: () => o.onDraft(void 0)
+	})) : null));
+}
+/** The header both layouts share: search, actions, then scope, sort and filters, then the add field. */
+function header(els, p, $, s) {
+	const { Box, Text, Button, Input, Select } = els;
+	const Svg = els.Svg;
+	const logo = Svg && !s.tty ? el(Svg, {
+		source: MARK_SVG,
+		alt: "mnmal-ai",
+		width: 22,
+		height: 22
+	}) : el(Text, {
+		bold: true,
+		color: "claude"
+	}, "mnmal");
+	const brand = el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, logo, el(Text, { bold: true }, "Todos"));
+	const filtered = s.view.status !== "any" || s.view.priority !== "any" || s.view.search.trim() !== "";
+	return el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 2,
+		alignItems: "center"
+	}, brand, el(Box, { flexGrow: 1 }, el(Input, {
+		key: "todo-search",
+		placeholder: "Search title, #id or tag",
+		submitLabel: "find",
+		value: s.view.search,
+		onInput: (v) => void setView(p, $, { search: v }),
+		onSubmit: (v) => void setView(p, $, { search: v })
+	})), el(Select, {
+		key: "todo-view",
+		label: "View",
+		value: s.mode,
+		options: [
+			{
+				value: "list",
+				label: "List"
+			},
+			{
+				value: "board",
+				label: "Board"
+			},
+			{
+				value: "grouped",
+				label: "Grouped"
+			}
+		],
+		onSelect: (v) => void update($, layout, () => v === "board" || v === "grouped" ? v : "list").then(() => update($, cardOpen, () => false))
+	}), el(Box, {
+		flexDirection: "row",
+		gap: 1,
+		alignItems: "center"
+	}, el(Text, {
+		color: "subtle",
+		tabular: true
+	}, s.refreshed ? `Last refreshed ${clockTime(s.refreshed)}` : "Not refreshed yet"), el(Button, {
+		key: "todo-refresh",
+		label: "Refresh",
+		hotkey: s.tty ? "r" : void 0,
+		onPress: () => void refreshTodos(p, $)
+	}))), el(Box, {
+		flexDirection: "row",
+		columnGap: 2,
+		rowGap: 1,
+		flexWrap: "wrap",
+		alignItems: "center"
+	}, el(Select, {
+		key: "todo-scope",
+		value: s.scope,
+		options: [{
+			value: "project",
+			label: p.project
+		}, {
+			value: "all",
+			label: "All projects"
+		}],
+		onSelect: (v) => void update($, todoScope, () => v === "all" ? "all" : "project").then(() => refreshTodos(p, $))
+	}), el(Select, {
+		key: "todo-sort",
+		label: "Sort",
+		value: s.view.sort,
+		options: SORTS,
+		onSelect: (v) => void setView(p, $, { sort: v })
+	}), el(Select, {
+		key: "todo-status",
+		label: "Status",
+		value: s.view.status,
+		options: [{
+			value: "any",
+			label: "Any"
+		}, ...s.voc.status.map((v) => ({
+			value: v,
+			label: humanize(v)
+		}))],
+		onSelect: (v) => void setView(p, $, { status: v })
+	}), el(Select, {
+		key: "todo-priority",
+		label: "Priority",
+		value: s.view.priority,
+		options: [{
+			value: "any",
+			label: "Any"
+		}, ...[...s.voc.priority].reverse().map((v) => ({
+			value: v,
+			label: humanize(v)
+		}))],
+		onSelect: (v) => void setView(p, $, { priority: v })
+	}), el(Text, {
+		color: "subtle",
+		tabular: true
+	}, filtered ? `${s.shownCount} of ${s.allCount}` : `${s.allCount} open`), filtered ? el(Button, {
+		key: "todo-clear",
+		label: "Clear filters",
+		plain: true,
+		dimColor: true,
+		onPress: () => void setView(p, $, {
+			status: "any",
+			priority: "any",
+			search: ""
+		})
+	}) : null), el(Input, {
+		key: "todo-new",
+		placeholder: `New todo in ${p.project}`,
+		submitLabel: "add",
+		value: "",
+		onSubmit: (v) => void createTodo(p, $, v)
+	}));
+}
+async function drawTodos(p, $, e) {
+	const els = $.ui.resolve(e);
+	const { Box, Text, Button, Select } = els;
+	const Client = e.surface === "terminal" || e.surface === "desktop" ? els.Client : void 0;
+	const tty = e.surface === "terminal";
+	const all = await read($, todos);
+	const view = await read($, todoView);
+	const voc = await read($, vocab);
+	const rows = viewTodos(all, view, voc);
+	const scope = await read($, todoScope);
+	const mode = await read($, layout);
+	const opened = await read($, cardOpen);
+	const said = await read($, paneNote);
+	const pick = await read($, selected);
+	const more = await read($, detail);
+	const pending = await read($, drafts);
+	const current = rows.find((t) => t.id === pick) ?? all.find((t) => t.id === pick);
+	const now = await $.clock.now();
+	const field = (name, label, stored, rowsTall, placeholder) => {
+		if (!current) return null;
+		const k = `${current.id}:${name}`;
+		return textField(els, {
+			id: current.id,
+			name,
+			label,
+			stored: stored ?? "",
+			draft: pending[k],
+			rows: rowsTall,
+			placeholder,
+			onDraft: (v) => void update($, drafts, (d) => {
+				const out = { ...d };
+				if (v === void 0) delete out[k];
+				else out[k] = v;
+				return out;
+			}),
+			onSave: (v) => void saveField(p, $, current, { [name]: v })
+		});
+	};
+	const fact = (label, value) => labelled(els, label, el(Text, { tabular: true }, value));
+	const detailView = (back) => !current ? el(Text, { color: "subtle" }, rows.length ? "Pick a todo." : "Nothing to show.") : el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, el(Box, {
+		flexDirection: "row",
+		gap: 2,
+		alignItems: "center"
+	}, back, el(Box, { flexGrow: 1 }, el(Text, {
+		color: "subtle",
+		tabular: true
+	}, `#${current.shortId} · ${current.project ?? "cross-cutting"}`)), el(Button, {
+		key: "todo-close",
+		label: "Close as done",
+		hotkey: tty ? "x" : void 0,
+		onPress: () => void closeTodo(p, $, current)
+	})), field("title", "Title", current.title, 3, "Title"), el(Box, {
+		flexDirection: "row",
+		columnGap: 3,
+		rowGap: 1,
+		flexWrap: "wrap"
+	}, labelled(els, "Priority", el(Select, {
+		key: `pri-${current.id}`,
+		value: current.priority,
+		options: [...voc.priority].reverse().map((v) => ({
+			value: v,
+			label: humanize(v)
+		})),
+		onSelect: (v) => void saveField(p, $, current, { priority: v })
+	})), labelled(els, "Status", el(Select, {
+		key: `status-${current.id}`,
+		value: current.status,
+		options: voc.status.map((v) => ({
+			value: v,
+			label: humanize(v)
+		})),
+		onSelect: (v) => void setStatus(p, $, current, v)
+	})), fact("Created", current.createdAt ? ago(current.createdAt, now) : "—"), fact("Updated", current.updatedAt ? ago(current.updatedAt, now) : "—"), more?.targetDate ? fact("Target", more.targetDate.slice(0, 10)) : null), tagLine(current) ? labelled(els, "Tags", el(Text, { color: accent(tty) }, tagLine(current))) : null, field("area", "Area", current.area, void 0, "Area"), current.status === "blocked" || more?.blockedBy ? field("blockedBy", "Waiting on", more?.blockedBy, 2, "What it needs from you") : null, current.status === "deferred" || more?.revisitWhen ? field("revisitWhen", "Revisit when", more?.revisitWhen, 2, "When to look again") : null, field("notes", "Notes", more?.notes, 6, "Add notes"), field("body", "Description", more?.body, 10, "Add a description"));
+	const head = header(els, p, $, {
+		tty,
+		view,
+		scope,
+		mode,
+		shownCount: rows.length,
+		allCount: all.length,
+		voc,
+		refreshed: await read($, refreshedAt)
+	});
+	const empty = rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : null;
+	const split = await read($, splitPct);
+	p.cols = e.props?.bodyColumns ?? p.cols;
+	const allProjects = scope === "all";
+	const detailPanel = (back, width) => el(Box, {
+		flexDirection: "column",
+		flexGrow: width ? 0 : 1,
+		flexShrink: 0,
+		width,
+		borderStyle: "round",
+		borderColor: rule(tty),
+		paddingX: 2,
+		paddingY: 1
+	}, detailView(back));
+	const shown = Math.min(rows.length, LIST_MAX_ROWS);
+	let body;
+	if (mode === "grouped") {
+		const view = groupedView({
+			els,
+			surface: e.surface,
+			el,
+			heading: allProjects ? "All projects" : p.project,
+			statuses: voc.status,
+			rows,
+			allProjects,
+			picked: opened ? pick : null,
+			pickerFor: await read($, pickerFor),
+			folded: await read($, folds),
+			columns: p.cols,
+			onOpen: (r) => {
+				const t = all.find((x) => x.id === r.id);
+				if (t) selectTodo(p, $, t).then(() => update($, cardOpen, () => true));
+			},
+			onTogglePicker: (r) => void update($, pickerFor, (cur) => cur === r.id ? null : r.id),
+			onSetStatus: (r, status) => {
+				const t = all.find((x) => x.id === r.id);
+				update($, pickerFor, () => null);
+				if (t && t.status !== status) update($, todos, (list) => list.map((x) => x.id === t.id ? {
+					...x,
+					status
+				} : x)).then(() => setStatus(p, $, t, status));
+			},
+			onToggleGroup: (st) => void update($, folds, (f) => f.includes(st) ? f.filter((x) => x !== st) : [...f, st])
+		});
+		body = opened && current ? el(Box, {
+			flexDirection: "row",
+			gap: 1
+		}, el(Box, {
+			flexGrow: 1,
+			flexShrink: 1
+		}, view), detailPanel(el(Button, {
+			key: "todo-back",
+			label: "Close panel",
+			hotkey: tty ? "b" : void 0,
+			onPress: () => void update($, cardOpen, () => false)
+		}), "42%")) : view;
+	} else if (mode === "board") {
+		const laneData = laneRows(rows, voc.status).map(({ lane, rows: inLane }) => ({
+			status: lane.key,
+			title: lane.title,
+			tone: statusTone(lane.key, tty),
+			cards: inLane.map((t) => ({
+				id: t.id,
+				title: `#${t.shortId}  ${t.title}`,
+				meta: `${allProjects ? `${t.project ?? "cross-cutting"} · ` : ""}${t.priority}${t.area ? ` · ${t.area}` : ""}`,
+				tags: tagLine(t),
+				strong: t.priority === "high"
+			}))
+		}));
+		const tallest = Math.max(1, ...laneData.map((l) => l.cards.length));
+		const lanes = empty ?? (Client ? h(Client, {
+			key: "todo-board",
+			module: "./board.mjs",
+			props: {
+				lanes: laneData,
+				picked: opened ? pick : null,
+				colors: {
+					accent: accent(tty),
+					rule: rule(tty),
+					tags: accent(tty)
+				}
+			},
+			height: 2 + tallest * 5,
+			flexGrow: 1
+		}) : el(Box, {
+			flexDirection: "row",
+			gap: 2,
+			flexGrow: 1
+		}, ...laneRows(rows, voc.status).map(({ lane, rows: inLane }) => el(Box, {
+			key: `lane-${lane.key}`,
+			flexDirection: "column",
+			flexGrow: 1,
+			flexShrink: 1,
+			gap: 1
+		}, el(Text, {
+			bold: true,
+			color: statusTone(lane.key, tty)
+		}, `${lane.title} (${inLane.length})`), ...inLane.map((t) => card(els, t, allProjects, t.id === pick && opened, () => void selectTodo(p, $, t).then(() => update($, cardOpen, () => true))))))));
+		body = opened && current ? el(Box, {
+			flexDirection: "row",
+			gap: 1
+		}, el(Box, {
+			flexGrow: 1,
+			flexShrink: 1
+		}, lanes), detailPanel(el(Button, {
+			key: "todo-back",
+			label: "Close panel",
+			hotkey: tty ? "b" : void 0,
+			onPress: () => void update($, cardOpen, () => false)
+		}), "42%")) : lanes;
+	} else body = el(Box, { flexDirection: "row" }, el(Box, {
+		flexDirection: "column",
+		width: `${Number.isFinite(split) ? Math.round(split) : 34}%`,
+		flexShrink: 0,
+		paddingRight: 1
+	}, empty, ...Client ? [el(Box, {
+		key: "todo-list",
+		flexDirection: "column",
+		gap: tty ? 0 : "sm"
+	}, ...rows.slice(0, shown).map((t) => h(Client, {
+		key: `row-${t.id}`,
+		module: "./list.mjs",
+		props: {
+			row: {
+				id: t.id,
+				num: `#${t.shortId}`,
+				title: t.title,
+				facts: [
+					t.priority === "high" ? {
+						text: "High",
+						tone: tty ? "warning" : BRAND.magenta
+					} : { text: humanize(t.priority) },
+					{
+						text: humanize(t.status),
+						tone: statusTone(t.status, tty)
+					},
+					...t.area ? [{ text: t.area }] : [],
+					...allProjects ? [{ text: t.project ?? "cross-cutting" }] : []
+				]
+			},
+			picked: t.id === pick,
+			tty
+		},
+		height: LIST_ROW_LINES
+	}))), rows.length > shown ? el(Text, {
+		color: "subtle",
+		tabular: true
+	}, `${rows.length - shown} more. Search or filter to narrow the list.`) : null] : rows.map((t) => listRow(els, t, t.id === pick, () => void selectTodo(p, $, t)))), Client ? h(Client, {
+		key: "todo-splitter",
+		module: "./splitter.mjs",
+		props: {
+			rows: Math.max(10, shown * LIST_ROW_LINES),
+			rule: rule(tty),
+			accent: accent(tty)
+		},
+		width: 1
+	}) : null, el(Box, {
+		flexDirection: "column",
+		flexGrow: 1,
+		paddingLeft: 1
+	}, detailPanel(null)));
+	return el(Box, {
+		flexDirection: "column",
+		gap: 1
+	}, head, said ? el(Text, { color: said.startsWith("Could not") ? "error" : "subtle" }, said) : null, body);
+}
+/** The pane's shared state, made by the bridge and handed to registerTodos and startTodos. */
+function newTodosPane() {
+	return {
+		ns: "cortext",
+		server: "substrate",
+		project: "unknown",
+		todoPoll: void 0,
+		cols: 120
+	};
+}
+/** Called from the bridge's session.start hook: one module registers that hook once. */
+async function startTodos(p, $, cwd) {
+	p.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
+	p.server = await $.env.get("SYNOPTIC_SUBSTRATE_MCP") || "substrate";
+	p.project = cwd.split("/").filter(Boolean).at(-1) ?? "unknown";
+	await $.command.register({
+		name: "cortext-todos",
+		description: "Open the Todos pane: list, create, edit and close todos"
+	});
+}
+function registerTodos(on, p) {
+	on("command.run", { command: "cortext-todos" }, async ($) => {
+		await refreshTodos(p, $);
+		p.todoPoll?.cancel();
+		p.todoPoll = $.clock.every(AUTO_REFRESH_MS, () => void refreshTodos(p, $));
+		await $.ui.open({
+			id: TODOS_PANE,
+			title: "Todos"
+		});
+		return { text: "Todos pane opened." };
+	});
+	on("ui.close", { id: TODOS_PANE }, async (_$, e, next) => {
+		p.todoPoll?.cancel();
+		p.todoPoll = void 0;
+		return next(e);
+	});
+	on("ui.message", async ($, e, next) => {
+		const data = e.data;
+		if ((data?.type === "open" || data?.type === "move" || data?.type === "pick") && typeof data.id === "string") {
+			const t = (await read($, todos)).find((r) => r.id === data.id);
+			if (t && data.type === "pick") await selectTodo(p, $, t);
+			if (t && data.type === "open") {
+				await selectTodo(p, $, t);
+				await update($, cardOpen, () => true);
+			}
+			if (t && data.type === "move" && typeof data.status === "string" && data.status !== t.status) {
+				const status = data.status;
+				await update($, todos, (rows) => rows.map((r) => r.id === t.id ? {
+					...r,
+					status
+				} : r));
+				if (await setStatus(p, $, t, status)) await note($, `Moved #${t.shortId} to ${humanize(status)}.`);
+			}
+		}
+		if (data?.type === "step" && typeof data.by === "number") {
+			const view = viewTodos(await read($, todos), await read($, todoView), await read($, vocab));
+			const picked = await read($, selected);
+			const at = view.findIndex((r) => r.id === picked);
+			const t = view[Math.min(view.length - 1, Math.max(0, at + Math.sign(data.by)))];
+			if (t) await selectTodo(p, $, t);
+		}
+		if (data?.type === "split" && typeof data.delta === "number" && p.cols > 0) {
+			const step = data.delta * 100 / p.cols;
+			await update($, splitPct, (v) => Math.min(75, Math.max(15, Math.round(v + step))));
+		}
+		return next(e);
+	});
+	on("ui.render", {
+		component: "Pane",
+		requestId: TODOS_PANE
+	}, async ($, e) => drawTodos(p, $, e));
+}
+
+//#endregion
+//#region src/mail-text.ts
+/**
+* The dim transcript line for a mailbox call this session made through the substrate MCP
+* server, or undefined when the call is not one. Reads the `act` sketch or the `mutate` frame.
+*/
+function mailCallLine(tool, input, now) {
+	const at = clockTime(now);
+	if (/__act$/.test(tool) && typeof input.sketch === "string") {
+		const sketch = input.sketch.trim();
+		if (/^send\s+AgentMessage\b/i.test(sketch)) {
+			const to = /\bto=("[^"]*"|\S+)/.exec(sketch)?.[1]?.replace(/"/g, "") ?? "someone";
+			const subject = /\bsubject="([^"]*)"/.exec(sketch)?.[1] ?? "";
+			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
+		}
+		const closed = /^(ack|read)\s+AgentMessage\s+([#\d,\s]+)/i.exec(sketch);
+		if (closed) return `Mail ${closed[1]?.toLowerCase() === "ack" ? "acked" : "marked read"} · ${closed[2]?.trim()} · ${at}`;
+		return;
+	}
+	if (/__mutate$/.test(tool) && input.payload && typeof input.payload === "object") for (const [key, frame] of Object.entries(input.payload)) {
+		const params = frame?.params ?? {};
+		if (key.endsWith("/sendAgentMessage")) {
+			const to = Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone");
+			const subject = typeof params.subject === "string" ? params.subject : "";
+			return `Mail sent · to ${oneLine(to)} · ${at}${subject ? ` · ${cut(oneLine(subject), 90)}` : ""}`;
+		}
+		if (key.endsWith("/ackAgentMessage")) return `Mail acked · ${at}`;
+		if (key.endsWith("/markAgentMessageRead")) return `Mail marked read · ${at}`;
+	}
+}
+function oneLine(text) {
+	let out = "";
+	for (const ch of text) {
+		const c = ch.charCodeAt(0);
+		out += c < 32 || c === 127 || c >= 128 && c <= 159 || c === 8232 || c === 8233 ? " " : ch;
+	}
+	return out.trim();
+}
+/** Reads a pushed mail row's text; undefined when the text is not one. */
+function parseMailRow(text) {
+	const head = /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(text);
+	if (!head) return void 0;
+	const lines = text.split("\n");
+	const titleAt = lines.findIndex((l) => /^### #\d+ — /.test(l));
+	const title = titleAt < 0 ? "" : (lines[titleAt] ?? "").replace(/^### #\d+ — /, "");
+	const isReply = title.endsWith(" (reply)");
+	const body = [];
+	for (const l of titleAt < 0 ? [] : lines.slice(titleAt + 1)) if (l.startsWith("> ") || l === ">") body.push(l.slice(2));
+	else if (body.length > 0) break;
+	return {
+		shortId: Number(head[1]),
+		id: /ackAgentMessage \{ id: "([^"]+)" \}/.exec(text)?.[1],
+		from: oneLine(head[2] ?? ""),
+		date: head[3] ?? "",
+		subject: oneLine(isReply ? title.slice(0, -8) : title),
+		isReply,
+		body: body.join("\n")
+	};
+}
+/** The send in a substrate `act` sketch or `mutate` frame; undefined when the call sends none. */
+function parseMailSend(tool, input) {
+	const i = input ?? {};
+	if (/__act$/.test(tool) && typeof i.sketch === "string") {
+		const sketch = i.sketch.trim();
+		if (!/^send\s+AgentMessage\b/i.test(sketch)) return void 0;
+		const arg = (k) => {
+			const m = new RegExp(`\\b${k}=("((?:[^"\\\\]|\\\\.)*)"|\\S+)`).exec(sketch);
+			if (!m) return "";
+			return m[2] !== void 0 ? m[2].replace(/\\n/g, "\n").replace(/\\(.)/g, "$1") : m[1] ?? "";
+		};
+		return {
+			to: arg("to") || "someone",
+			subject: arg("subject"),
+			body: arg("body")
+		};
+	}
+	if (/__mutate$/.test(tool) && i.payload && typeof i.payload === "object") for (const [key, frame] of Object.entries(i.payload)) {
+		if (!key.endsWith("/sendAgentMessage")) continue;
+		const params = (Array.isArray(frame) ? frame[0] : frame)?.params ?? {};
+		return {
+			to: Array.isArray(params.to) ? params.to.join(", ") : String(params.to ?? "someone"),
+			subject: typeof params.subject === "string" ? params.subject : "",
+			body: typeof params.body === "string" ? params.body : ""
+		};
+	}
 }
 
 //#endregion
@@ -686,6 +1821,8 @@ async function originalPromptCheck($) {
 	return now;
 }
 const register = (on) => {
+	const todos = newTodosPane();
+	registerTodos(on, todos);
 	registerMailCard(on);
 	const b = {
 		ns: "cortext",
@@ -704,6 +1841,7 @@ const register = (on) => {
 	};
 	on("session.start", async ($, e, next) => {
 		const started = await next(e);
+		await startTodos(todos, $, e.cwd).catch((err) => $.ui.log(`cortext: the Todos pane did not start: ${err.message}`, { to: "debug" }));
 		b.interactive = e.isInteractive;
 		b.ns = await $.env.get("SUBSTRATE_NAMESPACE") || "cortext";
 		const bootAt = await $.clock.now();
