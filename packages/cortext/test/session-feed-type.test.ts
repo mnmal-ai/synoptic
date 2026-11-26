@@ -173,6 +173,20 @@ describe('cortext/SessionFeed guards', () => {
     ).toBe('not_owner');
   });
 
+  it('fails closed on a feed it cannot check, whatever form the id takes', async () => {
+    const server = await setup();
+    const feed = await createFeed(server);
+    for (const value of [12345, [feed], { id: feed }, '', undefined]) {
+      const env = await mutate(server, STRANGER, {
+        [`${NS}/createSessionFeedEvent`]: {
+          params: { feed: value, step: 1, kind: 'reply', text: 'forged' },
+          fields: { id: true }
+        }
+      });
+      expect(code(env), JSON.stringify(value)).toBe('missing_referent');
+    }
+  });
+
   it('refuses events once sharing is off', async () => {
     const server = await setup();
     const feed = await createFeed(server);

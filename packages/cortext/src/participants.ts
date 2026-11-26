@@ -307,11 +307,19 @@ export function feedEventCreateGuard(
 ): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {
     const feedId = args.params?.feed;
-    // A missing or unknown feed falls through to the resolver, which refuses it.
-    if (typeof feedId !== 'string' || feedId === '') return inner(ctx, args);
     const ds: Dataset = args.dataset ?? installCtx.dataset;
-    const feed = await resolveEntityRow(ds, 'SessionFeed', feedId);
-    if (feed === null) return inner(ctx, args);
+    const feed =
+      typeof feedId === 'string' || typeof feedId === 'number'
+        ? await resolveEntityRow(ds, 'SessionFeed', feedId)
+        : null;
+    // Fails closed: a feed this guard cannot check is never handed to the resolver.
+    if (feed === null) {
+      throw new ResolverFrameError(
+        'missing_referent',
+        `${name}: 'feed' must be the id of an existing SessionFeed`,
+        { field: 'feed' }
+      );
+    }
     refuseNonOwner(ctx, name, feed, false);
     if (feed.sharing !== true || feed.archived === true) {
       throw new ResolverFrameError(
@@ -320,7 +328,8 @@ export function feedEventCreateGuard(
         { id: feed.id }
       );
     }
-    return inner(ctx, args);
+    // The row written names the feed that was checked, whatever form the id arrived in.
+    return inner(ctx, { ...args, params: { ...args.params, feed: feed.id } });
   };
 }
 
@@ -346,10 +355,21 @@ export function feedEventDeleteGuard(
     if (id === undefined || isOperator(ctx)) return inner(ctx, args);
     const ds: Dataset = args.dataset ?? installCtx.dataset;
     const event = await resolveEntityRow(ds, 'SessionFeedEvent', id);
-    const feedId = event?.feed;
+    if (event === null) return inner(ctx, args); // the resolver owns not-found
+    const feedId = event.feed;
     const feed =
-      typeof feedId === 'string' ? await resolveEntityRow(ds, 'SessionFeed', feedId) : null;
-    if (feed !== null) refuseNonOwner(ctx, name, feed, true);
+      typeof feedId === 'string' || typeof feedId === 'number'
+        ? await resolveEntityRow(ds, 'SessionFeed', feedId)
+        : null;
+    // An event whose feed cannot be read has no owner to check, so only an operator may delete it.
+    if (feed === null) {
+      throw new ResolverFrameError(
+        'not_owner',
+        `${name}: this event's feed cannot be read; only an operator may delete it`,
+        { id: event.id }
+      );
+    }
+    refuseNonOwner(ctx, name, feed, true);
     return inner(ctx, args);
   };
 }
