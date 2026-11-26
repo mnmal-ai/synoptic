@@ -299,3 +299,20 @@ test('loads every page of todos, past 2,000 rows', async ($, on) => {
   expect((await ui.find({ type: 'Text', text: /open$/ }))?.text).toBe('2150 open');
   await ui.unmount();
 });
+
+test('an empty board says the cortex is clear, in every view', async ($, on) => {
+  substrate(on, [], []);
+  await $.command.run({ command: 'cortext-todos', args: '' });
+  const clear = 'No open Todos. Your cortex is clear.';
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface });
+    for (const view of ['list', 'board', 'grouped'] as const) {
+      await ui.select({ key: 'todo-view', value: view });
+      expect((await ui.find({ type: 'Text', text: clear }))?.text, `${view} on ${surface}`).toBe(
+        clear
+      );
+    }
+    await ui.select({ key: 'todo-view', value: 'list' });
+    await ui.unmount();
+  }
+});

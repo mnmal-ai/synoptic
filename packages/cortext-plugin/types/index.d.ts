@@ -67,6 +67,8 @@ declare module 'claude-code' {
       paneNote: string;
       paneSelected: string | null;
       paneDetail: TodoDetail | null;
+      /** The brain fact rolled when the Todos pane opened (an index into BRAIN_FACTS), or null. */
+      paneBrainFact: number | null;
       /** Mail cards shown open: `in-<shortId>` for received rows, `out-<tool_use_id>` for sends. */
       mailOpen: Shaped<string[]>;
     };

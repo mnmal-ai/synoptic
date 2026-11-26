@@ -715,6 +715,34 @@ function laneRows(rows, statuses = FALLBACK_VOCAB.status) {
 		rows: rows.filter((r) => r.status === s)
 	}));
 }
+/** The pane's empty state when the board holds no open Todos. */
+const EMPTY_BOARD = "No open Todos. Your cortex is clear.";
+/**
+* The facts the pane's footer may show, about once in `BRAIN_FACT_ODDS` opens. They are for the
+* person looking at the pane only: nothing here reaches the model, a hook's output or the transcript.
+*/
+const BRAIN_FACTS = [
+	"Your brain has about 86 billion neurons.",
+	"Your brain is about 2% of your body weight but uses about 20% of its energy.",
+	"Your cortex is only about 2 to 4 millimeters thick.",
+	"The hippocampus is named for the seahorse it looks like.",
+	"Some nerve signals travel at about 120 meters per second."
+];
+const BRAIN_FACT_ODDS = 50;
+/**
+* Rolled once per open of the pane: the index of the fact to show, or null on most opens. `rng`
+* returns a number in [0, 1); tests pass their own. Nothing is picked at build time.
+*/
+function rollBrainFact(rng = Math.random) {
+	if (rng() >= 1 / 50) return null;
+	return Math.min(BRAIN_FACTS.length - 1, Math.floor(rng() * BRAIN_FACTS.length));
+}
+/** The footer line for a rolled fact and the board's live open count, or null when there is none. */
+function brainFactLine(fact, open) {
+	const text = fact === null ? void 0 : BRAIN_FACTS[fact];
+	if (!text || open < 1) return null;
+	return `${text} This board has ${open} open ${open === 1 ? "Todo" : "Todos"}.`;
+}
 
 //#endregion
 //#region src/grouped.ts
@@ -908,7 +936,7 @@ function groupedView(a) {
 		borderStyle: "round",
 		borderDimColor: true,
 		paddingX: 1
-	}, el(Text, {}, "Nothing open."), el(Text, { dimColor: true }, "Add a todo above, or ask Claude to put one on the list.")) : null, ...groups.map((g) => group(g.s, g.rows)));
+	}, el(Text, {}, a.emptyText ?? "Nothing open."), el(Text, { dimColor: true }, "Add a todo above, or ask Claude to put one on the list.")) : null, ...groups.map((g) => group(g.s, g.rows)));
 }
 
 //#endregion
@@ -978,6 +1006,10 @@ const selected = atom({
 const detail = atom({
 	plugin: "cortext",
 	key: "paneDetail"
+}, null);
+const brainFact = atom({
+	plugin: "cortext",
+	key: "paneBrainFact"
 }, null);
 /** The text of an MCP tool result, parsed as JSON. Throws with the server's words on an error. */
 async function sub(p, $, tool, args) {
@@ -1508,7 +1540,8 @@ async function drawTodos(p, $, e) {
 		voc,
 		refreshed: await read($, refreshedAt)
 	});
-	const empty = rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? "Nothing open here." : "No todo matches these filters.") : null;
+	const empty = rows.length === 0 ? el(Text, { color: "subtle" }, all.length === 0 ? EMPTY_BOARD : "No todo matches these filters.") : null;
+	const fun = brainFactLine(await read($, brainFact), all.filter((t) => t.status !== "closed").length);
 	const split = await read($, splitPct);
 	p.cols = e.props?.bodyColumns ?? p.cols;
 	const allProjects = scope === "all";
@@ -1532,6 +1565,7 @@ async function drawTodos(p, $, e) {
 			heading: allProjects ? "All projects" : p.project,
 			statuses: voc.status,
 			rows,
+			emptyText: all.length === 0 ? EMPTY_BOARD : void 0,
 			allProjects,
 			picked: opened ? pick : null,
 			pickerFor: await read($, pickerFor),
@@ -1672,16 +1706,20 @@ async function drawTodos(p, $, e) {
 	return el(Box, {
 		flexDirection: "column",
 		gap: 1
-	}, head, said ? el(Text, { color: said.startsWith("Could not") ? "error" : "subtle" }, said) : null, body);
+	}, head, said ? el(Text, { color: said.startsWith("Could not") ? "error" : "subtle" }, said) : null, body, fun ? el(Text, {
+		key: "todo-brain-fact",
+		color: "subtle"
+	}, fun) : null);
 }
 /** The pane's shared state, made by the bridge and handed to registerTodos and startTodos. */
-function newTodosPane() {
+function newTodosPane(rng = Math.random) {
 	return {
 		ns: "cortext",
 		server: "substrate",
 		project: "unknown",
 		todoPoll: void 0,
-		cols: 120
+		cols: 120,
+		rng
 	};
 }
 /** Called from the bridge's session.start hook: one module registers that hook once. */
@@ -1696,6 +1734,7 @@ async function startTodos(p, $, cwd) {
 }
 function registerTodos(on, p) {
 	on("command.run", { command: "cortext-todos" }, async ($) => {
+		await update($, brainFact, () => rollBrainFact(p.rng));
 		await refreshTodos(p, $);
 		p.todoPoll?.cancel();
 		p.todoPoll = $.clock.every(AUTO_REFRESH_MS, () => void refreshTodos(p, $));
