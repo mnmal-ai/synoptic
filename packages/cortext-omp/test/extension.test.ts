@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import cortext, { type OmpApi, type OmpContext } from '../src/extension.js';
+import cortext, { type OmpApi, type OmpContext, substrateAccessLine } from '../src/extension.js';
 
 type Handler = (event: never, ctx: OmpContext) => Promise<unknown>;
 
@@ -15,6 +15,26 @@ function load(env: NodeJS.ProcessEnv) {
     (handlers.get(name) as (e: unknown, c: OmpContext) => Promise<unknown>)(event, ctx);
   return { handlers, fire };
 }
+
+describe('substrateAccessLine', () => {
+  it('names act and how to use it when the session has the tool', () => {
+    const line = substrateAccessLine(['read', 'mcp__substrate_query', 'mcp__substrate_act']);
+    expect(line).toContain('(act, query, mutate, recall, schema, run)');
+    expect(line).toContain('use act first');
+  });
+
+  it('does not mention act when the session lacks it, or the list is not names', () => {
+    for (const names of [
+      [],
+      ['mcp__substrate_query', 'mcp__other_act', 'react'],
+      [{ name: 'x' }]
+    ]) {
+      const line = substrateAccessLine(names);
+      expect(line).toContain('(query, mutate, recall, schema, run)');
+      expect(line).not.toContain('act first');
+    }
+  });
+});
 
 describe('cortext OMP extension', () => {
   it('registers its seams', () => {

@@ -85,6 +85,7 @@ export type OmpApi = {
   ): void;
   on(event: 'session_shutdown', handler: () => Promise<void> | void): void;
   sendMessage?: SendMessage;
+  getActiveTools?: () => string[];
 };
 
 /** An inbox read at a prompt or a stop loses its line, never the turn. */
@@ -106,11 +107,34 @@ const OWN_VERSION: string | null = (() => {
   }
 })();
 
-/** Leads the cold-start: small models abandon a tool after one rejected call. */
-const MCP_ONLY =
-  'Substrate access: use only the substrate MCP tools (query, mutate, recall, schema, run). ' +
-  'When a call is rejected, read the error, fix the payload and call the same tool again. ' +
-  'Never import the Substrate SDK, read a key file or hand-sign HTTP requests.\n\n';
+/**
+ * Leads the cold-start: small models abandon a tool after one rejected call.
+ * `act` is named only when the session has it (OMP calls it `mcp__substrate_act`),
+ * so a session without the tool is never told to use it.
+ */
+export function substrateAccessLine(toolNames: readonly unknown[]): string {
+  const act = toolNames.some((n) => typeof n === 'string' && /substrate.*_act$/.test(n));
+  return (
+    `Substrate access: use only the substrate MCP tools (${act ? 'act, ' : ''}query, mutate, recall, schema, run). ` +
+    (act
+      ? 'For context-store writes and simple lookups use act first, with a short sketch: ' +
+        '`close Todo #12`, `create Todo title="…" area=x priority=high project=<repo>`, ' +
+        "`find Todo status=open fields=title`. `? Todo` lists a type's actions. "
+      : '') +
+    'When a call is rejected, read the error, fix the payload and call the same tool again. ' +
+    'Never import the Substrate SDK, read a key file or hand-sign HTTP requests.\n\n'
+  );
+}
+
+/** The session's tool names, or none when OMP does not say. */
+function toolNames(pi: OmpApi): readonly unknown[] {
+  try {
+    const names = pi.getActiveTools?.();
+    return Array.isArray(names) ? names : [];
+  } catch {
+    return [];
+  }
+}
 
 function offlineNote(env: NodeJS.ProcessEnv): string {
   if (!env.SUBSTRATE_URL) return '<!-- synoptic cold-start skipped: SUBSTRATE_URL not set -->\n';
@@ -137,7 +161,8 @@ function access(env: NodeJS.ProcessEnv) {
 async function renderColdStart(
   env: NodeJS.ProcessEnv,
   cwd: string,
-  sessionId: string
+  sessionId: string,
+  tools: readonly unknown[]
 ): Promise<string> {
   const { auth, fetchImpl } = access(env);
   // The repo root, not the directory OMP started in: project scope lives there.
@@ -166,7 +191,7 @@ async function renderColdStart(
   });
   // It rides in the system prompt of every request, so the byte cap matters.
   return truncateToBudget(
-    (auth.warning ?? '') + MCP_ONLY + doc,
+    (auth.warning ?? '') + substrateAccessLine(tools) + doc,
     parseMaxBytes(env.SYNOPTIC_COLD_START_MAX_BYTES)
   );
 }
@@ -199,7 +224,7 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       const later = doc !== undefined;
       if (doc === undefined) {
         doc = bounded(
-          () => renderColdStart(env, ctx.cwd, id),
+          () => renderColdStart(env, ctx.cwd, id, toolNames(pi)),
           SESSION_START_BUDGET_MS,
           offlineNote(env)
         );

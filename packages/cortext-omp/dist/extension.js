@@ -8805,8 +8805,24 @@ const OWN_VERSION = (() => {
 		return null;
 	}
 })();
-/** Leads the cold-start: small models abandon a tool after one rejected call. */
-const MCP_ONLY = "Substrate access: use only the substrate MCP tools (query, mutate, recall, schema, run). When a call is rejected, read the error, fix the payload and call the same tool again. Never import the Substrate SDK, read a key file or hand-sign HTTP requests.\n\n";
+/**
+* Leads the cold-start: small models abandon a tool after one rejected call.
+* `act` is named only when the session has it (OMP calls it `mcp__substrate_act`),
+* so a session without the tool is never told to use it.
+*/
+function substrateAccessLine(toolNames) {
+	const act = toolNames.some((n) => typeof n === "string" && /substrate.*_act$/.test(n));
+	return `Substrate access: use only the substrate MCP tools (${act ? "act, " : ""}query, mutate, recall, schema, run). ` + (act ? "For context-store writes and simple lookups use act first, with a short sketch: `close Todo #12`, `create Todo title=\"…\" area=x priority=high project=<repo>`, `find Todo status=open fields=title`. `? Todo` lists a type's actions. " : "") + "When a call is rejected, read the error, fix the payload and call the same tool again. Never import the Substrate SDK, read a key file or hand-sign HTTP requests.\n\n";
+}
+/** The session's tool names, or none when OMP does not say. */
+function toolNames(pi) {
+	try {
+		const names = pi.getActiveTools?.();
+		return Array.isArray(names) ? names : [];
+	} catch {
+		return [];
+	}
+}
 function offlineNote(env) {
 	if (!env.SUBSTRATE_URL) return "<!-- synoptic cold-start skipped: SUBSTRATE_URL not set -->\n";
 	return "<!-- synoptic cold-start unavailable (timeout or unreachable Substrate) -->\n";
@@ -8828,7 +8844,7 @@ function access(env) {
 		fetchImpl: makeSignedFetch(auth.getAuthHeader)
 	};
 }
-async function renderColdStart(env, cwd, sessionId) {
+async function renderColdStart(env, cwd, sessionId, tools) {
 	const { auth, fetchImpl } = access(env);
 	const root = sessionRoot(cwd);
 	const doc = await runColdStart({
@@ -8851,7 +8867,7 @@ async function renderColdStart(env, cwd, sessionId) {
 		env,
 		authWarning: auth.warning ?? null
 	});
-	return truncateToBudget((auth.warning ?? "") + MCP_ONLY + doc, parseMaxBytes(env.SYNOPTIC_COLD_START_MAX_BYTES));
+	return truncateToBudget((auth.warning ?? "") + substrateAccessLine(tools) + doc, parseMaxBytes(env.SYNOPTIC_COLD_START_MAX_BYTES));
 }
 function cortext(pi, env = process.env) {
 	const renders = /* @__PURE__ */ new Map();
@@ -8872,7 +8888,7 @@ function cortext(pi, env = process.env) {
 			let doc = renders.get(id);
 			const later = doc !== void 0;
 			if (doc === void 0) {
-				doc = bounded(() => renderColdStart(env, ctx.cwd, id), SESSION_START_BUDGET_MS, offlineNote(env));
+				doc = bounded(() => renderColdStart(env, ctx.cwd, id, toolNames(pi)), SESSION_START_BUDGET_MS, offlineNote(env));
 				renders.set(id, doc);
 			}
 			const parts = [await doc];
@@ -8932,4 +8948,4 @@ function cortext(pi, env = process.env) {
 }
 
 //#endregion
-export { cortext as default };
+export { cortext as default, substrateAccessLine };
