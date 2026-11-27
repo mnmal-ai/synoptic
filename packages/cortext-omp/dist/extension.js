@@ -5425,6 +5425,489 @@ function makeSignedFetch(getAuthHeader, fetchImpl = substrateFetch) {
 }
 
 //#endregion
+//#region ../synoptic/src/projection-audit.js
+/**
+* Residue for one response: fields substrate reported as undeclared that the call
+* site did not say to expect.
+*
+* @param {unknown} envelope Parsed /substrate/v1/query response.
+* @param {ReadonlyArray<string>} expectUnknown Field names this call site
+*   knowingly projects on types that may not declare them.
+* @returns {Array<{ key: string, fields: Array<string> }>}
+*/
+function unexpectedProjections(envelope, expectUnknown = []) {
+	const diagnostics = envelope !== null && typeof envelope === "object" ? envelope._diagnostics : null;
+	if (diagnostics === null || diagnostics === void 0 || typeof diagnostics !== "object") return [];
+	const expected = new Set(expectUnknown);
+	const out = [];
+	for (const [key, entry] of Object.entries(diagnostics)) {
+		const unknown = entry?.unknownProjectionFields;
+		if (!Array.isArray(unknown)) continue;
+		const residue = unknown.filter((f) => !expected.has(f));
+		if (residue.length > 0) out.push({
+			key,
+			fields: residue
+		});
+	}
+	return out;
+}
+/**
+* Collector for one cold-start. Dedupes, and renders nothing at all when the
+* residue is empty — which is the normal case and the point of the design.
+*
+* Rendered as an HTML comment into the injected context rather than to stderr,
+* matching `agent-auth`'s `warning` and the backup/fragment watchdogs: the
+* reader who can act on it is the agent, and nobody reads a hook's stderr.
+*/
+function createProjectionAudit() {
+	/** @type {Map<string, Set<string>>} */
+	const byKey = /* @__PURE__ */ new Map();
+	/** @type {Map<string, string>} */
+	const failures = /* @__PURE__ */ new Map();
+	return {
+		/** Sink for `substrateQuery`'s `onUnexpectedProjection`. */
+		record(entries) {
+			for (const { key, fields } of entries) {
+				const set = byKey.get(key) ?? /* @__PURE__ */ new Set();
+				for (const f of fields) set.add(f);
+				byKey.set(key, set);
+			}
+		},
+		/** Record a cross-type finding, which has no single frame key. */
+		recordEverywhere(fields) {
+			if (fields.length === 0) return;
+			const set = byKey.get("(all recall types)") ?? /* @__PURE__ */ new Set();
+			for (const f of fields) set.add(f);
+			byKey.set("(all recall types)", set);
+		},
+		/**
+		* Sink for a frame the server rejected, or one this client asked for and
+		* did not get back. No allowlist: neither is ever correct by design.
+		*/
+		recordFailure(key, detail) {
+			if (!failures.has(key)) failures.set(key, detail);
+		},
+		/** @returns {string} '' when clean. */
+		render() {
+			if (byKey.size === 0 && failures.size === 0) return "";
+			let out = "";
+			if (failures.size > 0) {
+				const f = [...failures.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, detail]) => `${key} — ${detail}`);
+				out += `> ⚠️  **Cold-start is INCOMPLETE.** ${failures.size} ${failures.size === 1 ? "query was" : "queries were"} rejected, so the corresponding ${failures.size === 1 ? "section is" : "sections are"} MISSING below rather than empty. Do not read their absence as "nothing recorded": ${f.join(" | ")}\n\n`;
+			}
+			if (byKey.size > 0) {
+				const lines = [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, fields]) => `${key}: ${[...fields].sort().join(", ")}`);
+				out += `<!-- projection drift: fields the schema does not declare, beyond those this cold-start expects — ${lines.join(" | ")} -->\n`;
+			}
+			return out;
+		}
+	};
+}
+/**
+* Frame keys the request asked for that the response did not answer.
+*
+* @param {Record<string, unknown>} payload The query frame that was sent.
+* @param {unknown} envelope The parsed response.
+* @returns {Array<string>}
+*/
+function unansweredFrames(payload, envelope) {
+	if (payload === null || typeof payload !== "object") return [];
+	const data = envelope !== null && typeof envelope === "object" ? envelope.data ?? null : null;
+	const answered = data !== null && typeof data === "object" ? new Set(Object.keys(data)) : /* @__PURE__ */ new Set();
+	return Object.keys(payload).filter((k) => !answered.has(k));
+}
+/**
+* The envelope's `errors`, normalised to `{ key, code, message }`.
+*
+* `path[0]` is the frame key for a frame-scoped rejection; an error without one
+* is envelope-level and reported under '(request)'.
+*
+* @param {unknown} envelope
+* @returns {Array<{ key: string, code: string, message: string }>}
+*/
+function frameErrors(envelope) {
+	const errs = envelope !== null && typeof envelope === "object" ? envelope.errors : null;
+	if (!Array.isArray(errs)) return [];
+	return errs.map((e) => ({
+		key: typeof e?.path?.[0] === "string" ? e.path[0] : "(request)",
+		code: typeof e?.code === "string" ? e.code : "error",
+		message: typeof e?.message === "string" ? e.message : String(e)
+	}));
+}
+
+//#endregion
+//#region ../synoptic/src/substrate-http.js
+const DEFAULT_TIMEOUT_MS = 3e3;
+function withTimeout(timeoutMs) {
+	const ctl = new AbortController();
+	const t = setTimeout(() => ctl.abort(), timeoutMs);
+	return {
+		signal: ctl.signal,
+		done: () => clearTimeout(t)
+	};
+}
+/**
+* POST /substrate/v1/query. Returns the `data` map. Throws on non-2xx / network / timeout.
+*
+* The return shape deliberately ignores the server's `_diagnostics` sidecar.
+* Handing it back
+* alongside `data` would churn every caller and, worse, let the projection and
+* the statement of what it expects drift apart in different files. Instead the
+* call site declares `expectUnknown` right beside its `fields` block, and only
+* the residue reaches `onUnexpectedProjection`. See projection-audit.js for why
+* the residue — not the raw diagnostic — is the unit of alarm.
+*
+* `onDiagnostics` is the raw escape hatch, for callers that need the per-type
+* unknown sets to do their own cross-type comparison.
+*
+* `onPagination` receives the server's per-frame `_pagination` map
+* (`{ [key]: { hasMore, nextCursor } }`, `{}` when absent). A caller whose
+* answer depends on completeness pages on `nextCursor` until `hasMore` is false.
+*/
+async function substrateQuery(substrateUrl, payload, opts = {}) {
+	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, expectUnknown = [], onUnexpectedProjection = null, onDiagnostics = null, onFrameFailure = null, onPagination = null } = opts;
+	const { signal, done } = withTimeout(timeoutMs);
+	try {
+		const res = await fetchImpl(`${substrateUrl}/substrate/v1/query`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(payload),
+			signal
+		});
+		if (!res.ok) throw new Error(`substrate/query ${res.status}`);
+		const json = await res.json();
+		try {
+			if (onFrameFailure !== null) {
+				for (const e of frameErrors(json)) onFrameFailure(e.key, `${e.code}: ${e.message}`);
+				for (const key of unansweredFrames(payload, json)) onFrameFailure(key, "requested but absent from `data`, with no error given");
+			}
+			if (onDiagnostics !== null) onDiagnostics(json?._diagnostics ?? null);
+			if (onUnexpectedProjection !== null) {
+				const residue = unexpectedProjections(json, expectUnknown);
+				if (residue.length > 0) onUnexpectedProjection(residue);
+			}
+		} catch {}
+		if (onPagination !== null) onPagination(json._pagination ?? {});
+		return json.data ?? {};
+	} finally {
+		done();
+	}
+}
+/**
+* Semantic recall. Returns hits[] (`{ id, score }`) when recall answered, or null when it did
+* not (semantic unavailable) — the contract callers already depend on.
+*
+* ## Why this is a frame query and not `POST /substrate/v1/recall`
+*
+* The kernel route 401s a valid agent token (see `substrateMutate`), and this
+* function's own `if (!res.ok) return null` turned that into "semantic
+* unavailable". The old comment named the hazard exactly — *"a persistent
+* misconfig (e.g. 401) looks the same as a transient gap"* — and then the
+* misconfig arrived and looked exactly like a transient gap, every session,
+* for as long as the hook has been signing.
+*
+* `recall/Hit` runs through frame dispatch, which authenticates correctly.
+*
+* ## Two shape notes that will bite anyone editing this
+*
+* The frame names the query parameter `to`, not `query`. And a REJECTED frame
+* arrives as HTTP 200 with its key absent from `data` — so the null return
+* below is driven by key PRESENCE, never by an empty array, which is a true
+* negative and must stay distinguishable from a refusal.
+*
+* `boost` is left unset by default, which means the server's default — ON.
+* Recall reinforcing what it MATCHED is the founding "recall what you use"
+* signal, and unlike a ranking fetch, the result set here really
+* is the evidence. So restoring this restores real salience accumulation on
+* Memory / SessionLog / Decision, absent for the same reason. A caller that is
+* DIAGNOSING rather than using passes `boost: false` — the audit's probe does,
+* because an instrument that reinforces what it matched would alter the signal
+* it is reporting on.
+*/
+async function recall(substrateUrl, opts = {}) {
+	const { query, namespace, type, k = 60, threshold, fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null, boost, where, rowFields } = opts;
+	const key = "recall/Hit";
+	const params = {
+		to: query,
+		namespace,
+		type,
+		k
+	};
+	if (threshold !== void 0) params.threshold = threshold;
+	if (where !== void 0) params.where = where;
+	if (boost !== void 0) params.boost = boost;
+	try {
+		const data = await substrateQuery(substrateUrl, { [key]: {
+			params,
+			fields: {
+				id: true,
+				score: true,
+				...rowFields !== void 0 ? { row: rowFields } : {}
+			}
+		} }, {
+			fetchImpl,
+			timeoutMs,
+			onFrameFailure
+		});
+		if (!Object.hasOwn(data, key)) return null;
+		return Array.isArray(data[key]) ? data[key] : null;
+	} catch {
+		return null;
+	}
+}
+/**
+* GET /substrate/v1/whoami — what this credential ACTUALLY holds.
+*
+* ## Why the server has to be asked
+*
+* The obvious shortcut is to read our own token, and it does not work.
+* `agent-auth.js` mints `ns: ['*'], capabilities: ['read','mutate']` as a fixed
+* CLAIM, and substrate intersects that claim with what the kid's _system/Key row
+* actually grants. whoami returns the POST-INTERSECTION view — substrate's own
+* comment on the route says it exists because *"a caller currently cannot
+* distinguish 'my key is registered but scoped to a different namespace' from
+* 'the peer is down'"*.
+*
+* So the one artifact held locally is precisely the one that cannot answer the
+* question, because it is the request rather than the grant. A client that
+* trusted its own token would report `*` for every identity in the fleet,
+* including the one that is scoped to a single namespace and silently losing
+* hybrid recall.
+*
+* ## The shape changed too, and the new field is the valuable half
+*
+* Old: a bare `authenticated: false` meaning BOTH "this deployment verifies
+* nothing" and "auth is on and your credential never arrived". New:
+*
+*     { authEnabled: boolean, identity: null | { id, capabilities, namespaces } }
+*
+* Those two states have completely different fixes — a deployment posture the
+* caller cannot change, versus env vars that never took effect — and the old
+* shape could not express the second at all — and on a reads-open stack, where
+* an authenticated read and an anonymous one are byte-identical, that state
+* can persist unnoticed.
+*
+* This function maps the response onto flat `authenticated` / `id` /
+* `capabilities` / `namespaces` fields. A response without `authEnabled` maps
+* it to `null` — never `false`, which would report a verifying deployment as
+* one that verifies nothing.
+*
+* ## Failure shapes are kept distinct on purpose
+*
+* The point is that a check which cannot tell "did not ask" from
+* "asked, and the answer is bad" reports the second as the first:
+*
+*   { ok: true,  authEnabled: true,  authenticated: true,  ... }
+*                                             the credential answered
+*   { ok: true,  authEnabled: false, authenticated: false }
+*                                             auth is DISABLED here; nothing is
+*                                             verified and presenting a
+*                                             credential would change nothing
+*   { ok: true,  authEnabled: true,  authenticated: false }
+*                                             auth is ON and this request
+*                                             carried no credential — OUR
+*                                             wiring, not the server's
+*   { ok: false, failed: '<reason>' }         unreachable, non-2xx, malformed
+*
+* A 401 lands in the last with `failed: 'whoami 401'`, and that is a POSITIVE
+* signal worth reading: a token was presented and REJECTED. substrate keeps that
+* distinct from anonymous deliberately — no token answers 200 with a null
+* identity, a bad token 401s — so this is the one case a revoked key produces.
+*
+* ## `capabilities: null` is now TWO different answers
+*
+* The grant is two-dimensional: a key holds
+* capabilities PER NAMESPACE, `{ cortext: ['read','mutate'], plane: ['read'] }`,
+* and `'*'` is a legal key. The flat `capabilities` field survives as a
+* compatibility view, and the whoami route sets it to `null` whenever no flat
+* list can be honest — the union would say the holder can `mutate` when they
+* can only mutate somewhere, and the intersection would under-report.
+*
+* So a `null` here means EITHER "this response shape is version skew" (the old
+* reading, still correct when nothing else arrived) OR "the grant is
+* per-namespace, and it is in the field beside this one". Those are opposite
+* findings: the first is a hole, the second is a more precise answer than the
+* flat field could ever carry. `grants` is what tells them apart, so it is
+* carried through rather than dropped — dropping it is what made the audit
+* report a correctly-answering 5.23.0 server as a shape it did not understand.
+*
+* `grants` is `null` when ABSENT, which is its own real state and not a
+* failure: substrate attaches it only to a dataset-backed verification, so a
+* file-registry key legitimately has none and its flat `capabilities` is the
+* whole truth about it.
+*
+* @returns {Promise<{ ok: boolean, authEnabled?: boolean|null,
+*                     authenticated?: boolean, id?: string|null,
+*                     capabilities?: string[]|null, namespaces?: string[]|null,
+*                     grants?: Record<string, string[]>|null,
+*                     failed?: string }>}
+*/
+async function probeWhoami(substrateUrl, opts = {}) {
+	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+	const { signal, done } = withTimeout(timeoutMs);
+	try {
+		const res = await fetchImpl(`${substrateUrl}/substrate/v1/whoami`, { signal });
+		if (res.status === 404) return {
+			ok: false,
+			failed: "whoami 404: this server has no /substrate/v1/whoami route"
+		};
+		if (!res.ok) return {
+			ok: false,
+			failed: `whoami ${res.status}`
+		};
+		const json = await res.json();
+		const identity = json?.identity ?? null;
+		if (identity === null) return {
+			ok: true,
+			authEnabled: typeof json?.authEnabled === "boolean" ? json.authEnabled : null,
+			authenticated: false
+		};
+		return {
+			ok: true,
+			authEnabled: typeof json?.authEnabled === "boolean" ? json.authEnabled : null,
+			authenticated: true,
+			id: typeof identity.id === "string" ? identity.id : null,
+			capabilities: Array.isArray(identity.capabilities) ? identity.capabilities : null,
+			namespaces: Array.isArray(identity.namespaces) ? identity.namespaces : null,
+			grants: asGrants(identity.grants)
+		};
+	} catch (e) {
+		return {
+			ok: false,
+			failed: e?.message ?? "whoami unreachable"
+		};
+	} finally {
+		done();
+	}
+}
+/**
+* The per-namespace grant, or `null` if this response does not carry one.
+*
+* Validated rather than trusted, because a HALF-understood grant is worse than
+* none: every caller below decides `read` per namespace from this map, so one
+* entry arriving as a non-array would either throw mid-render or, worse, read
+* as "no capabilities there". Anything not of the exact `{ ns: string[] }`
+* shape is rejected WHOLE and falls back to the flat reading, which is the
+* behaviour that predates grants and is never wrong — only coarser.
+*
+* An empty object is deliberately NOT rejected. `intersectGrants` drops a
+* namespace that resolves to no capability, so `{}` is the real and reportable
+* state of a key whose claim and row share nothing.
+*/
+function asGrants(raw) {
+	if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const out = {};
+	for (const [ns, caps] of Object.entries(raw)) {
+		if (!Array.isArray(caps) || caps.some((c) => typeof c !== "string")) return null;
+		out[ns] = caps;
+	}
+	return out;
+}
+/**
+* POST /substrate/v1/mutate. Returns the `data` map. Throws on non-2xx / network / timeout.
+*
+* Exists because the plugin KERNEL ROUTES cannot authenticate an agent.
+* `mountKernelRoute` receives the host's undecorated `AuthConfig`, which has no
+* key registry, so a registry-resolved kid cannot be looked up and a perfectly
+* valid agent token is rejected as "present-but-invalid". Frame dispatch runs
+* inside `compose()`, which derives an auth config that DOES carry the registry
+* — so the same credential that 401s on `/substrate/v1/embeddings/fetch` verifies here.
+*
+* Measured, with a control that rules out a bad key:
+*
+*     /substrate/v1/query             GOOD token     200
+*     /substrate/v1/query             CORRUPT token  401   <- the verifier works
+*     /substrate/v1/embeddings/fetch  GOOD token     401
+*     /substrate/v1/embeddings/fetch  NO token       200
+*
+* The frame surface and the kernel routes delegate to ONE core per operation,
+* so this is a transport swap and not a behaviour change — verified against the
+* live server for all three: byte-identical response shapes, `boost: false` is
+* honoured, and a nonexistent ref still reports `applied: 0` with `missing[]`.
+*
+* Shares `substrateQuery`'s partial-success handling deliberately. A mutate frame
+* is rejected exactly the way a query frame is — 200, key ABSENT from `data`,
+* reason in `errors` — so a caller reading `data[key] ?? null` cannot tell a
+* refusal from a no-op. `onFrameFailure` is the seam that keeps that visible.
+*/
+async function substrateMutate(substrateUrl, payload, opts = {}) {
+	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null } = opts;
+	const { signal, done } = withTimeout(timeoutMs);
+	try {
+		const res = await fetchImpl(`${substrateUrl}/substrate/v1/mutate`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(payload),
+			signal
+		});
+		if (!res.ok) throw new Error(`substrate/mutate ${res.status}`);
+		const json = await res.json();
+		try {
+			if (onFrameFailure !== null) {
+				for (const e of frameErrors(json)) onFrameFailure(e.key, `${e.code}: ${e.message}`);
+				for (const key of unansweredFrames(payload, json)) onFrameFailure(key, "requested but absent from `data`, with no error given");
+			}
+		} catch {}
+		return json.data ?? {};
+	} finally {
+		done();
+	}
+}
+
+//#endregion
+//#region ../synoptic/src/auto-recall.js
+/** A recall on every prompt must not hold the turn. */
+const TIMEOUT_MS = 2e3;
+const DEFAULT_MAX = 3;
+/** Shorter prompts ("yes", "go on") carry nothing to search on. */
+const MIN_PROMPT_CHARS = 12;
+const MAX_QUERY_CHARS = 500;
+const LINE_MAX$1 = 160;
+const oneLine$2 = (v) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, LINE_MAX$1);
+/**
+* The context to add for `prompt`, or '' for nothing. `seen` holds the row ids
+* already shown this session and is added to. Never throws.
+*
+* `SYNOPTIC_RECALL_AUTO=on` enables it. `SYNOPTIC_RECALL_MAX` caps the hits
+* (default 3) and `SYNOPTIC_RECALL_MIN_SCORE` drops weaker ones; it has no
+* default because a useful floor depends on the store and its embedder.
+*/
+async function autoRecallContext({ env, prompt, project, fetchImpl, seen = /* @__PURE__ */ new Set() }) {
+	if (env.SYNOPTIC_RECALL_AUTO !== "on" || !env.SUBSTRATE_URL) return "";
+	const query = typeof prompt === "string" ? prompt.trim().slice(0, MAX_QUERY_CHARS) : "";
+	if (query.length < MIN_PROMPT_CHARS) return "";
+	const max = Number.parseInt(env.SYNOPTIC_RECALL_MAX ?? "", 10) > 0 ? Number.parseInt(env.SYNOPTIC_RECALL_MAX, 10) : DEFAULT_MAX;
+	const floor = Number.parseFloat(env.SYNOPTIC_RECALL_MIN_SCORE ?? "");
+	try {
+		const hits = await recall(env.SUBSTRATE_URL, {
+			query,
+			namespace: env.SUBSTRATE_NAMESPACE ?? "cortext",
+			type: "Memory",
+			k: max + seen.size,
+			where: { project: { in: [project, null] } },
+			rowFields: {
+				id: true,
+				shortId: true,
+				name: true,
+				description: true
+			},
+			boost: false,
+			fetchImpl,
+			timeoutMs: TIMEOUT_MS
+		});
+		if (hits === null) return "";
+		const fresh = hits.filter((h) => typeof h?.row?.id === "string" && !seen.has(h.row.id)).filter((h) => Number.isNaN(floor) || h.score >= floor).slice(0, max);
+		if (fresh.length === 0) return "";
+		for (const h of fresh) seen.add(h.row.id);
+		const lines = fresh.map((h) => `#${h.row.shortId} ${oneLine$2(h.row.name)}: ${oneLine$2(h.row.description)}`);
+		return `[cortext memory, found automatically for this prompt; not from the user. ${fresh.length} possibly related:]\n${lines.join("\n")}\nRead one in full with the substrate query tool if it matters; ignore any that do not.
+`;
+	} catch {
+		return "";
+	}
+}
+
+//#endregion
 //#region ../context-render/src/fold.js
 /** Lines that open or close a fenced code block. */
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
@@ -6791,374 +7274,6 @@ function checkSettings({ settingsText, hasProjectMcp }) {
 		text: "project MCP servers are enabled"
 	});
 	return out;
-}
-
-//#endregion
-//#region ../synoptic/src/projection-audit.js
-/**
-* Residue for one response: fields substrate reported as undeclared that the call
-* site did not say to expect.
-*
-* @param {unknown} envelope Parsed /substrate/v1/query response.
-* @param {ReadonlyArray<string>} expectUnknown Field names this call site
-*   knowingly projects on types that may not declare them.
-* @returns {Array<{ key: string, fields: Array<string> }>}
-*/
-function unexpectedProjections(envelope, expectUnknown = []) {
-	const diagnostics = envelope !== null && typeof envelope === "object" ? envelope._diagnostics : null;
-	if (diagnostics === null || diagnostics === void 0 || typeof diagnostics !== "object") return [];
-	const expected = new Set(expectUnknown);
-	const out = [];
-	for (const [key, entry] of Object.entries(diagnostics)) {
-		const unknown = entry?.unknownProjectionFields;
-		if (!Array.isArray(unknown)) continue;
-		const residue = unknown.filter((f) => !expected.has(f));
-		if (residue.length > 0) out.push({
-			key,
-			fields: residue
-		});
-	}
-	return out;
-}
-/**
-* Collector for one cold-start. Dedupes, and renders nothing at all when the
-* residue is empty — which is the normal case and the point of the design.
-*
-* Rendered as an HTML comment into the injected context rather than to stderr,
-* matching `agent-auth`'s `warning` and the backup/fragment watchdogs: the
-* reader who can act on it is the agent, and nobody reads a hook's stderr.
-*/
-function createProjectionAudit() {
-	/** @type {Map<string, Set<string>>} */
-	const byKey = /* @__PURE__ */ new Map();
-	/** @type {Map<string, string>} */
-	const failures = /* @__PURE__ */ new Map();
-	return {
-		/** Sink for `substrateQuery`'s `onUnexpectedProjection`. */
-		record(entries) {
-			for (const { key, fields } of entries) {
-				const set = byKey.get(key) ?? /* @__PURE__ */ new Set();
-				for (const f of fields) set.add(f);
-				byKey.set(key, set);
-			}
-		},
-		/** Record a cross-type finding, which has no single frame key. */
-		recordEverywhere(fields) {
-			if (fields.length === 0) return;
-			const set = byKey.get("(all recall types)") ?? /* @__PURE__ */ new Set();
-			for (const f of fields) set.add(f);
-			byKey.set("(all recall types)", set);
-		},
-		/**
-		* Sink for a frame the server rejected, or one this client asked for and
-		* did not get back. No allowlist: neither is ever correct by design.
-		*/
-		recordFailure(key, detail) {
-			if (!failures.has(key)) failures.set(key, detail);
-		},
-		/** @returns {string} '' when clean. */
-		render() {
-			if (byKey.size === 0 && failures.size === 0) return "";
-			let out = "";
-			if (failures.size > 0) {
-				const f = [...failures.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, detail]) => `${key} — ${detail}`);
-				out += `> ⚠️  **Cold-start is INCOMPLETE.** ${failures.size} ${failures.size === 1 ? "query was" : "queries were"} rejected, so the corresponding ${failures.size === 1 ? "section is" : "sections are"} MISSING below rather than empty. Do not read their absence as "nothing recorded": ${f.join(" | ")}\n\n`;
-			}
-			if (byKey.size > 0) {
-				const lines = [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, fields]) => `${key}: ${[...fields].sort().join(", ")}`);
-				out += `<!-- projection drift: fields the schema does not declare, beyond those this cold-start expects — ${lines.join(" | ")} -->\n`;
-			}
-			return out;
-		}
-	};
-}
-/**
-* Frame keys the request asked for that the response did not answer.
-*
-* @param {Record<string, unknown>} payload The query frame that was sent.
-* @param {unknown} envelope The parsed response.
-* @returns {Array<string>}
-*/
-function unansweredFrames(payload, envelope) {
-	if (payload === null || typeof payload !== "object") return [];
-	const data = envelope !== null && typeof envelope === "object" ? envelope.data ?? null : null;
-	const answered = data !== null && typeof data === "object" ? new Set(Object.keys(data)) : /* @__PURE__ */ new Set();
-	return Object.keys(payload).filter((k) => !answered.has(k));
-}
-/**
-* The envelope's `errors`, normalised to `{ key, code, message }`.
-*
-* `path[0]` is the frame key for a frame-scoped rejection; an error without one
-* is envelope-level and reported under '(request)'.
-*
-* @param {unknown} envelope
-* @returns {Array<{ key: string, code: string, message: string }>}
-*/
-function frameErrors(envelope) {
-	const errs = envelope !== null && typeof envelope === "object" ? envelope.errors : null;
-	if (!Array.isArray(errs)) return [];
-	return errs.map((e) => ({
-		key: typeof e?.path?.[0] === "string" ? e.path[0] : "(request)",
-		code: typeof e?.code === "string" ? e.code : "error",
-		message: typeof e?.message === "string" ? e.message : String(e)
-	}));
-}
-
-//#endregion
-//#region ../synoptic/src/substrate-http.js
-const DEFAULT_TIMEOUT_MS = 3e3;
-function withTimeout(timeoutMs) {
-	const ctl = new AbortController();
-	const t = setTimeout(() => ctl.abort(), timeoutMs);
-	return {
-		signal: ctl.signal,
-		done: () => clearTimeout(t)
-	};
-}
-/**
-* POST /substrate/v1/query. Returns the `data` map. Throws on non-2xx / network / timeout.
-*
-* The return shape deliberately ignores the server's `_diagnostics` sidecar.
-* Handing it back
-* alongside `data` would churn every caller and, worse, let the projection and
-* the statement of what it expects drift apart in different files. Instead the
-* call site declares `expectUnknown` right beside its `fields` block, and only
-* the residue reaches `onUnexpectedProjection`. See projection-audit.js for why
-* the residue — not the raw diagnostic — is the unit of alarm.
-*
-* `onDiagnostics` is the raw escape hatch, for callers that need the per-type
-* unknown sets to do their own cross-type comparison.
-*
-* `onPagination` receives the server's per-frame `_pagination` map
-* (`{ [key]: { hasMore, nextCursor } }`, `{}` when absent). A caller whose
-* answer depends on completeness pages on `nextCursor` until `hasMore` is false.
-*/
-async function substrateQuery(substrateUrl, payload, opts = {}) {
-	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, expectUnknown = [], onUnexpectedProjection = null, onDiagnostics = null, onFrameFailure = null, onPagination = null } = opts;
-	const { signal, done } = withTimeout(timeoutMs);
-	try {
-		const res = await fetchImpl(`${substrateUrl}/substrate/v1/query`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(payload),
-			signal
-		});
-		if (!res.ok) throw new Error(`substrate/query ${res.status}`);
-		const json = await res.json();
-		try {
-			if (onFrameFailure !== null) {
-				for (const e of frameErrors(json)) onFrameFailure(e.key, `${e.code}: ${e.message}`);
-				for (const key of unansweredFrames(payload, json)) onFrameFailure(key, "requested but absent from `data`, with no error given");
-			}
-			if (onDiagnostics !== null) onDiagnostics(json?._diagnostics ?? null);
-			if (onUnexpectedProjection !== null) {
-				const residue = unexpectedProjections(json, expectUnknown);
-				if (residue.length > 0) onUnexpectedProjection(residue);
-			}
-		} catch {}
-		if (onPagination !== null) onPagination(json._pagination ?? {});
-		return json.data ?? {};
-	} finally {
-		done();
-	}
-}
-/**
-* GET /substrate/v1/whoami — what this credential ACTUALLY holds.
-*
-* ## Why the server has to be asked
-*
-* The obvious shortcut is to read our own token, and it does not work.
-* `agent-auth.js` mints `ns: ['*'], capabilities: ['read','mutate']` as a fixed
-* CLAIM, and substrate intersects that claim with what the kid's _system/Key row
-* actually grants. whoami returns the POST-INTERSECTION view — substrate's own
-* comment on the route says it exists because *"a caller currently cannot
-* distinguish 'my key is registered but scoped to a different namespace' from
-* 'the peer is down'"*.
-*
-* So the one artifact held locally is precisely the one that cannot answer the
-* question, because it is the request rather than the grant. A client that
-* trusted its own token would report `*` for every identity in the fleet,
-* including the one that is scoped to a single namespace and silently losing
-* hybrid recall.
-*
-* ## The shape changed too, and the new field is the valuable half
-*
-* Old: a bare `authenticated: false` meaning BOTH "this deployment verifies
-* nothing" and "auth is on and your credential never arrived". New:
-*
-*     { authEnabled: boolean, identity: null | { id, capabilities, namespaces } }
-*
-* Those two states have completely different fixes — a deployment posture the
-* caller cannot change, versus env vars that never took effect — and the old
-* shape could not express the second at all — and on a reads-open stack, where
-* an authenticated read and an anonymous one are byte-identical, that state
-* can persist unnoticed.
-*
-* This function maps the response onto flat `authenticated` / `id` /
-* `capabilities` / `namespaces` fields. A response without `authEnabled` maps
-* it to `null` — never `false`, which would report a verifying deployment as
-* one that verifies nothing.
-*
-* ## Failure shapes are kept distinct on purpose
-*
-* The point is that a check which cannot tell "did not ask" from
-* "asked, and the answer is bad" reports the second as the first:
-*
-*   { ok: true,  authEnabled: true,  authenticated: true,  ... }
-*                                             the credential answered
-*   { ok: true,  authEnabled: false, authenticated: false }
-*                                             auth is DISABLED here; nothing is
-*                                             verified and presenting a
-*                                             credential would change nothing
-*   { ok: true,  authEnabled: true,  authenticated: false }
-*                                             auth is ON and this request
-*                                             carried no credential — OUR
-*                                             wiring, not the server's
-*   { ok: false, failed: '<reason>' }         unreachable, non-2xx, malformed
-*
-* A 401 lands in the last with `failed: 'whoami 401'`, and that is a POSITIVE
-* signal worth reading: a token was presented and REJECTED. substrate keeps that
-* distinct from anonymous deliberately — no token answers 200 with a null
-* identity, a bad token 401s — so this is the one case a revoked key produces.
-*
-* ## `capabilities: null` is now TWO different answers
-*
-* The grant is two-dimensional: a key holds
-* capabilities PER NAMESPACE, `{ cortext: ['read','mutate'], plane: ['read'] }`,
-* and `'*'` is a legal key. The flat `capabilities` field survives as a
-* compatibility view, and the whoami route sets it to `null` whenever no flat
-* list can be honest — the union would say the holder can `mutate` when they
-* can only mutate somewhere, and the intersection would under-report.
-*
-* So a `null` here means EITHER "this response shape is version skew" (the old
-* reading, still correct when nothing else arrived) OR "the grant is
-* per-namespace, and it is in the field beside this one". Those are opposite
-* findings: the first is a hole, the second is a more precise answer than the
-* flat field could ever carry. `grants` is what tells them apart, so it is
-* carried through rather than dropped — dropping it is what made the audit
-* report a correctly-answering 5.23.0 server as a shape it did not understand.
-*
-* `grants` is `null` when ABSENT, which is its own real state and not a
-* failure: substrate attaches it only to a dataset-backed verification, so a
-* file-registry key legitimately has none and its flat `capabilities` is the
-* whole truth about it.
-*
-* @returns {Promise<{ ok: boolean, authEnabled?: boolean|null,
-*                     authenticated?: boolean, id?: string|null,
-*                     capabilities?: string[]|null, namespaces?: string[]|null,
-*                     grants?: Record<string, string[]>|null,
-*                     failed?: string }>}
-*/
-async function probeWhoami(substrateUrl, opts = {}) {
-	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
-	const { signal, done } = withTimeout(timeoutMs);
-	try {
-		const res = await fetchImpl(`${substrateUrl}/substrate/v1/whoami`, { signal });
-		if (res.status === 404) return {
-			ok: false,
-			failed: "whoami 404: this server has no /substrate/v1/whoami route"
-		};
-		if (!res.ok) return {
-			ok: false,
-			failed: `whoami ${res.status}`
-		};
-		const json = await res.json();
-		const identity = json?.identity ?? null;
-		if (identity === null) return {
-			ok: true,
-			authEnabled: typeof json?.authEnabled === "boolean" ? json.authEnabled : null,
-			authenticated: false
-		};
-		return {
-			ok: true,
-			authEnabled: typeof json?.authEnabled === "boolean" ? json.authEnabled : null,
-			authenticated: true,
-			id: typeof identity.id === "string" ? identity.id : null,
-			capabilities: Array.isArray(identity.capabilities) ? identity.capabilities : null,
-			namespaces: Array.isArray(identity.namespaces) ? identity.namespaces : null,
-			grants: asGrants(identity.grants)
-		};
-	} catch (e) {
-		return {
-			ok: false,
-			failed: e?.message ?? "whoami unreachable"
-		};
-	} finally {
-		done();
-	}
-}
-/**
-* The per-namespace grant, or `null` if this response does not carry one.
-*
-* Validated rather than trusted, because a HALF-understood grant is worse than
-* none: every caller below decides `read` per namespace from this map, so one
-* entry arriving as a non-array would either throw mid-render or, worse, read
-* as "no capabilities there". Anything not of the exact `{ ns: string[] }`
-* shape is rejected WHOLE and falls back to the flat reading, which is the
-* behaviour that predates grants and is never wrong — only coarser.
-*
-* An empty object is deliberately NOT rejected. `intersectGrants` drops a
-* namespace that resolves to no capability, so `{}` is the real and reportable
-* state of a key whose claim and row share nothing.
-*/
-function asGrants(raw) {
-	if (raw === null || raw === void 0 || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const out = {};
-	for (const [ns, caps] of Object.entries(raw)) {
-		if (!Array.isArray(caps) || caps.some((c) => typeof c !== "string")) return null;
-		out[ns] = caps;
-	}
-	return out;
-}
-/**
-* POST /substrate/v1/mutate. Returns the `data` map. Throws on non-2xx / network / timeout.
-*
-* Exists because the plugin KERNEL ROUTES cannot authenticate an agent.
-* `mountKernelRoute` receives the host's undecorated `AuthConfig`, which has no
-* key registry, so a registry-resolved kid cannot be looked up and a perfectly
-* valid agent token is rejected as "present-but-invalid". Frame dispatch runs
-* inside `compose()`, which derives an auth config that DOES carry the registry
-* — so the same credential that 401s on `/substrate/v1/embeddings/fetch` verifies here.
-*
-* Measured, with a control that rules out a bad key:
-*
-*     /substrate/v1/query             GOOD token     200
-*     /substrate/v1/query             CORRUPT token  401   <- the verifier works
-*     /substrate/v1/embeddings/fetch  GOOD token     401
-*     /substrate/v1/embeddings/fetch  NO token       200
-*
-* The frame surface and the kernel routes delegate to ONE core per operation,
-* so this is a transport swap and not a behaviour change — verified against the
-* live server for all three: byte-identical response shapes, `boost: false` is
-* honoured, and a nonexistent ref still reports `applied: 0` with `missing[]`.
-*
-* Shares `substrateQuery`'s partial-success handling deliberately. A mutate frame
-* is rejected exactly the way a query frame is — 200, key ABSENT from `data`,
-* reason in `errors` — so a caller reading `data[key] ?? null` cannot tell a
-* refusal from a no-op. `onFrameFailure` is the seam that keeps that visible.
-*/
-async function substrateMutate(substrateUrl, payload, opts = {}) {
-	const { fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null } = opts;
-	const { signal, done } = withTimeout(timeoutMs);
-	try {
-		const res = await fetchImpl(`${substrateUrl}/substrate/v1/mutate`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(payload),
-			signal
-		});
-		if (!res.ok) throw new Error(`substrate/mutate ${res.status}`);
-		const json = await res.json();
-		try {
-			if (onFrameFailure !== null) {
-				for (const e of frameErrors(json)) onFrameFailure(e.key, `${e.code}: ${e.message}`);
-				for (const key of unansweredFrames(payload, json)) onFrameFailure(key, "requested but absent from `data`, with no error given");
-			}
-		} catch {}
-		return json.data ?? {};
-	} finally {
-		done();
-	}
 }
 
 //#endregion
@@ -8872,6 +8987,7 @@ async function renderColdStart(env, cwd, sessionId, tools) {
 function cortext(pi, env = process.env) {
 	const renders = /* @__PURE__ */ new Map();
 	const nudged = /* @__PURE__ */ new Map();
+	const recalled = /* @__PURE__ */ new Map();
 	const tasks = /* @__PURE__ */ new Map();
 	const history = /* @__PURE__ */ new Map();
 	const compactOn = env.SYNOPTIC_OMP_COMPACT !== "off";
@@ -8893,6 +9009,15 @@ function cortext(pi, env = process.env) {
 			}
 			const parts = [await doc];
 			if (later) parts.push(await bounded(() => promptHookContext(access(env)), INBOX_TIMEOUT_MS, ""));
+			const seen = recalled.get(id) ?? /* @__PURE__ */ new Set();
+			recalled.set(id, seen);
+			parts.push(await autoRecallContext({
+				env,
+				prompt: event.prompt,
+				project: projectSlug(sessionRoot(ctx.cwd), env),
+				fetchImpl: access(env).fetchImpl,
+				seen
+			}));
 			const add = parts.filter((p) => p.length > 0);
 			return add.length > 0 ? { systemPrompt: [...event.systemPrompt, ...add] } : void 0;
 		} catch {

@@ -37,6 +37,7 @@ To give the model substrate's `act` tool (short sketches such as `close Todo #12
 | `SYNOPTIC_INBOX_PROMPT_CHECK=off` / `SYNOPTIC_INBOX_STOP_CHECK=off` | Disable the inbox seams |
 | `SYNOPTIC_INBOX_PUSH=off` | Do not watch the inbox (no pushed mail) |
 | `SYNOPTIC_INBOX_WAKE=on` | Let pushed mail start a turn in an idle session |
+| `SYNOPTIC_RECALL_AUTO=on` | On each prompt, search `Memory` for the prompt text and add up to `SYNOPTIC_RECALL_MAX` (default 3) hits as one line each, in the project's scope. Read-only, at most 2 seconds, each row shown once per session. `SYNOPTIC_RECALL_MIN_SCORE` drops weaker hits; it has no default |
 
 A read-only identity works: the cold-start and the inbox are reads, the HostInstall write fails into a comment line, and a refused checkpoint write falls back to OMP's own compaction.
 
