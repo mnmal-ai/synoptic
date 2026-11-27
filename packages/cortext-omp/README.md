@@ -26,6 +26,8 @@ omp -e /path/to/synoptic/packages/cortext-omp
 
 Run it from inside the repo whose rows you want; the project scope is the repo root's basename.
 
+To give the model substrate's `act` tool (short sketches such as `close Todo #12` in place of hand-built frames), set `SUBSTRATE_MCP_TOOLS=core,act` in the env of the substrate MCP server in your OMP MCP config. It needs substrate 1.0.0-beta.10 or later. The cold-start names `act` only in a session that has the tool.
+
 | Env | Effect |
 |---|---|
 | `SUBSTRATE_NAMESPACE` | Namespace, default `cortext` |
