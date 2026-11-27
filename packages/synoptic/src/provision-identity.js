@@ -47,6 +47,16 @@ function expandHome(p) {
   return p;
 }
 
+// Node, not openssl: the openssl on macOS and on Linux do not agree on Ed25519.
+const KEYGEN_JS =
+  'const [key, pub] = process.argv.slice(-2);' +
+  'const pair = require("node:crypto").generateKeyPairSync("ed25519", {' +
+  'privateKeyEncoding: { type: "pkcs8", format: "pem" },' +
+  'publicKeyEncoding: { type: "spki", format: "pem" } });' +
+  'const { writeFileSync } = require("node:fs");' +
+  'writeFileSync(key, pair.privateKey, { mode: 0o600, flag: "wx" });' +
+  'writeFileSync(pub, pair.publicKey);';
+
 /**
  * @param {string} agent  short agent label, e.g. 'cursor', 'gemini', 'codex'
  * @param {{ host?: string, project?: string, keyDir?: string, runtimeEnv?: string, store?: string,
@@ -102,8 +112,7 @@ export function provisionIdentity(agent, opts = {}) {
       privileged: false,
       commands: [
         `mkdir -p ${keyDir} && chmod 700 ${keyDir}`,
-        `openssl genpkey -algorithm ed25519 -out ${keyPath} && chmod 600 ${keyPath}`,
-        `openssl pkey -in ${keyPath} -pubout -out ${pubPath}`
+        `node -e '${KEYGEN_JS}' ${keyPath} ${pubPath}`
       ]
     },
     {
