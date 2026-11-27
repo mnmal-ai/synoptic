@@ -9,7 +9,16 @@ import {
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
 import { registerMailCard } from './mail-card.js';
-import { mailCallLine } from './mail-text.js';
+import { mailCallLine, parseMailSend } from './mail-text.js';
+import {
+  newSharePane,
+  registerShare,
+  type SharePane,
+  shareMail,
+  shareReply,
+  shareToolCall,
+  startShare
+} from './session-share.js';
 import { newTodosPane, registerTodos, startTodos } from './todos-pane.js';
 
 const DELIVERED = { plugin: 'cortext', key: 'inboxDelivered' } as const;
@@ -33,6 +42,7 @@ type Bridge = {
   late: InboxMessage[]; // appended since the latest main-thread step began
   wakes: ReturnType<typeof createBudget>;
   preemptions: ReturnType<typeof createBudget>;
+  share: SharePane; // read-only session sharing: what this session publishes when it is on
 };
 
 // Top-level declarations, not closures in register: `claude plugin validate` follows $ only
@@ -70,6 +80,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
+  if (!m.fromSelf) await shareMail(b.share, $, 'in', m.from, m.subject, m.body ?? '');
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
@@ -107,6 +118,8 @@ export const register: Register = (on) => {
   const todos = newTodosPane();
   registerTodos(on, todos);
   registerMailCard(on);
+  const share = newSharePane();
+  registerShare(on, share);
   const b: Bridge = {
     ns: 'cortext',
     turnId: undefined,
@@ -117,7 +130,8 @@ export const register: Register = (on) => {
     failedSpawns: 0,
     late: [],
     wakes: createBudget({ perHour: 6, perThread: 2 }), // D1
-    preemptions: createBudget({ perHour: 3 }) // D4
+    preemptions: createBudget({ perHour: 3 }), // D4
+    share
   };
 
   on('session.start', async ($, e, next) => {
@@ -125,6 +139,11 @@ export const register: Register = (on) => {
     // The Todos pane is extra: a refused command registration must not stop mail delivery.
     await startTodos(todos, $, e.cwd).catch((err) =>
       $.ui.log(`cortext: the Todos pane did not start: ${(err as Error).message}`, { to: 'debug' })
+    );
+    await startShare(share, $, e.cwd).catch((err) =>
+      $.ui.log(`cortext: session sharing did not start: ${(err as Error).message}`, {
+        to: 'debug'
+      })
     );
     b.interactive = e.isInteractive;
     b.ns = (await $.env.get('SUBSTRATE_NAMESPACE')) || 'cortext';
@@ -190,6 +209,7 @@ export const register: Register = (on) => {
 
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e); // a subagent's tools run inside the main thread's Agent call
+    await shareToolCall(share, $, e.tool, e as unknown as Record<string, unknown>);
     b.toolsInFlight++;
     try {
       const mailLine = mailCallLine(
@@ -199,7 +219,11 @@ export const register: Register = (on) => {
       );
       const ran = await next(e);
       // Only a call that went through: a refused or failed send sent nothing.
-      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) $.ui.log(mailLine);
+      if (mailLine && !ran.deny && !(ran as { isError?: boolean }).isError) {
+        $.ui.log(mailLine);
+        const sent = parseMailSend(e.tool, e);
+        if (sent) await shareMail(share, $, 'out', sent.to, sent.subject, sent.body);
+      }
       return ran;
     } finally {
       b.toolsInFlight--;
@@ -222,6 +246,7 @@ export const register: Register = (on) => {
     if (e.agentId !== undefined) return next(e);
     const done = await next(e);
     b.turnId = undefined;
+    await shareReply(share, $, e.answer);
     const now = await $.clock.now();
     // Urgent rows that landed late are owed a turn whatever the wake budget says. Such a row
     // forces a wake past both budgets (D1's wakes and D4's preemptions, which it may have
