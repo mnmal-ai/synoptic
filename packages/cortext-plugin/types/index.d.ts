@@ -41,6 +41,23 @@ export type TodoDetail = {
   _metadata?: { createdAt?: string; updatedAt?: string };
 };
 
+export type FeedRow = {
+  id: string;
+  instance: string;
+  title: string;
+  project: string | null;
+  lastEventAt: string;
+  /** The feed's owner is createdBy.id, the key the server stamped on it. */
+  _metadata?: { createdBy?: { id?: string } };
+};
+export type FeedEvent = {
+  step: number;
+  kind: 'prompt' | 'reply' | 'tool' | 'mail-in' | 'mail-out';
+  text: string;
+  /** The tool name on a tool event, the peer's kid on a mail event. */
+  tool: string | null;
+};
+
 declare module 'claude-code' {
   interface PluginState {
     cortext: {
@@ -71,6 +88,15 @@ declare module 'claude-code' {
       paneBrainFact: number | null;
       /** Mail cards shown open: `in-<shortId>` for received rows, `out-<tool_use_id>` for sends. */
       mailOpen: Shaped<string[]>;
+      /** True while this session shares its steps to its SessionFeed (/cortext-share on). */
+      shareOn: boolean;
+      /** The shared sessions the watch pane lists, newest first, this session's own left out. */
+      shareFeeds: FeedRow[];
+      /** The feed the watch pane shows, or null before a pick. */
+      shareWatched: string | null;
+      /** The watched feed's latest steps, oldest first. */
+      shareEvents: FeedEvent[];
+      shareNote: string;
     };
   }
 }

@@ -57,7 +57,8 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     `${e.plugin}/${e.key}/${e.id ?? ''}`;
 
   on('session.start', async (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }));
-  on('command.register', async () => ({ value: undefined })); // the Todos pane's command
+  on('command.register', async () => ({ value: undefined })); // the Todos and sharing commands
+  on('session.id', async () => ({ value: '1a2b3c4d-0000-0000-0000-000000000000' })); // sharing's instance
   on('turn.start', async (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }));
   on('turn.complete', async () => ({ text: '' }));
   // biome-ignore lint/correctness/useYield: an empty step, answered whole with no chunks
