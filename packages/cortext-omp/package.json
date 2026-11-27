@@ -1,6 +1,6 @@
 {
   "name": "@mnmal-ai/cortext-omp",
-  "version": "1.0.0-alpha.29",
+  "version": "1.0.0-alpha.30",
   "description": "Cortext — the OMP (oh-my-pi) skin: cold-start and inbox seams as an OMP extension, bundling the @mnmal-ai/synoptic host into a committed dist artifact.",
   "license": "Apache-2.0",
   "repository": {
