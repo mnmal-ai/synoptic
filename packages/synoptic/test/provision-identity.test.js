@@ -28,13 +28,11 @@ describe('provisionIdentity', () => {
   it('keygen generates an ed25519 keypair at the derived paths', () => {
     const keygen = provisionIdentity('cursor', OPTS).steps[0];
     const joined = keygen.commands.join('\n');
-    expect(joined).toMatch(
-      /genpkey -algorithm ed25519 -out \/home\/user\/\.config\/substrate\/keys\/cursor@Desk\.key/
+    expect(joined).toContain('generateKeyPairSync("ed25519"');
+    expect(joined).toContain(
+      ' /home/user/.config/substrate/keys/cursor@Desk.key /home/user/.config/substrate/keys/cursor@Desk.pub'
     );
-    expect(joined).toMatch(
-      /-pubout -out \/home\/user\/\.config\/substrate\/keys\/cursor@Desk\.pub/
-    );
-    expect(joined).toMatch(/chmod 600/);
+    expect(joined).toContain('mode: 0o600');
   });
 
   // ---- authority is emitted, never defaulted ----

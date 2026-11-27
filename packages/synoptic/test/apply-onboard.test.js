@@ -52,7 +52,7 @@ describe('planActions (pure)', () => {
     const a = planActions(mk('cursor'), { targetDir: '/repo', home: '/home/user' });
     expect(a.identityScript).toMatch(/SAFE/);
     expect(a.identityScript).toMatch(/PRIVILEGED/);
-    expect(a.identityScript).toMatch(/genpkey/);
+    expect(a.identityScript).toMatch(/generateKeyPairSync/);
     expect(a.identityScript).toMatch(/substrate-admin register/);
     expect(a.identityScript).toMatch(/systemctl restart/);
   });

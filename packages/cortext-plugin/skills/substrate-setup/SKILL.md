@@ -363,9 +363,82 @@ becomes a loud mismatch instead of a silent unregistered identity.
 
 Consent-gated. Skipping is first-class: the repo keeps the machine-wide default.
 
-> Assign this repo its own signing identity? This generates an Ed25519 keypair,
-> registers its public key with your Substrate (an operator action), and signs this
-> repo's writes as `<project>-claude@<host>`. [y/N]
+> Assign this repo its own signing identity? It signs this repo's writes as
+> `<project>-claude@<host>`. Were you given an invite (a token starting
+> `substrate-join-v1.`)? [invite / generate / N]
+
+Two ways to get a key, and the invite is the one to use whenever the Substrate
+is someone else's:
+
+- **7.4a, invited.** The operator minted a named invite. Redeeming it creates
+  the key here and registers it in one call.
+- **7.4b, operator on the server box.** Generate a keypair and register its
+  public key with `substrate-admin`.
+
+Either way the keypair is made by Node on this machine, so the steps are the
+same on macOS and Linux, and the private key never leaves it.
+
+#### 7.4a — redeem an invite
+
+Ask the person to paste the token, then redeem it **at once**, with the token in
+the environment and never as an argument:
+
+```bash
+SUBSTRATE_JOIN_TOKEN='<the token>' \
+  npx -y @mnmal-ai/substrate@next federate join --name <project>-claude \
+    --key-out ~/.config/substrate/keys/<project>-claude.key
+```
+
+On a box with a local `@mnmal-ai/substrate` install, use the absolute
+`node … substrate.js` form from Step 4 in place of `npx`.
+
+**The token is a credential until it is redeemed, not a public key.** Whoever
+holds it can register a key of their own under the invited name and grant. It
+works once, so a successful redeem makes the pasted copy worthless. Do not write
+it to a file, repeat it back, or put it in a Todo, log or message. If the redeem
+fails with the token still valid and cannot be retried now, tell the person to
+ask the operator to mint a fresh one.
+
+`join` checks the key path is free, makes the keypair in memory, redeems, and
+writes the private key (0600) only once the server has accepted it. It prints:
+
+```
+  redeemed at https://substrate.example
+  kid:        repo-claude@host-a
+  namespaces: cortext, recall    capabilities: read, mutate
+  key:        /home/user/.config/substrate/keys/repo-claude.key (0600)
+```
+
+Ignore the `SUBSTRATE_BRIDGES` lines below that; they configure federation, not
+an agent.
+
+**Check the kid before writing anything.** It must read `<project>-claude@<host>`.
+A kid with no `@` (a random string) means the invite was unnamed, or the server
+is older than substrate 1.0.0-beta.18 and ignored the name. Stop: do not write
+settings. The key *is* registered under that random kid, so tell the person to
+have the operator revoke it and mint a named invite, and move the key file aside
+(`mv "$KEYFILE" "$KEYFILE.unnamed"`) so nothing signs with it.
+
+When `join` fails it says why, and nothing is written locally unless stated:
+
+| it says | meaning | do |
+|---|---|---|
+| `key path … already exists` | nothing redeemed, token still valid | move the old key aside (do not delete it), retry |
+| `already been redeemed` / `has expired` / `not recognised` | the token is spent or gone | ask the operator for a fresh invite |
+| `refused the registration (HTTP 409)` | a live key already holds that name; the invite is **not** consumed | the operator revokes the old key or mints under another name, then retry |
+| `rate-limiting registrations` | too many attempts from this address | wait the stated seconds, retry |
+| `cannot reach <origin>` | the URL in the token is not reachable from here | the operator mints again from a URL this machine can reach |
+| `failed to write the private key` | redeemed, but the key was not saved; the token is spent | fix the path, ask for a fresh invite; the operator revokes the orphan kid |
+
+Then write the 7.2 block with **the kid exactly as `join` printed it** (the
+operator typed the host, so do not re-derive it from `hostname`) and the key
+path. There is no register step and no restart: the server took the key when it
+redeemed. Go on to 7.5 and 7.6.
+
+#### 7.4b — generate and register (operator on the server box)
+
+This generates an Ed25519 keypair and registers its public key with your
+Substrate, an operator action.
 
 **Treat generate → register → restart as ONE unit.** A generated-but-
 unregistered key is strictly worse than no key: with no key the MCP server reads
@@ -379,9 +452,17 @@ mkdir -p ~/.config/substrate/keys && chmod 700 ~/.config/substrate/keys
 KID="$(basename "$(git rev-parse --show-toplevel)")-claude@$(hostname -s)"
 KEYFILE=~/.config/substrate/keys/$(basename "$(git rev-parse --show-toplevel)")-claude.key
 if [ ! -f "$KEYFILE" ]; then
-  openssl genpkey -algorithm ed25519 -out "$KEYFILE"
-  chmod 600 "$KEYFILE"
-  openssl pkey -in "$KEYFILE" -pubout -out "${KEYFILE%.key}.pub"
+  node -e '
+    const { generateKeyPairSync } = require("node:crypto");
+    const { writeFileSync } = require("node:fs");
+    const file = process.argv.at(-1);
+    const pair = generateKeyPairSync("ed25519", {
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" }
+    });
+    writeFileSync(file, pair.privateKey, { mode: 0o600, flag: "wx" });
+    writeFileSync(file.replace(/\.key$/, ".pub"), pair.publicKey);
+  ' "$KEYFILE"
 fi
 echo "kid = $KID"
 ```
@@ -424,7 +505,7 @@ next audit rather than staying invisible until someone reads the key table.
 
 ### 7.5 — seed the directory row
 
-Registering a key does not populate the directory. The `_system/Key` row
+Neither registering a key nor redeeming an invite populates the directory. The `_system/Key` row
 proves the signature; `<ns>/AgentIdentity` is what makes this agent
 **discoverable** as a routing peer. Skip if a row with this `kid` exists:
 
@@ -432,6 +513,9 @@ proves the signature; `<ns>/AgentIdentity` is what makes this agent
 <ns>/createAgentIdentity { kid: "<KID>", project: "<project>",
                            host: "<host>", displayName: "<Project>", active: true }
 ```
+
+`host` is the part of the kid after `@`. From a key that is not the operator's,
+the server refuses a row whose `host` differs from the host in its `kid`.
 
 ### 7.6 — verify, and check the settings file you are about to write
 

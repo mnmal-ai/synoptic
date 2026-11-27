@@ -201,9 +201,17 @@ mkdir -p ~/.config/substrate/keys && chmod 700 ~/.config/substrate/keys
 KID="$(basename "$(git rev-parse --show-toplevel)")-opencode@$(hostname -s)"
 KEYFILE=~/.config/substrate/keys/$(basename "$(git rev-parse --show-toplevel)")-opencode.key
 if [ ! -f "$KEYFILE" ]; then
-  openssl genpkey -algorithm ed25519 -out "$KEYFILE"
-  chmod 600 "$KEYFILE"
-  openssl pkey -in "$KEYFILE" -pubout -out "${KEYFILE%.key}.pub"
+  node -e '
+    const { generateKeyPairSync } = require("node:crypto");
+    const { writeFileSync } = require("node:fs");
+    const file = process.argv.at(-1);
+    const pair = generateKeyPairSync("ed25519", {
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" }
+    });
+    writeFileSync(file, pair.privateKey, { mode: 0o600, flag: "wx" });
+    writeFileSync(file.replace(/\.key$/, ".pub"), pair.publicKey);
+  ' "$KEYFILE"
 fi
 ```
 
