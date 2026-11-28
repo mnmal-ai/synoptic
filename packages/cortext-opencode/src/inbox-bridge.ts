@@ -64,6 +64,8 @@ export type BridgeDeps = {
 
 export type InboxBridge = {
   onWatch(ev: WatchEvent): Promise<void>;
+  /** Live and holding external mail the prompt check must still show. */
+  holding(): boolean;
   onEvent(ev: HostEvent): void;
   track(sessionID: string): void;
   onPrompt(sessionID: string, metadata?: Record<string, unknown>): void;
@@ -105,7 +107,7 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
   let acted: string[] = [];
   // Mail that reached no session (none was busy). Steered into the next turn
   // that starts, so an idle arrival is not left to the end-of-turn nudge.
-  const held = new Map<string, PushMessage>();
+  const unreached = new Map<string, PushMessage>();
   // onWatch calls run one at a time: a snapshot emits rows synchronously, and
   // two copies of one id must not both pass the delivered check mid-await.
   let chain: Promise<void> = Promise.resolve();
@@ -120,6 +122,7 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
     lastActive = prompts.at(-1) ?? null;
   };
   let isLive = false;
+  let heldSeen = false; // the watcher has emitted held mail in this run
   let disposed = false;
   const resumed = new Set<string>();
 
@@ -157,15 +160,15 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
       if (s.delivered.includes(m.id)) reached = true;
       else if (s.busy && (await steerInto(sessionID, s, m))) reached = true;
     }
-    if (reached) held.delete(m.id);
-    else if (held.size < HELD_CAP) held.set(m.id, m);
+    if (reached) unreached.delete(m.id);
+    else if (unreached.size < HELD_CAP) unreached.set(m.id, m);
   }
 
   async function steerHeld(sessionID: string): Promise<void> {
     const s = sessions.get(sessionID);
     if (s === undefined || !s.busy) return;
-    for (const m of [...held.values()]) {
-      if (await steerInto(sessionID, s, m)) held.delete(m.id);
+    for (const m of [...unreached.values()]) {
+      if (await steerInto(sessionID, s, m)) unreached.delete(m.id);
     }
   }
 
@@ -247,10 +250,11 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
       try {
         // Status and handled apply at once; messages queue (see `chain`).
         if (ev.type === 'status') isLive = ev.state === 'live';
+        else if (ev.type === 'message' && ev.held) heldSeen = true;
         else if (ev.type === 'handled') {
           pending.get(ev.id)?.cancel();
           pending.delete(ev.id);
-          held.delete(ev.id);
+          unreached.delete(ev.id);
         } else if (ev.type === 'message') await serially(() => onMessage(ev));
       } catch {
         // A delivery fault leaves the mail in the mailbox for the seams.
@@ -270,7 +274,7 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
         switch (ev.type) {
           case 'session.execution.started':
             s.busy = true;
-            if (held.size > 0) void serially(() => steerHeld(sid));
+            if (unreached.size > 0) void serially(() => steerHeld(sid));
             break;
           case 'session.execution.succeeded':
           case 'session.execution.failed':
@@ -304,6 +308,7 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
     },
 
     live: () => isLive,
+    holding: () => isLive && heldSeen,
 
     takeResumed(sessionID) {
       return resumed.delete(sessionID);
@@ -325,7 +330,7 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
       disposed = true;
       for (const p of pending.values()) p.cancel();
       pending.clear();
-      held.clear();
+      unreached.clear();
     }
   };
 }

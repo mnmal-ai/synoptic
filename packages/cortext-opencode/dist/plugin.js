@@ -6296,16 +6296,22 @@ function renderMessageBlock(m) {
 }
 const URGENT_TAG = "priority:urgent";
 const HOUR_MS = 36e5;
+const asciiLower = (v) => v.trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
 /**
-* Mail from another server is held (not pushed mid-turn, no wake) unless its server's domain or its
-* sender's kid is in `externalPushFrom`. Entries match whole values, case-insensitively; the
-* placeholder sender matches nothing. `m` is a fromRow result.
+* Mail from another server is held (not pushed mid-turn, no wake) unless `externalPushFrom` lifts it.
+* An entry is a peer domain (lifts all mail that peer relays) or `<domain>/<kid>` (lifts that sender
+* only when that domain relayed it). A bare kid matches nothing: a sender name is only the relaying
+* server's claim. Entries match whole values, trimmed, with ASCII-only lower-casing; the placeholder
+* sender never matches a kid entry. `m` is a fromRow result.
 */
 function isHeld(m, externalPushFrom) {
 	if (m.external === null) return false;
-	const named = m.from === UNKNOWN_REMOTE ? [] : [m.from];
-	const wanted = new Set(externalPushFrom.map((e) => e.trim().toLowerCase()));
-	return ![m.external.domain, ...named].some((v) => wanted.has(v.trim().toLowerCase()));
+	const domain = asciiLower(m.external.domain);
+	const pair = m.from === UNKNOWN_REMOTE ? null : `${domain}/${asciiLower(m.from)}`;
+	return !externalPushFrom.some((e) => {
+		const entry = asciiLower(e);
+		return entry === domain || pair !== null && entry === pair;
+	});
 }
 /** A substrate row as the watcher's `message` event (spec §4.2 contract). */
 function toWatchMessage(row, { kid, urgentFrom, externalPushFrom = [] }) {
@@ -8391,8 +8397,10 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 					});
 				}
 				const rows = isObj(event.data) ? event.data[key] : void 0;
-				if (Array.isArray(rows)) {
-					for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+				if (Array.isArray(rows)) for (const row of rows) {
+					if (!isObj(row)) continue;
+					const m = toMsg(row);
+					if (m.held || isNewer(row)) emit(m);
 				}
 			} else if (event.kind === "add") {
 				const row = isObj(event.data) ? event.data[key] : void 0;
@@ -8484,7 +8492,7 @@ function createInboxBridge(deps) {
 	});
 	const preemptions = createBudget({ perHour: 3 });
 	let acted = [];
-	const held = /* @__PURE__ */ new Map();
+	const unreached = /* @__PURE__ */ new Map();
 	let chain = Promise.resolve();
 	let prompts = [];
 	let lastActive = null;
@@ -8495,6 +8503,7 @@ function createInboxBridge(deps) {
 		lastActive = prompts.at(-1) ?? null;
 	};
 	let isLive = false;
+	let heldSeen = false;
 	let disposed = false;
 	const resumed = /* @__PURE__ */ new Set();
 	const row = (m) => renderPushRow(m, deps.ns);
@@ -8534,13 +8543,13 @@ function createInboxBridge(deps) {
 			if (s.delivered.includes(m.id)) reached = true;
 			else if (s.busy && await steerInto(sessionID, s, m)) reached = true;
 		}
-		if (reached) held.delete(m.id);
-		else if (held.size < HELD_CAP) held.set(m.id, m);
+		if (reached) unreached.delete(m.id);
+		else if (unreached.size < HELD_CAP) unreached.set(m.id, m);
 	}
 	async function steerHeld(sessionID) {
 		const s = sessions.get(sessionID);
 		if (s === void 0 || !s.busy) return;
-		for (const m of [...held.values()]) if (await steerInto(sessionID, s, m)) held.delete(m.id);
+		for (const m of [...unreached.values()]) if (await steerInto(sessionID, s, m)) unreached.delete(m.id);
 	}
 	async function preempt(m, target) {
 		pending.delete(m.id);
@@ -8620,10 +8629,11 @@ function createInboxBridge(deps) {
 			if (disposed) return;
 			try {
 				if (ev.type === "status") isLive = ev.state === "live";
+				else if (ev.type === "message" && ev.held) heldSeen = true;
 				else if (ev.type === "handled") {
 					pending.get(ev.id)?.cancel();
 					pending.delete(ev.id);
-					held.delete(ev.id);
+					unreached.delete(ev.id);
 				} else if (ev.type === "message") await serially(() => onMessage(ev));
 			} catch {}
 		},
@@ -8640,7 +8650,7 @@ function createInboxBridge(deps) {
 				switch (ev.type) {
 					case "session.execution.started":
 						s.busy = true;
-						if (held.size > 0) serially(() => steerHeld(sid));
+						if (unreached.size > 0) serially(() => steerHeld(sid));
 						break;
 					case "session.execution.succeeded":
 					case "session.execution.failed":
@@ -8667,6 +8677,7 @@ function createInboxBridge(deps) {
 			lastActive = sessionID;
 		},
 		live: () => isLive,
+		holding: () => isLive && heldSeen,
 		takeResumed(sessionID) {
 			return resumed.delete(sessionID);
 		},
@@ -8684,7 +8695,7 @@ function createInboxBridge(deps) {
 			disposed = true;
 			for (const p of pending.values()) p.cancel();
 			pending.clear();
-			held.clear();
+			unreached.clear();
 		}
 	};
 }
@@ -8882,7 +8893,7 @@ function inboxAccess(identity, connection) {
 	};
 }
 /** The prompt and end-of-turn inbox seams. Never throws. */
-function createInboxSeams(identity, connection = {}, pushLive = () => false) {
+function createInboxSeams(identity, connection = {}, pushLive = () => false, pushHolding = () => false) {
 	const prompted = /* @__PURE__ */ new Set();
 	const sessions = /* @__PURE__ */ new Set();
 	const notes = /* @__PURE__ */ new Map();
@@ -8896,12 +8907,14 @@ function createInboxSeams(identity, connection = {}, pushLive = () => false) {
 				prompted.add(sessionID);
 				return;
 			}
-			if (pushLive()) {
+			if (pushLive() && !pushHolding()) {
 				notes.delete(sessionID);
 				return;
 			}
+			const access = inboxAccess(identity, connection);
+			if (pushLive()) access.env.SYNOPTIC_INBOX_PROMPT_CHECK = access.env.SYNOPTIC_INBOX_PROMPT_CHECK === "off" ? "off" : "held";
 			const gate = withTimeout(INBOX_TIMEOUT_MS);
-			notes.set(sessionID, Promise.race([promptHookContext(inboxAccess(identity, connection)), gate.promise.then(() => "")]).then((note) => {
+			notes.set(sessionID, Promise.race([promptHookContext(access), gate.promise.then(() => "")]).then((note) => {
 				gate.cancel();
 				return note;
 			}).catch(() => ""));
@@ -9097,7 +9110,7 @@ async function setup(ctx) {
 		push = null;
 	}
 	const bridge = push?.bridge ?? null;
-	const inbox = createInboxSeams(identity, connection, () => bridge?.live() ?? false);
+	const inbox = createInboxSeams(identity, connection, () => bridge?.live() ?? false, () => bridge?.holding() ?? false);
 	const children = /* @__PURE__ */ new Map();
 	const isChild = (sessionID) => {
 		let known = children.get(sessionID);

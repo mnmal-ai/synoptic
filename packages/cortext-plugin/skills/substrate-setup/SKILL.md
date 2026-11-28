@@ -331,7 +331,7 @@ settings.
 **Inbox push: optional, and nothing to write by default.** Since synoptic 2.4.0
 the plugin delivers agent mail mid-turn, through a hooks module that runs an SSE
 watcher. It is on as soon as identity is wired, so this step adds nothing for it.
-The same `env` block takes three optional switches. Write one only when the
+The same `env` block takes four optional switches. Write one only when the
 operator asks for it:
 
 | key | default | set it when |
@@ -339,7 +339,7 @@ operator asks for it:
 | `SYNOPTIC_INBOX_PUSH` | on | `"off"` returns this repo to summary lines at the prompt and at Stop. This is the rollback, and it needs no release |
 | `SYNOPTIC_INBOX_WAKE` | off | `"on"` lets mail that arrives while the session is idle start a turn, within 6 per hour and 2 per thread |
 | `SYNOPTIC_INBOX_URGENT_FROM` | unset | the operator runs a coordinator: its kids, comma-separated, whose `priority:urgent` mail may stop a running turn. The tag alone grants nothing |
-| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | unset | the operator trusts a peer server: its domains or sender kids, comma-separated, whose relayed mail may be pushed like local mail. Unset, mail from another server is held for the next prompt and Stop, labelled external |
+| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | unset | the operator trusts a peer server: comma-separated entries, each a peer domain (`peer.example.net`, lifts everything it relays) or `<domain>/<kid>` (lifts that sender only when that domain relayed it). A bare kid matches nothing. Unset, mail from another server is held for the next prompt and Stop, labelled external |
 
 A change to any of these takes effect at the **next session start**, including
 `--continue`. `/reload-plugins` keeps an unchanged hooks module loaded, so the

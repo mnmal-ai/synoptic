@@ -271,16 +271,34 @@ test('disabled is not respawned', async ($, on) => {
   expect(h.spawns).toHaveLength(1);
 });
 
-test('live turns the prompt check off; a watcher exit restores it', async ($, on) => {
+test('live turns the prompt check off while nothing is held; a watcher exit restores it', async ($, on) => {
   const h = harness(on, [[LIVE(), { pause: 1_000 }]], { env: { [PROMPT_CHECK]: 'on' } });
   await start($, h);
-  expect(h.env.get(PROMPT_CHECK)).toBe('held'); // live: the prompt shows only mail the watcher holds
+  expect(h.env.get(PROMPT_CHECK)).toBe('off'); // live, the stream still open
   await h.clock.advance(1_000);
   expect(h.env.get(PROMPT_CHECK)).toBe('on'); // the stream ended: restored
 });
 
-test('live keeps an operator-set prompt check off', async ($, on) => {
-  const h = harness(on, [[LIVE(), { pause: 1_000 }]], { env: { [PROMPT_CHECK]: 'off' } });
+test('the first held message narrows the prompt check to held mail; a watcher exit restores it', async ($, on) => {
+  const h = harness(
+    on,
+    [[LIVE(), msg(1), { pause: 1_000 }, msg(2, { held: true }), { pause: 1_000 }]],
+    {
+      env: { [PROMPT_CHECK]: 'on' }
+    }
+  );
+  await start($, h);
+  expect(h.env.get(PROMPT_CHECK)).toBe('off'); // local mail only: no prompt-time inbox request
+  await h.clock.advance(1_000);
+  expect(h.env.get(PROMPT_CHECK)).toBe('held');
+  await h.clock.advance(1_000);
+  expect(h.env.get(PROMPT_CHECK)).toBe('on');
+});
+
+test('an operator-set prompt check off stays off after held mail', async ($, on) => {
+  const h = harness(on, [[LIVE(), msg(1, { held: true }), { pause: 1_000 }]], {
+    env: { [PROMPT_CHECK]: 'off' }
+  });
   await start($, h);
   expect(h.env.get(PROMPT_CHECK)).toBe('off');
 });
@@ -301,7 +319,7 @@ test('live then disabled restores the prompt check and never respawns', async ($
     [LIVE(), { pause: 1_000 }, { type: 'status', state: 'disabled', reason: 'HTTP 401' }]
   ]);
   await start($, h);
-  expect(h.env.get(PROMPT_CHECK)).toBe('held');
+  expect(h.env.get(PROMPT_CHECK)).toBe('off');
   await h.clock.advance(60_000);
   expect(h.env.has(PROMPT_CHECK)).toBe(false);
   expect(h.spawns).toHaveLength(1);
@@ -398,15 +416,15 @@ test("a subagent's step or tool call leaves late and the in-flight count alone",
 });
 
 test('a hot reload while live restores the original prompt check, not the live value', async ($, on) => {
-  // A reload re-runs session.start while the old watcher has the seam set 'held'. The second
+  // A reload re-runs session.start while the old watcher has the seam set 'off'. The second
   // watcher outlives the first, so its restore is the one that sticks.
   const h = harness(on, [[LIVE(), { pause: 1_000 }]], {
     env: { [PROMPT_CHECK]: 'on' },
     respawn: [[LIVE(), { pause: 2_000 }]]
   });
   await start($, h);
-  expect(h.env.get(PROMPT_CHECK)).toBe('held');
-  await start($, h); // the reload: the env already reads 'held'
+  expect(h.env.get(PROMPT_CHECK)).toBe('off');
+  await start($, h); // the reload: the env already reads 'off'
   await h.clock.advance(2_000);
   expect(h.spawns).toHaveLength(2);
   expect(h.env.get(PROMPT_CHECK)).toBe('on');
@@ -415,7 +433,7 @@ test('a hot reload while live restores the original prompt check, not the live v
 test('a hot reload restores an unset prompt check to unset', async ($, on) => {
   const h = harness(on, [[LIVE(), { pause: 1_000 }]], { respawn: [[LIVE(), { pause: 2_000 }]] });
   await start($, h);
-  expect(h.env.get(PROMPT_CHECK)).toBe('held');
+  expect(h.env.get(PROMPT_CHECK)).toBe('off');
   await start($, h);
   await h.clock.advance(2_000);
   expect(h.env.has(PROMPT_CHECK)).toBe(false);

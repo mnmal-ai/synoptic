@@ -36,7 +36,7 @@ To give the model substrate's `act` tool (short sketches such as `close Todo #12
 | `SYNOPTIC_OMP_COMPACT=off` | Leave compaction entirely to OMP |
 | `SYNOPTIC_INBOX_PROMPT_CHECK=off` / `SYNOPTIC_INBOX_STOP_CHECK=off` | Disable the inbox seams |
 | `SYNOPTIC_INBOX_PUSH=off` | Do not watch the inbox (no pushed mail) |
-| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | Comma-separated peer domains or sender kids whose mail from another server is pushed. Other relayed mail is held for the prompt and stop checks |
+| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | Comma-separated allowlist for mail from another server: a peer domain (`peer.example.net`) lifts everything that peer relays; `<domain>/<kid>` lifts that sender only when relayed by that domain; a bare kid matches nothing. Other relayed mail is held for the prompt and stop checks |
 | `SYNOPTIC_INBOX_WAKE=on` | Let pushed mail start a turn in an idle session |
 
 A read-only identity works: the cold-start and the inbox are reads, the HostInstall write fails into a comment line, and a refused checkpoint write falls back to OMP's own compaction.

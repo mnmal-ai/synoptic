@@ -39,6 +39,7 @@ type Bridge = {
   wakeOn: boolean; // from the watcher's `live` line (D1: off by default)
   toolsInFlight: number;
   failedSpawns: number; // consecutive watcher exits with no `live`, for the respawn backoff
+  holding: boolean; // this watcher run has emitted held mail, so the prompt check must show it
   late: InboxMessage[]; // appended since the latest main-thread step began
   wakes: ReturnType<typeof createBudget>;
   preemptions: ReturnType<typeof createBudget>;
@@ -59,6 +60,14 @@ function wake(b: Bridge, $: EngineInterface): void {
     .finally(() => {
       b.waking = false;
     });
+}
+
+/**
+ * The prompt check while the watcher is live: 'off' (it delivers mail itself) until it has emitted
+ * held mail, then 'held' (only held mail shows). An operator-set 'off' always stays 'off'.
+ */
+function livePromptCheck(b: Bridge, original: string | undefined): string {
+  return b.holding && original !== 'off' ? 'held' : 'off';
 }
 
 async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<void> {
@@ -106,7 +115,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
 
 /**
  * SYNOPTIC_INBOX_PROMPT_CHECK as the session first found it. A hot reload re-runs session.start
- * while the old watcher has set it 'held', and the old module cannot restore it after unload, so
+ * while the old watcher has set it to 'off' or 'held', and the old module cannot restore it after unload, so
  * the first reading is kept in $.state (which survives a reload) and written once (ifVersion 0).
  * $.state cannot hold undefined, so null stands for unset.
  */
@@ -132,6 +141,7 @@ export const register: Register = (on) => {
     wakeOn: false,
     toolsInFlight: 0,
     failedSpawns: 0,
+    holding: false,
     late: [],
     wakes: createBudget({ perHour: 6, perThread: 2 }), // D1
     preemptions: createBudget({ perHour: 3 }), // D4
@@ -171,8 +181,15 @@ export const register: Register = (on) => {
             continue;
           }
           for (const ev of split(piece.text) as WatchEvent[]) {
-            if (ev.type === 'message') await deliver(b, $, ev);
-            else if (ev.type === 'handled') b.late = b.late.filter((x) => x.id !== ev.id);
+            if (ev.type === 'message') {
+              await deliver(b, $, ev);
+              if (ev.held && !b.holding) {
+                b.holding = true;
+                // The backlog is emitted after `live`, so the switch from 'off' happens here.
+                if (wentLive)
+                  await $.env.set('SYNOPTIC_INBOX_PROMPT_CHECK', livePromptCheck(b, promptCheck));
+              }
+            } else if (ev.type === 'handled') b.late = b.late.filter((x) => x.id !== ev.id);
             else if (ev.type !== 'status')
               continue; // an unknown line changes nothing
             else if (ev.state === 'disabled') {
@@ -187,10 +204,10 @@ export const register: Register = (on) => {
               }
               if (ev.config !== undefined) b.wakeOn = ev.config.wake;
               // D2, Q3 measured: a module's $.env.set IS visible to a later settings
-              // command hook, so the UserPromptSubmit seam narrows to held mail while live ('off' stays off).
+              // command hook, so the UserPromptSubmit seam stands down while live.
               await $.env.set(
                 'SYNOPTIC_INBOX_PROMPT_CHECK',
-                ev.state === 'live' ? (promptCheck === 'off' ? 'off' : 'held') : promptCheck
+                ev.state === 'live' ? livePromptCheck(b, promptCheck) : promptCheck
               );
             }
           }
@@ -199,6 +216,7 @@ export const register: Register = (on) => {
       } catch (err) {
         $.ui.log(`inbox watcher: ${String(err)}`, { to: 'debug' });
       }
+      b.holding = false;
       await $.env.set('SYNOPTIC_INBOX_PROMPT_CHECK', promptCheck);
       if (disabled) return;
       // A watcher that exits without ever going live (a spawn failure, a crash at boot) backs

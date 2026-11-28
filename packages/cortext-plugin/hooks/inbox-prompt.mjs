@@ -513,16 +513,22 @@ function fromRow(row) {
 		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
 	};
 }
+const asciiLower = (v) => v.trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
 /**
-* Mail from another server is held (not pushed mid-turn, no wake) unless its server's domain or its
-* sender's kid is in `externalPushFrom`. Entries match whole values, case-insensitively; the
-* placeholder sender matches nothing. `m` is a fromRow result.
+* Mail from another server is held (not pushed mid-turn, no wake) unless `externalPushFrom` lifts it.
+* An entry is a peer domain (lifts all mail that peer relays) or `<domain>/<kid>` (lifts that sender
+* only when that domain relayed it). A bare kid matches nothing: a sender name is only the relaying
+* server's claim. Entries match whole values, trimmed, with ASCII-only lower-casing; the placeholder
+* sender never matches a kid entry. `m` is a fromRow result.
 */
 function isHeld(m, externalPushFrom) {
 	if (m.external === null) return false;
-	const named = m.from === UNKNOWN_REMOTE ? [] : [m.from];
-	const wanted = new Set(externalPushFrom.map((e) => e.trim().toLowerCase()));
-	return ![m.external.domain, ...named].some((v) => wanted.has(v.trim().toLowerCase()));
+	const domain = asciiLower(m.external.domain);
+	const pair = m.from === UNKNOWN_REMOTE ? null : `${domain}/${asciiLower(m.from)}`;
+	return !externalPushFrom.some((e) => {
+		const entry = asciiLower(e);
+		return entry === domain || pair !== null && entry === pair;
+	});
 }
 /** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
 function sanitizeText(text) {

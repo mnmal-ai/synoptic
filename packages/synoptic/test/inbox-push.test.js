@@ -294,13 +294,13 @@ describe('readInboxKnobs', () => {
         SYNOPTIC_INBOX_PUSH: 'off',
         SYNOPTIC_INBOX_WAKE: 'on',
         SYNOPTIC_INBOX_URGENT_FROM: ' a@H, b@H ,',
-        SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM: ' peer.example.net, ,a@H '
+        SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM: ' peer.example.net, ,a.example/b@H '
       })
     ).toEqual({
       push: false,
       wake: true,
       urgentFrom: ['a@H', 'b@H'],
-      externalPushFrom: ['peer.example.net', 'a@H']
+      externalPushFrom: ['peer.example.net', 'a.example/b@H']
     });
   });
   it('the inbox switches are settings-overlay keys', () => {
@@ -554,20 +554,48 @@ describe('holding mail from other servers', () => {
     expect(watch(ROW, { externalPushFrom: ['peer.example.net'] }).held).toBe(false);
   });
 
-  it('an allowlisted domain or kid is pushed, matched case-insensitively and trimmed', () => {
-    expect(watch(RELAYED, { externalPushFrom: ['PEER.example.net '] }).held).toBe(false);
-    expect(watch(RELAYED, { externalPushFrom: [' Agent-B@host-b.example'] }).held).toBe(false);
+  it('a domain entry lifts everything that peer relays, trimmed and ASCII case-insensitive', () => {
+    expect(watch(RELAYED, { externalPushFrom: [' PEER.example.net '] }).held).toBe(false);
     expect(watch(RELAYED, { externalPushFrom: ['other.example.net'] }).held).toBe(true);
     expect(watch(RELAYED, { externalPushFrom: ['*.example.net', 'example.net'] }).held).toBe(true);
   });
 
-  it('the relay key never lifts a hold', () => {
-    expect(watch(RELAYED, { externalPushFrom: ['relay-peer@peer.example.net'] }).held).toBe(true);
+  it('a domain/kid entry lifts that sender only when that domain relayed it', () => {
+    const pair = 'peer.example.net/agent-b@host-b.example';
+    expect(watch(RELAYED, { externalPushFrom: [pair] }).held).toBe(false);
+    expect(
+      watch(RELAYED, { externalPushFrom: [` PEER.example.net/Agent-B@host-b.example `] }).held
+    ).toBe(false);
+    const elsewhere = { ...RELAYED, viaDomain: 'other.example.net' };
+    expect(watch(elsewhere, { externalPushFrom: [pair] }).held).toBe(true);
+    const otherSender = { ...RELAYED, remoteFrom: 'agent-c@host-b.example' };
+    expect(watch(otherSender, { externalPushFrom: [pair] }).held).toBe(true);
   });
 
-  it('the placeholder sender never matches an entry', () => {
+  it('a bare kid matches nothing, and the relay key never lifts a hold', () => {
+    expect(watch(RELAYED, { externalPushFrom: ['agent-b@host-b.example'] }).held).toBe(true);
+    expect(watch(RELAYED, { externalPushFrom: ['relay-peer@peer.example.net'] }).held).toBe(true);
+    expect(
+      watch(RELAYED, { externalPushFrom: ['peer.example.net/relay-peer@peer.example.net'] }).held
+    ).toBe(true);
+  });
+
+  it('non-ASCII look-alikes do not match', () => {
+    const pair = 'peer.example.net/agent-b@host-b.example';
+    const accented = { ...RELAYED, viaDomain: 'peer.example.net'.replace('e', 'é') };
+    expect(watch(accented, { externalPushFrom: ['peer.example.net'] }).held).toBe(true);
+    const cyrillic = { ...RELAYED, remoteFrom: 'agent-b@host-b.example'.replace('a', 'а') };
+    expect(watch(cyrillic, { externalPushFrom: [pair] }).held).toBe(true);
+    // U+212A (Kelvin sign) lower-cases to ASCII k under Unicode folding.
+    const kelvin = { ...RELAYED, viaDomain: 'KELVIN.example.net'.replace('K', '\u212a') };
+    expect(watch(kelvin, { externalPushFrom: ['kelvin.example.net'] }).held).toBe(true);
+  });
+
+  it('the placeholder sender never matches a kid entry; a domain entry still lifts it', () => {
     const anon = { ...RELAYED, remoteFrom: null };
-    expect(watch(anon, { externalPushFrom: ['unknown remote sender'] }).held).toBe(true);
+    expect(watch(anon, { externalPushFrom: ['peer.example.net/unknown remote sender'] }).held).toBe(
+      true
+    );
     expect(watch(anon, { externalPushFrom: ['peer.example.net'] }).held).toBe(false);
   });
 
@@ -575,7 +603,7 @@ describe('holding mail from other servers', () => {
     const tagged = { ...RELAYED, tags: ['priority:urgent'] };
     const m = watch(tagged, {
       urgentFrom: ['agent-b@host-b.example'],
-      externalPushFrom: ['agent-b@host-b.example']
+      externalPushFrom: ['peer.example.net/agent-b@host-b.example']
     });
     expect(m.urgent).toBe(false);
     expect(m.held).toBe(false);
@@ -583,7 +611,9 @@ describe('holding mail from other servers', () => {
 
   it('local mail is unchanged with the new knob set', () => {
     const tagged = { ...ROW, tags: ['priority:urgent'] };
-    expect(watch(tagged, { urgentFrom: ['peer@Host'], externalPushFrom: ['peer@Host'] })).toEqual({
+    expect(
+      watch(tagged, { urgentFrom: ['peer@Host'], externalPushFrom: ['peer.example.net'] })
+    ).toEqual({
       ...watch(tagged, { urgentFrom: ['peer@Host'] }),
       held: false
     });

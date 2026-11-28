@@ -2209,6 +2209,13 @@ function wake(b, $) {
 		b.waking = false;
 	});
 }
+/**
+* The prompt check while the watcher is live: 'off' (it delivers mail itself) until it has emitted
+* held mail, then 'held' (only held mail shows). An operator-set 'off' always stays 'off'.
+*/
+function livePromptCheck(b, original) {
+	return b.holding && original !== "off" ? "held" : "off";
+}
 async function preempt(b, $, m) {
 	let interrupted = false;
 	if (b.turnId !== void 0) try {
@@ -2247,7 +2254,7 @@ async function deliver(b, $, m) {
 }
 /**
 * SYNOPTIC_INBOX_PROMPT_CHECK as the session first found it. A hot reload re-runs session.start
-* while the old watcher has set it 'held', and the old module cannot restore it after unload, so
+* while the old watcher has set it to 'off' or 'held', and the old module cannot restore it after unload, so
 * the first reading is kept in $.state (which survives a reload) and written once (ifVersion 0).
 * $.state cannot hold undefined, so null stands for unset.
 */
@@ -2272,6 +2279,7 @@ const register = (on) => {
 		wakeOn: false,
 		toolsInFlight: 0,
 		failedSpawns: 0,
+		holding: false,
 		late: [],
 		wakes: createBudget({
 			perHour: 6,
@@ -2309,8 +2317,13 @@ const register = (on) => {
 						$.ui.log(piece.text, { to: "debug" });
 						continue;
 					}
-					for (const ev of split(piece.text)) if (ev.type === "message") await deliver(b, $, ev);
-					else if (ev.type === "handled") b.late = b.late.filter((x) => x.id !== ev.id);
+					for (const ev of split(piece.text)) if (ev.type === "message") {
+						await deliver(b, $, ev);
+						if (ev.held && !b.holding) {
+							b.holding = true;
+							if (wentLive) await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", livePromptCheck(b, promptCheck));
+						}
+					} else if (ev.type === "handled") b.late = b.late.filter((x) => x.id !== ev.id);
 					else if (ev.type !== "status") continue;
 					else if (ev.state === "disabled") {
 						disabled = true;
@@ -2321,13 +2334,14 @@ const register = (on) => {
 							b.failedSpawns = 0;
 						}
 						if (ev.config !== void 0) b.wakeOn = ev.config.wake;
-						await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", ev.state === "live" ? promptCheck === "off" ? "off" : "held" : promptCheck);
+						await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", ev.state === "live" ? livePromptCheck(b, promptCheck) : promptCheck);
 					}
 					if (disabled) break;
 				}
 			} catch (err) {
 				$.ui.log(`inbox watcher: ${String(err)}`, { to: "debug" });
 			}
+			b.holding = false;
 			await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", promptCheck);
 			if (disabled) return;
 			const delay = Math.min(RESPAWN_MAX_MS, RESPAWN_MS * 2 ** b.failedSpawns);

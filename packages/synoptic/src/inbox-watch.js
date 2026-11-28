@@ -135,7 +135,13 @@ export async function runWatcher({
           }
           const rows = isObj(event.data) ? event.data[key] : undefined;
           if (Array.isArray(rows))
-            for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+            for (const row of rows) {
+              if (!isObj(row)) continue;
+              const m = toMsg(row);
+              // Held mail older than `since` is still emitted: it never advances a cursor, and a skin
+              // learns from it that held mail is waiting. Skins do not push held mail.
+              if (m.held || isNewer(row)) emit(m);
+            }
         } else if (event.kind === 'add') {
           const row = isObj(event.data) ? event.data[key] : undefined;
           if (isObj(row)) emit(toMsg(row));
