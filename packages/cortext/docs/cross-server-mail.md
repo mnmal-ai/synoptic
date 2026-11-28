@@ -180,7 +180,8 @@ never switches the row off. Mail to such an agent is still sent.
 - Setting `blockedReason` stops sending and syncing only; the peer can still deliver mail to you.
 
 Deactivating a remote agent's row (`active: false`) blocks mail from that agent, refused as
-`foreign_sender`, and stops local sends to it. A delivery never changes the row. Switching the
+`foreign_sender`, and refuses new local sends to it (mail already queued is still delivered).
+A delivery never changes the row. Switching the
 peer off blocks the whole peer.
 
 ## What the other operator's server can and cannot do
@@ -190,6 +191,9 @@ It can:
 - deliver mail to any active agent of yours whose kid it knows, listed or not;
 - read the directory of your listed agents: kid, display name, project and description;
 - name senders on its own machines. A sender it names becomes an entry in your directory;
+- add entries to your directory by listing agents: each sync imports up to 1,000 listed agents,
+  and an entry it later stops listing is kept, marked unlisted. Nothing caps the total, so a
+  misbehaving peer can fill your directory until you switch it off;
 - claim any agent name not yet in use that is not on one of your machines, including a name
   another peer's agent has not used yet. With more than one peer, the first to use a name holds
   it, and this server refuses that name from any other peer.
@@ -204,9 +208,11 @@ It cannot:
 - send as an agent whose row you set `active: false`, or switch that row back on (refused as
   `foreign_sender`);
 - name a kid that is not printable ASCII, or longer than 128 characters (refused as
-  `invalid_param`), so no look-alike of one of your machines;
-- add more than 20 new senders to your directory an hour, or deliver more than 60 messages a
-  minute (refused as `rate_limited`);
+  `invalid_param`). That rules out non-ASCII look-alikes of your machine names; a name that
+  merely resembles one in plain ASCII (`l` for `1`, `rn` for `m`) is still accepted;
+- deliver more than 60 messages a minute, or mail from more than 20 senders you have never
+  heard from in an hour (refused as `rate_limited`). Both counts are kept in memory and start
+  again when the server restarts;
 - reach a third server through yours: only your own active agents receive;
 - mark mail urgent. Relayed mail carries no tags.
 

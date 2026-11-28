@@ -331,7 +331,7 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           domain:
             'mail domain of the peer server an agent lives on; null = an identity on this server. A row with a domain is an address-book entry for relayed mail (nullable, operator-set; directory sync and deliveries create these rows)',
           listed:
-            "on an identity of this server: false = peer servers do not see it in the directory, though mail addressed to it by kid still arrives. On an entry for a peer's agent: false = that peer no longer lists it; mail to it is still sent. active: false on such an entry blocks mail from that agent and stops local sends to it; switching the peer off blocks the whole peer"
+            "on an identity of this server: false = peer servers do not see it in the directory, though mail addressed to it by kid still arrives. On an entry for a peer's agent: false = that peer no longer lists it; mail to it is still sent. active: false on such an entry blocks mail from that agent and refuses new local sends to it; switching the peer off blocks the whole peer"
         },
         writeWhen: [
           'On identity registration (normally via /substrate-setup or substrate-admin register)'
