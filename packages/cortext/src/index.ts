@@ -22,7 +22,7 @@
  * time to contribute postWrite hooks via the engine's kernel-walk.
  */
 
-import type { CoordinatorPlugin } from '@mnmal-ai/substrate/sdk';
+import type { CoordinatorPlugin, ScheduledTaskContext } from '@mnmal-ai/substrate/sdk';
 import { buildAuthPolicies, DEFAULT_AUTH } from './auth-policy.js';
 import { registerCompactRoute, runCompact } from './compact.js';
 import type { CortextPluginConfig } from './config.js';
@@ -30,11 +30,16 @@ import { CORTEXT_COORDINATOR_NAME, SUBSTRATE_CONTRACT_RANGE } from './kernel/ind
 import { reportUncoveredNamespaces } from './kernel-invariants.js';
 import { buildArchitectureNamespace, buildClaudeNamespace } from './namespace.js';
 import { registerOnboardRoute } from './onboard.js';
+import { buildRelayNamespace } from './relay/namespace.js';
+import { drainOutbox, OUTBOX_INTERVAL_MS } from './relay/outbox.js';
+import { createRelayRuntime, type RelayRuntime } from './relay/runtime.js';
+import { SYNC_INTERVAL_MS, syncPeers, warnOwnOpenReads } from './relay/sync.js';
 
 export { buildAuthPolicies, DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
 export { type CompactResult, registerCompactRoute, runCompact } from './compact.js';
 export type { CortextAuthConfig, CortextAuthMode, CortextPluginConfig } from './config.js';
 export {
+  AGENT_MESSAGE_DELIVERY_VOCAB,
   AGENT_MESSAGE_STATUS_VOCAB,
   AGENT_RULE_CATEGORY_VOCAB,
   AGENT_RULE_SEVERITY_ALIASES,
@@ -74,7 +79,12 @@ export {
   type TodoResolution
 } from './todo-resolution.js';
 
-export function createCortextPlugin(cfg: CortextPluginConfig): CoordinatorPlugin {
+export function createCortextPlugin(
+  cfg: CortextPluginConfig,
+  deps: { relay?: Partial<RelayRuntime> } = {}
+): CoordinatorPlugin {
+  const relay = createRelayRuntime(cfg, deps.relay);
+  const relaying = cfg.mailDomain !== undefined;
   return {
     // From the shared constant, not a literal. The KERNEL
     // resolves which namespace to target by filtering
@@ -89,13 +99,47 @@ export function createCortextPlugin(cfg: CortextPluginConfig): CoordinatorPlugin
     // overrides are a supported capability; what was missing was any signal
     // that using one silently disables every kernel invariant. See
     // ./kernel-invariants.ts.
-    onStart: (ctx) => {
+    onStart: async (ctx) => {
       reportUncoveredNamespaces(cfg, ctx.metric);
+      relay.engine = ctx.engine;
+      relay.metric = ctx.metric;
+      // A warning only: a failure to check is reported, and the server starts regardless.
+      if (relaying) {
+        await warnOwnOpenReads(relay, cfg.auth ?? DEFAULT_AUTH).catch((err: unknown) => {
+          const error = err instanceof Error ? err.message : String(err);
+          ctx.metric('cortext.mail_open_reads_check_failed', { error });
+          console.warn(
+            `cortext relay: could not check at start whether mail received here is readable without a key: ${error}`
+          );
+        });
+      }
     },
     namespaces: [
-      buildClaudeNamespace(cfg.namespace),
-      buildArchitectureNamespace(cfg.architectureNamespace)
+      buildClaudeNamespace(cfg.namespace, { relay: relaying }),
+      buildArchitectureNamespace(cfg.architectureNamespace),
+      // Only a server with a mail domain exposes the relay surface.
+      ...(relaying ? [buildRelayNamespace(relay)] : [])
     ],
+    // A new message may be mail for a peer server: send it now rather than at the next schedule.
+    // Never awaited by the mutate, so a failed drain is only reported.
+    ...(relaying
+      ? {
+          onCommittedWrites: (batch): void => {
+            if (
+              batch.namespace !== cfg.namespace ||
+              batch.type !== 'AgentMessage' ||
+              batch.operation !== 'create'
+            ) {
+              return;
+            }
+            drainOutbox(relay).catch((err: unknown) => {
+              console.warn(
+                `cortext relay: outbox drain failed: ${err instanceof Error ? err.message : String(err)}`
+              );
+            });
+          }
+        }
+      : {}),
     // Auth posture. The context store is the agent's memory
     // estate — anonymous writes are a prompt-injection vector with
     // persistence (cold-start + recall inject Memory/AgentRule/Concept rows
@@ -108,20 +152,42 @@ export function createCortextPlugin(cfg: CortextPluginConfig): CoordinatorPlugin
     // internal maintenance writers (compact) pass the resolve-identity
     // system envelope so they keep working under gated writes.
     policies: buildAuthPolicies(cfg.auth ?? DEFAULT_AUTH),
-    schedule:
-      cfg.autoCompactIntervalMs !== undefined
+    schedule: [
+      ...(cfg.autoCompactIntervalMs !== undefined
         ? [
             {
               name: `${cfg.namespace}-auto-compact`,
               intervalMs: cfg.autoCompactIntervalMs,
               runOnStart: false,
-              handler: async (taskCtx): Promise<void> => {
+              handler: async (taskCtx: ScheduledTaskContext): Promise<void> => {
                 await runCompact(taskCtx.engine, cfg.namespace, cfg.compactRetention, false);
                 taskCtx.metric('compact_applied', { namespace: cfg.namespace });
               }
             }
           ]
-        : [],
+        : []),
+      // Retries, and mail whose post-commit send did not run; and the peers' directories.
+      ...(relaying
+        ? [
+            {
+              name: `${cfg.namespace}-mail-outbox`,
+              intervalMs: OUTBOX_INTERVAL_MS,
+              runOnStart: false,
+              handler: async (): Promise<void> => {
+                await drainOutbox(relay);
+              }
+            },
+            {
+              name: `${cfg.namespace}-mail-sync`,
+              intervalMs: SYNC_INTERVAL_MS,
+              runOnStart: true,
+              handler: async (): Promise<void> => {
+                await syncPeers(relay);
+              }
+            }
+          ]
+        : [])
+    ],
     routes: (router, routeCtx): void => {
       registerOnboardRoute(router, routeCtx, cfg.compactRetention, cfg.namespace);
       registerCompactRoute(

@@ -57,6 +57,7 @@ function makeResolvers() {
     // The namespace wraps AgentIdentity's autoCRUD entries in place,
     // so the stub models the real Registry's read-back and replace.
     get: (key: string) => resolvers.get(key),
+    all: () => resolvers.entries(),
     replace: (key: string, entry: unknown) => {
       resolvers.set(key, entry as ResolverEntry);
     }

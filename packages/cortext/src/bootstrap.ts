@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
 import { createCortextPlugin } from './index.js';
 import { ARCHITECTURE_NAMESPACE, CORTEXT_NAMESPACE } from './kernel/index.js';
+import { RELAY_NAMESPACE } from './relay/namespace.js';
 
 const NamespaceSchema = z
   .string()
@@ -32,6 +33,12 @@ const NamespaceSchema = z
  * designed capability with a test that names `codex` explicitly. The knob
  * stays; only the silence goes.
  */
+
+const MailDomainSchema = z
+  .string()
+  .regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/, {
+    message: 'must be a lowercase hostname with at least one dot'
+  });
 
 const AuthModeSchema = z.enum(['open', 'identity']);
 
@@ -56,6 +63,8 @@ export const CortextBootstrapConfigSchema = z
     compactRetention: z.number().int().positive().default(7),
     /** Auto-compact tick interval in milliseconds. Omitted = disabled. */
     autoCompactIntervalMs: z.number().positive().optional(),
+    /** Mail domain of this server. Omitted = no relay namespace (no cross-server mail). */
+    mailDomain: MailDomainSchema.optional(),
     // zod v4 .default() short-circuits parsing, so the fallback must be the
     // fully-resolved posture object — not {} relying on inner defaults.
     auth: AuthPostureSchema.default({ ...DEFAULT_AUTH })
@@ -65,6 +74,15 @@ export const CortextBootstrapConfigSchema = z
     message: 'architectureNamespace must differ from namespace',
     path: ['architectureNamespace']
   })
+  .refine(
+    (cfg) =>
+      cfg.mailDomain === undefined ||
+      (cfg.namespace !== RELAY_NAMESPACE && cfg.architectureNamespace !== RELAY_NAMESPACE),
+    {
+      message: `with mailDomain set, no namespace may be named '${RELAY_NAMESPACE}': the relay namespace owns that name`,
+      path: ['mailDomain']
+    }
+  )
   .refine((cfg) => isMonotonicAuth(cfg.auth), {
     message:
       'auth posture must be monotonic — strictness non-decreasing along reads → writes → deletes ' +
@@ -82,7 +100,8 @@ export const bootstrap = defineBootstrap.coordinator<CortextBootstrapConfig>({
       architectureNamespace: config.architectureNamespace,
       compactRetention: config.compactRetention,
       autoCompactIntervalMs: config.autoCompactIntervalMs,
-      auth: config.auth
+      auth: config.auth,
+      mailDomain: config.mailDomain
     })
 });
 

@@ -42,6 +42,16 @@
         "required": false,
         "type": "string"
       },
+      "domain": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
       "host": {
         "kind": "scalar",
         "nullable": false,
@@ -61,6 +71,16 @@
         "indexed": false,
         "required": true,
         "type": "string"
+      },
+      "listed": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
       },
       "project": {
         "kind": "scalar",
@@ -124,6 +144,51 @@
         "required": true,
         "type": "string"
       },
+      "delivery": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string",
+        "enum": [
+          "delivered",
+          "failed",
+          "pending"
+        ]
+      },
+      "deliveryAttempts": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "number"
+      },
+      "deliveryError": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "deliveryNextAt": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "date"
+      },
       "inReplyTo": {
         "kind": "crossRef",
         "nullable": true,
@@ -153,6 +218,26 @@
         "indexed": true,
         "required": false,
         "target": "AgentIdentity"
+      },
+      "remoteFrom": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "remoteId": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
       },
       "shortId": {
         "kind": "scalar",
@@ -198,6 +283,16 @@
         "indexed": false,
         "required": false,
         "type": "list<string>"
+      },
+      "viaDomain": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
       }
     },
     "AgentRule": {
@@ -1100,6 +1195,98 @@
         ]
       }
     },
+    "MailPeer": {
+      "active": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
+      },
+      "allowOpenReads": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": true,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "boolean"
+      },
+      "blockedReason": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "string"
+      },
+      "domain": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "inboundKid": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "lastSyncAt": {
+        "kind": "scalar",
+        "nullable": true,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": false,
+        "type": "date"
+      },
+      "origin": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "outboundKeyPath": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      },
+      "outboundKid": {
+        "kind": "scalar",
+        "nullable": false,
+        "hasDefault": false,
+        "readonly": false,
+        "serverSet": false,
+        "indexed": false,
+        "required": true,
+        "type": "string"
+      }
+    },
     "Memory": {
       "archived": {
         "kind": "scalar",
@@ -1726,6 +1913,7 @@
         "./kernel:auditObjects",
         "./kernel:cortextBaselineMigration",
         "./kernel:cortextDropEngineOwnedIndexesMigration",
+        "./kernel:cortextRelayMessageUniqueMigration",
         "./kernel:countDuplicateHostInstallKeys",
         "./kernel:countDuplicateKids",
         "./kernel:createCortextKernelPlugin",
@@ -1740,6 +1928,7 @@
         "./kernel:rescopeVocabConstraint",
         "./kernel:resolveCortextNamespaces",
         "./kernel:scopedNamespace",
+        ".:AGENT_MESSAGE_DELIVERY_VOCAB",
         ".:AGENT_MESSAGE_STATUS_VOCAB",
         ".:AGENT_RULE_CATEGORY_VOCAB",
         ".:AGENT_RULE_SEVERITY_ALIASES",
@@ -1777,7 +1966,7 @@
         ".:registerOnboardRoute",
         ".:runCompact"
       ],
-      "dtsDigest": "29c57982"
+      "dtsDigest": "01948c08"
     }
   },
   "surfaceFormat": 2

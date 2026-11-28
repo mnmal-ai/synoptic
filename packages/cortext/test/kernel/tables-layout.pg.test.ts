@@ -156,6 +156,47 @@ describe.skipIf(!onTables)('cortext on the per-type tables layout', () => {
     expect(second.errors?.[0]).toMatchObject({ code: 'unique_violation' });
   });
 
+  it('refuses a second live MailPeer with the same domain or inbound kid', async () => {
+    const peer = {
+      domain: 'peer.example.net',
+      origin: 'https://peer.example.net:3100',
+      inboundKid: 'relay-in@peer.example.net',
+      outboundKid: 'relay-out@host-a.example',
+      outboundKeyPath: '/etc/substrate/keys/relay.key'
+    };
+    const create = (params: Record<string, unknown>) =>
+      mutate({ 'cortext/createMailPeer': { params, fields: { id: true } } });
+    expect((await create(peer)).errors).toBeUndefined();
+    expect(
+      (await create({ ...peer, inboundKid: 'other@peer.example.net' })).errors?.[0]
+    ).toMatchObject({
+      code: 'unique_violation'
+    });
+    expect((await create({ ...peer, domain: 'other.example.net' })).errors?.[0]).toMatchObject({
+      code: 'unique_violation'
+    });
+  });
+
+  it('stores a relayed message once per sending server', async () => {
+    const identity = await mutate({
+      'cortext/createAgentIdentity': {
+        params: { kid: 'agent-a@host-a.example', host: 'host-a.example', project: null },
+        fields: { id: true }
+      }
+    });
+    const recipient = (identity.data['cortext/createAgentIdentity'] as { id: string }).id;
+    const message = (viaDomain: string | null, remoteId: string | null) =>
+      composed.engine
+        .datasetFor(CORTEXT_NAMESPACE)
+        ?.write('AgentMessage', [{ recipient, subject: 's', body: 'b', viaDomain, remoteId }]);
+    await message('peer.example.net', 'r1');
+    await expect(message('peer.example.net', 'r1')).rejects.toThrow(/unique|duplicate/i);
+    await message('other.example.net', 'r1');
+    // Local mail has no viaDomain and never conflicts.
+    await message(null, null);
+    await message(null, null);
+  });
+
   it('refuses an off-vocabulary Todo status and priority', async () => {
     const todo = { title: 't', area: 'a', status: 'open', priority: 'low' };
     for (const params of [

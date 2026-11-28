@@ -129,7 +129,11 @@ export function identityCreateGuard(
 ): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {
     const params = args.params ?? {};
-    if (!isOperator(ctx)) refuseForeignHost(name, params.host, params.kid);
+    if (!isOperator(ctx)) {
+      if (params.domain != null) refuseDomainChange(name);
+      refuseForeignHost(name, params.host, params.kid);
+    }
+    refuseRemoteShape(name, params.domain, params.host, params.roaming);
     // pg holds kid uniqueness with an index; the memory dataset has none, and
     // a second row for one kid makes every send to it `ambiguous_recipient`.
     if (typeof params.kid === 'string') {
@@ -164,12 +168,23 @@ export function identitySelfOnly(
 ): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {
     const id = rowId(args);
-    if (id === undefined || isOperator(ctx)) return inner(ctx, args);
+    if (id === undefined) return inner(ctx, args);
+    const operator = isOperator(ctx);
     const ds: Dataset = args.dataset ?? installCtx.dataset;
     const row = await resolveEntityRow(ds, 'AgentIdentity', id);
     if (row === null) return inner(ctx, args);
 
     const params = args.params ?? {};
+    if (!operator && 'domain' in params && params.domain !== (row.domain ?? null)) {
+      refuseDomainChange(name);
+    }
+    refuseRemoteShape(
+      name,
+      'domain' in params ? params.domain : row.domain,
+      'host' in params ? params.host : row.host,
+      'roaming' in params ? params.roaming : row.roaming
+    );
+    if (operator) return inner(ctx, args);
     if ('kid' in params && params.kid !== row.kid) {
       throw new ResolverFrameError(
         'operator_only',
@@ -247,16 +262,67 @@ export function todoResolutionGuard(
   };
 }
 
-/** AgentIdentity delete: operators only. Mail hangs off these rows. */
-export function operatorOnly(name: string, inner: RegistryEntryResolver): RegistryEntryResolver {
+/** Operators only. `act` finishes "only an operator may …". */
+export function operatorOnly(
+  name: string,
+  inner: RegistryEntryResolver,
+  act: string
+): RegistryEntryResolver {
   return async (ctx: RequestContext, args: ResolverArgs) => {
     if (isOperator(ctx)) return inner(ctx, args);
-    throw new ResolverFrameError(
-      'operator_only',
-      `${name}: only an operator may delete an identity row; retire it with active: false instead`,
-      {}
-    );
+    throw new ResolverFrameError('operator_only', `${name}: only an operator may ${act}`, {});
   };
+}
+
+/** Whether a directory row is an identity on this server: a remote one carries the peer's `domain`. */
+export function isLocalIdentity(row: Row): boolean {
+  return row.domain == null;
+}
+
+/**
+ * Todo create/update: `owner` is an identity that works from this server, so a
+ * remote directory row cannot own one.
+ */
+export function todoOwnerLocal(
+  installCtx: NamespaceInstallContext,
+  name: string,
+  inner: RegistryEntryResolver
+): RegistryEntryResolver {
+  return async (ctx: RequestContext, args: ResolverArgs) => {
+    const owner = args.params?.owner;
+    if (typeof owner === 'string' && owner !== '') {
+      const ds: Dataset = args.dataset ?? installCtx.dataset;
+      const row = await resolveEntityRow(ds, 'AgentIdentity', owner);
+      if (row !== null && !isLocalIdentity(row)) {
+        throw new ResolverFrameError(
+          'remote_owner',
+          `${name}: '${String(row.kid)}' is an identity on another server and cannot own a Todo`,
+          { field: 'owner' }
+        );
+      }
+    }
+    return inner(ctx, args);
+  };
+}
+
+/** A row with a `domain` stands for an agent elsewhere: no host here, and never roaming. */
+function refuseRemoteShape(name: string, domain: unknown, host: unknown, roaming: unknown): void {
+  if (domain == null) return;
+  if (roaming === true || (host != null && host !== '')) {
+    throw new ResolverFrameError(
+      'invalid_remote_identity',
+      `${name}: an identity with a 'domain' has an empty 'host' and cannot roam`,
+      { field: roaming === true ? 'roaming' : 'host' }
+    );
+  }
+}
+
+function refuseDomainChange(name: string): never {
+  throw new ResolverFrameError(
+    'operator_only',
+    `${name}: only an operator may set or change 'domain'`,
+    { field: 'domain' }
+  );
 }
 
 /** The kid that created `row`: `_metadata.createdBy`, set by the server from the signing key. */

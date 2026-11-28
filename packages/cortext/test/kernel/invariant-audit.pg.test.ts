@@ -42,6 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CORTEXT_NAMESPACE } from '../../src/kernel/cortext-namespace.js';
 import { auditObjects, type Finding, INVARIANT_OBJECTS } from '../../src/kernel/invariant-audit.js';
 import { cortextBaselineMigration } from '../../src/kernel/migrations/0001_baseline.js';
+import { cortextRelayMessageUniqueMigration } from '../../src/kernel/migrations/0003_relay_message_unique.js';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
 const describePg = POSTGRES_URL ? describe : describe.skip;
@@ -83,6 +84,7 @@ describePg('invariant audit against a real catalog', () => {
 
     const ctx = { sql: tx, metric: (): void => {}, layout: 'legacy' };
     await cortextBaselineMigration.apply(ctx as never);
+    await cortextRelayMessageUniqueMigration.apply(ctx as never);
 
     // --- the decoys ---
     await tx.unsafe(`
