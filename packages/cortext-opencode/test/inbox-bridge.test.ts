@@ -19,6 +19,7 @@ function msg(id: string, extra: Partial<PushMessage> = {}): PushMessage {
     inReplyTo: null,
     tags: null,
     from: 'peer@host',
+    external: null,
     instance: null,
     createdAt: '2026-10-14T00:00:00Z',
     fromSelf: false,

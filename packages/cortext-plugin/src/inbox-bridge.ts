@@ -80,7 +80,15 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
-  if (!m.fromSelf) await shareMail(b.share, $, 'in', m.from, m.subject, m.body ?? '');
+  if (!m.fromSelf)
+    await shareMail(
+      b.share,
+      $,
+      'in',
+      m.external ? `${m.from} (via ${m.external.domain}, unverified)` : m.from,
+      m.subject,
+      m.body ?? ''
+    );
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;

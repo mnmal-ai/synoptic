@@ -1282,6 +1282,12 @@ function fleetCaveat() {
 
 //#endregion
 //#region ../synoptic/src/inbox-push.js
+/**
+* Fields a relayed message adds to an AgentMessage row. Projected on every inbox read: a server that
+* does not know them answers null for them (an undeclared projection is a `_diagnostics` note, not a
+* refusal), which reads as a local message.
+*/
+const MAIL_FIELDS_RELAY = ["remoteFrom", "viaDomain"];
 /** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
 function sanitizeText(text) {
 	if (!text) return text;
@@ -2642,6 +2648,7 @@ async function loadInbox({ substrateUrl, namespace = "cortext", agentKid, fetchI
 			inReplyTo: true,
 			instance: true,
 			tags: true,
+			...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
 			_metadata: true
 		}
 	} }, { fetchImpl }))[`${namespace}/AgentMessage`] ?? [];

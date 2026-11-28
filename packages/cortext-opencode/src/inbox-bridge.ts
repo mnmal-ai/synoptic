@@ -28,6 +28,7 @@ export type PushMessage = {
   inReplyTo: string | null;
   tags: string[] | null;
   from: string;
+  external: { domain: string; relayKid: string } | null;
   instance: string | null;
   createdAt: string;
   fromSelf: boolean;

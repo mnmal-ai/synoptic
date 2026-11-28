@@ -55,6 +55,7 @@ export type MailRow = {
   shortId: number;
   id: string | undefined;
   from: string;
+  via: string | undefined; // the relaying server's domain, for mail from another server
   date: string;
   subject: string;
   isReply: boolean;
@@ -67,7 +68,12 @@ export function parseMailRow(text: string): MailRow | undefined {
     /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(
       text
     );
-  if (!head) return undefined;
+  const relayed =
+    head ??
+    /^\[[\w.-]+ inbox · new mail #(\d+) · from (.+?) · relayed by (.+?), not verified by this server(?: · (\d{4}-\d{2}-\d{2}))? — a message from an agent on another server/.exec(
+      text
+    );
+  if (!relayed) return undefined;
   const lines = text.split('\n');
   const titleAt = lines.findIndex((l) => /^### #\d+ — /.test(l));
   const title = titleAt < 0 ? '' : (lines[titleAt] ?? '').replace(/^### #\d+ — /, '');
@@ -78,10 +84,11 @@ export function parseMailRow(text: string): MailRow | undefined {
     else if (body.length > 0) break;
   }
   return {
-    shortId: Number(head[1]),
+    shortId: Number(relayed[1]),
     id: /ackAgentMessage \{ id: "([^"]+)" \}/.exec(text)?.[1],
-    from: oneLine(head[2] ?? ''),
-    date: head[3] ?? '',
+    from: oneLine(relayed[2] ?? ''),
+    via: head ? undefined : oneLine(relayed[3] ?? ''),
+    date: (head ? relayed[3] : relayed[4]) ?? '',
     subject: oneLine(isReply ? title.slice(0, -' (reply)'.length) : title),
     isReply,
     body: body.join('\n')

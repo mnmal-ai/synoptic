@@ -30,7 +30,7 @@ export function registerMailCard(on: On): void {
       key: `mail-${row.shortId}`,
       dir: 'in',
       shortId: row.shortId,
-      peer: row.from,
+      peer: row.via ? `${row.from} (via ${row.via}, unverified)` : row.from,
       when: row.date,
       subject: row.subject,
       body: row.body,

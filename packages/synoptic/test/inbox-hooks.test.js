@@ -196,6 +196,37 @@ describe('peer text is inert', () => {
   });
 });
 
+describe('relayed mail in the end-of-turn and prompt summaries', () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: {
+        'cortext/AgentIdentity': [{ id: 'me' }],
+        'cortext/AgentMessage': [
+          {
+            id: 'm1',
+            shortId: 3,
+            subject: 's',
+            remoteFrom: 'agent-b@host-b.example',
+            viaDomain: 'peer.example.net',
+            _metadata: { createdBy: { kind: 'agent', id: 'relay-peer@peer.example.net' } }
+          }
+        ]
+      }
+    })
+  });
+  const env = { SUBSTRATE_URL: 'https://h', SUBSTRATE_AGENT_KEY_ID: 'me@host' };
+
+  it('names the remote sender and the relaying server, not the relay key', async () => {
+    const out = await promptHookContext({ env, fetchImpl });
+    expect(out).toContain(
+      'from agent-b@host-b.example (relayed by peer.example.net, not verified by this server)'
+    );
+    expect(out).not.toContain('relay-peer@');
+  });
+});
+
 describe('closing instructions name the MCP tool and the ids', () => {
   const fetchImpl = async () => ({
     ok: true,

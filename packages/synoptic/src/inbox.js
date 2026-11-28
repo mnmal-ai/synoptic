@@ -7,6 +7,7 @@
 // scoped by addressee, orthogonal to which repo the session is in.
 
 import { substrateFetch } from '@mnmal-ai/substrate/client';
+import { MAIL_FIELDS_RELAY } from './inbox-push.js';
 import { substrateQuery } from './substrate-http.js';
 
 /** One page of unread mail. A full page renders as "50+": the read does not
@@ -73,6 +74,7 @@ export async function loadInbox({
           inReplyTo: true,
           instance: true,
           tags: true,
+          ...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
           _metadata: true
         }
       }

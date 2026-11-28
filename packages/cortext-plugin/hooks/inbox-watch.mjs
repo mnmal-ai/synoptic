@@ -5423,6 +5423,61 @@ function makeSignedFetch(getAuthHeader, fetchImpl = substrateFetch) {
 }
 
 //#endregion
+//#region ../synoptic/src/inbox-push.js
+/**
+* Fields a relayed message adds to an AgentMessage row. Projected on every inbox read: a server that
+* does not know them answers null for them (an undeclared projection is a `_diagnostics` note, not a
+* refusal), which reads as a local message.
+*/
+const MAIL_FIELDS_RELAY = ["remoteFrom", "viaDomain"];
+/**
+* A substrate AgentMessage row (with `_metadata`) as a flat message. For mail relayed from another
+* server `from` is the sender's kid as that server named it, and `external` says which server
+* relayed it; `external.relayKid` is the peer's relay key (what `createdBy` holds), for display and
+* logs only, never the sender.
+*/
+function fromRow(row) {
+	const signer = row._metadata?.createdBy?.id ?? "unknown sender";
+	const domain = typeof row.viaDomain === "string" && row.viaDomain !== "" ? row.viaDomain : null;
+	const named = typeof row.remoteFrom === "string" && row.remoteFrom !== "" ? row.remoteFrom : null;
+	return {
+		id: row.id,
+		shortId: row.shortId,
+		subject: row.subject,
+		body: row.body ?? null,
+		inReplyTo: row.inReplyTo ?? null,
+		tags: row.tags ?? null,
+		from: domain !== null && named !== null ? named : signer,
+		external: domain === null ? null : {
+			domain,
+			relayKid: signer
+		},
+		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
+		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
+	};
+}
+const URGENT_TAG = "priority:urgent";
+/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
+function toWatchMessage(row, { kid, urgentFrom }) {
+	const m = fromRow(row);
+	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
+	return {
+		type: "message",
+		...m,
+		fromSelf: m.external === null && m.from === kid,
+		urgent: tagged && m.external === null && urgentFrom.includes(m.from)
+	};
+}
+/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
+function readInboxKnobs(env) {
+	return {
+		push: env.SYNOPTIC_INBOX_PUSH !== "off",
+		wake: env.SYNOPTIC_INBOX_WAKE === "on",
+		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+	};
+}
+
+//#endregion
 //#region ../synoptic/src/projection-audit.js
 /**
 * Residue for one response: fields substrate reported as undeclared that the call
@@ -5557,43 +5612,6 @@ async function resolveIdentityId({ substrateUrl, namespace = "cortext", agentKid
 }
 
 //#endregion
-//#region ../synoptic/src/inbox-push.js
-/** A substrate AgentMessage row (with `_metadata`) as a flat message. */
-function fromRow(row) {
-	return {
-		id: row.id,
-		shortId: row.shortId,
-		subject: row.subject,
-		body: row.body ?? null,
-		inReplyTo: row.inReplyTo ?? null,
-		tags: row.tags ?? null,
-		from: row._metadata?.createdBy?.id ?? "unknown sender",
-		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
-		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
-	};
-}
-const URGENT_TAG = "priority:urgent";
-/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
-function toWatchMessage(row, { kid, urgentFrom }) {
-	const m = fromRow(row);
-	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
-	return {
-		type: "message",
-		...m,
-		fromSelf: m.from === kid,
-		urgent: tagged && urgentFrom.includes(m.from)
-	};
-}
-/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
-function readInboxKnobs(env) {
-	return {
-		push: env.SYNOPTIC_INBOX_PUSH !== "off",
-		wake: env.SYNOPTIC_INBOX_WAKE === "on",
-		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
-	};
-}
-
-//#endregion
 //#region ../synoptic/src/inbox-watch.js
 const OVERLOAD = "subscription_overloaded";
 async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, namespace, signal, clientOptions = {} }) {
@@ -5648,6 +5666,7 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 			inReplyTo: true,
 			instance: true,
 			tags: true,
+			...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
 			_metadata: true
 		}
 	} };

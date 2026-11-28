@@ -4,7 +4,7 @@
 
 import { SubscribeError, SubstrateClient } from '@mnmal-ai/substrate/client';
 import { resolveIdentityId } from './inbox.js';
-import { readInboxKnobs, toWatchMessage } from './inbox-push.js';
+import { MAIL_FIELDS_RELAY, readInboxKnobs, toWatchMessage } from './inbox-push.js';
 
 const OVERLOAD = 'subscription_overloaded';
 
@@ -74,6 +74,7 @@ export async function runWatcher({
         inReplyTo: true,
         instance: true,
         tags: true,
+        ...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
         _metadata: true
       }
     }

@@ -7,6 +7,7 @@ export type InboxMessage = {
   inReplyTo: string | null;
   tags: string[] | null;
   from: string;
+  external: { domain: string; relayKid: string } | null;
   createdAt: string;
   fromSelf: boolean;
   urgent: boolean;

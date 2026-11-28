@@ -24,6 +24,25 @@ describe('parseMailRow', () => {
       body: 'line one\n\nline three'
     });
   });
+  it('reads back relayed mail with the relaying server', () => {
+    const row = parseMailRow(
+      renderPushRow(
+        {
+          ...m,
+          from: 'agent-b@host-b.example',
+          external: { domain: 'peer.example.net', relayKid: 'k' }
+        },
+        'cortext'
+      )
+    );
+    expect(row).toMatchObject({
+      shortId: 42,
+      from: 'agent-b@host-b.example',
+      via: 'peer.example.net',
+      date: '2026-11-25',
+      subject: 'Gate green'
+    });
+  });
   it('reads a row with no body', () => {
     const row = parseMailRow(renderPushRow({ ...m, body: null, inReplyTo: null }));
     expect(row?.body).toBe('');
