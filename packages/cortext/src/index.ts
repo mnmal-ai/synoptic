@@ -101,6 +101,7 @@ export function createCortextPlugin(
     onStart: (ctx) => {
       reportUncoveredNamespaces(cfg, ctx.metric);
       relay.engine = ctx.engine;
+      relay.metric = ctx.metric;
     },
     namespaces: [
       buildClaudeNamespace(cfg.namespace, { relay: relaying }),

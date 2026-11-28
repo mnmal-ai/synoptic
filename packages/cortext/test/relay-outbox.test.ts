@@ -26,6 +26,10 @@ const REMOTE = 'agent-b@host-b.example';
 const STRAY = 'agent-d@host-d.example';
 const PEER_DOMAIN = 'peer.example.net';
 const ORIGIN = 'https://peer.example.net';
+// A second peer, for mail that must not wait behind the first.
+const REMOTE_TWO = 'agent-e@host-e.example';
+const PEER_TWO_DOMAIN = 'peer-two.example.net';
+const ORIGIN_TWO = 'https://peer-two.example.net';
 const OUT_KID = 'relay-out@substrate.example.org';
 const DELIVER = 'cortext-relay/deliver';
 const MINUTE = 60_000;
@@ -59,9 +63,9 @@ afterEach(async () => {
 });
 
 /**
- * A sender with two local agents, an agent on the peer and one on a domain no peer serves. The
- * plugin's own post-commit hook is left out unless `hook` is set, so each test drains when it
- * chooses.
+ * A sender with two local agents, an agent on each of two peers and one on a domain no peer
+ * serves. The plugin's own post-commit hook is left out unless `hook` is set, so each test drains
+ * when it chooses.
  */
 async function setup(opts: { mailDomain?: string | undefined; hook?: boolean } = {}) {
   const mailDomain = 'mailDomain' in opts ? opts.mailDomain : MAIL_DOMAIN;
@@ -111,18 +115,34 @@ async function setup(opts: { mailDomain?: string | undefined; hook?: boolean } =
       outboundKid: OUT_KID,
       outboundKeyPath: keyPath,
       active: true
+    },
+    {
+      id: 'peer-two',
+      domain: PEER_TWO_DOMAIN,
+      origin: ORIGIN_TWO,
+      inboundKid: 'relay-in@peer-two.example.net',
+      outboundKid: OUT_KID,
+      outboundKeyPath: keyPath,
+      active: true
     }
   ]);
   await ds.write('AgentIdentity', [
     { id: 'sender', kid: SENDER, host: 'host-a.example', active: true },
     { id: 'neighbour', kid: NEIGHBOUR, host: 'host-a.example', active: true },
     { id: 'remote', kid: REMOTE, host: '', domain: PEER_DOMAIN, active: true },
+    { id: 'remote-two', kid: REMOTE_TWO, host: '', domain: PEER_TWO_DOMAIN, active: true },
     { id: 'stray', kid: STRAY, host: '', domain: 'nowhere.example.net', active: true }
   ]);
 
+  const metrics: Array<{ name: string; payload: unknown }> = [];
   const rt: RelayRuntime = createRelayRuntime(
     { namespace: NS, mailDomain: mailDomain ?? '' },
-    { engine: composed.engine, fetchImpl, now }
+    {
+      engine: composed.engine,
+      fetchImpl,
+      now,
+      metric: (name, payload) => metrics.push({ name, payload })
+    }
   );
   const send = async (params: Record<string, unknown>, kid = SENDER) => {
     const res = await server.inject({
@@ -172,6 +192,7 @@ async function setup(opts: { mailDomain?: string | undefined; hook?: boolean } =
     keyPath,
     publicKey,
     calls,
+    metrics,
     h,
     send,
     sendRemote,
@@ -266,7 +287,7 @@ describe('drainOutbox', () => {
       body: 'over there',
       instance: 'session:1a2b3c4d'
     });
-    // Signed with the peer row's outbound key, for the peer's origin.
+    // Signed with the peer row's outbound key, for the peer's origin and the relay alone.
     const auth = (call?.init.headers as Record<string, string> | undefined)?.authorization ?? '';
     const [head, payload, sig] = auth.replace(/^Bearer /, '').split('.') as [
       string,
@@ -282,9 +303,11 @@ describe('drainOutbox', () => {
       )
     ).toBe(true);
     expect(JSON.parse(Buffer.from(head, 'base64url').toString())).toMatchObject({ kid: OUT_KID });
+    // Good for the relay namespace only, whatever the peer granted the key.
     expect(JSON.parse(Buffer.from(payload, 'base64url').toString())).toMatchObject({
       sub: OUT_KID,
-      aud: ORIGIN
+      aud: ORIGIN,
+      ns: ['cortext-relay']
     });
   });
 
@@ -317,14 +340,14 @@ describe('drainOutbox', () => {
     expect(await message(id)).toMatchObject({
       delivery: 'pending',
       deliveryAttempts: 1,
-      deliveryError: expect.stringContaining('fetch failed')
+      deliveryError: 'network'
     });
     let expected = 1;
     for (const delay of [1, 2, 4]) {
-      advance(delay * MINUTE - 1000);
+      advance(delay * MINUTE - 30_000);
       await drainOutbox(rt);
       expect(calls).toHaveLength(expected);
-      advance(1000);
+      advance(30_000);
       await drainOutbox(rt);
       expect(calls).toHaveLength(++expected);
     }
@@ -336,11 +359,11 @@ describe('drainOutbox', () => {
     const id = await sendRemote();
     h.respond = () => new Response('unavailable', { status: 503 });
     expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
-    expect((await message(id))?.deliveryError).toContain('503');
+    expect((await message(id))?.deliveryError).toBe('http_503');
     advance(MINUTE);
     h.respond = () => refused('rate_limited');
     expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
-    expect((await message(id))?.deliveryError).toContain('rate_limited');
+    expect((await message(id))?.deliveryError).toBe('rate_limited');
     advance(2 * MINUTE);
     h.respond = () => accepted();
     expect(await drainOutbox(rt)).toEqual({ delivered: 1, retried: 0, failed: 0 });
@@ -357,7 +380,58 @@ describe('drainOutbox', () => {
     const id = await sendRemote();
     h.respond = () => new Response('x'.repeat(1024 * 1024 + 1), { status: 200 });
     expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
-    expect((await message(id))?.delivery).toBe('pending');
+    expect(await message(id)).toMatchObject({
+      delivery: 'pending',
+      deliveryError: 'answer_too_large'
+    });
+  });
+
+  it.each([
+    ['times out', () => Promise.reject(new DOMException('timed out', 'TimeoutError')), 'timeout'],
+    ['answers 503', () => new Response('unavailable', { status: 503 }), 'http_503']
+  ])(
+    'calls a peer that %s once per pass and still delivers to the others',
+    async (_case, dead, code) => {
+      const { rt, send, sendRemote, message, calls, h } = await setup();
+      h.respond = (url) => (url.startsWith(ORIGIN_TWO) ? accepted() : dead());
+      const stuck = [await sendRemote(), await sendRemote(), await sendRemote()];
+      const { sent } = await send({ to: REMOTE_TWO, subject: 'hello', body: 'b' });
+      expect(await drainOutbox(rt)).toEqual({ delivered: 1, retried: 3, failed: 0 });
+      expect(calls.filter((c) => c.url.startsWith(ORIGIN))).toHaveLength(1);
+      expect(calls.filter((c) => c.url.startsWith(ORIGIN_TWO))).toHaveLength(1);
+      expect((await message(String(sent[0]?.id)))?.delivery).toBe('delivered');
+      for (const id of stuck) {
+        expect(await message(id)).toMatchObject({
+          delivery: 'pending',
+          deliveryAttempts: 1,
+          deliveryError: code
+        });
+      }
+    }
+  );
+
+  it("keeps none of a peer's own text in the row or the bounce", async () => {
+    const { rt, sendRemote, message, bounces, h, advance } = await setup();
+    const marker = 'peer-written-';
+    h.respond = () =>
+      json({
+        data: {},
+        errors: [{ code: marker.repeat(770).slice(0, 10_000), message: marker.repeat(5_000) }]
+      });
+    const id = await sendRemote();
+    expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
+    expect((await message(id))?.deliveryError).toBe('refused');
+    // A known code keeps its name; its message is not kept either.
+    advance(MINUTE);
+    h.respond = () =>
+      json({ data: {}, errors: [{ code: 'unknown_recipient', message: marker.repeat(5_000) }] });
+    expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 0, failed: 1 });
+    expect((await message(id))?.deliveryError).toBe('unknown_recipient');
+    const [bounce] = await bounces();
+    expect(bounce?.body).toBe(
+      `Your message to ${REMOTE} on ${PEER_DOMAIN} was not delivered: that server has no active agent of that name.`
+    );
+    expect(JSON.stringify([await message(id), bounce])).not.toContain(marker);
   });
 
   it.each([
@@ -377,7 +451,7 @@ describe('drainOutbox', () => {
     expect(calls).toHaveLength(1);
     expect(await message(id)).toMatchObject({
       delivery: 'failed',
-      deliveryError: expect.stringContaining(code)
+      deliveryError: code
     });
     expect((await message(id))?.deliveryNextAt ?? null).toBeNull();
     const [bounce, ...more] = await bounces();
@@ -389,9 +463,11 @@ describe('drainOutbox', () => {
       inReplyTo: id,
       _metadata: expect.objectContaining({ createdBy: { kind: 'system', id: 'cortext:relay' } })
     });
-    expect(bounce?.body).toContain(REMOTE);
-    expect(bounce?.body).toContain(PEER_DOMAIN);
-    expect(bounce?.body).toContain(code);
+    expect(bounce?.body).toMatch(
+      new RegExp(`^Your message to ${REMOTE} on ${PEER_DOMAIN} was not delivered: .+\\.$`)
+    );
+    // The peer's message is not quoted.
+    expect(bounce?.body).not.toContain('deliver:');
     advance(2 * 60 * MINUTE);
     await drainOutbox(rt);
     expect(calls).toHaveLength(1);
@@ -402,7 +478,7 @@ describe('drainOutbox', () => {
     h.respond = () => new Response('unavailable', { status: 503 });
     const id = await sendRemote();
     await drainOutbox(rt);
-    advance(24 * 60 * MINUTE - 1000);
+    advance(24 * 60 * MINUTE - 30_000);
     await drainOutbox(rt);
     expect(calls).toHaveLength(2);
     expect((await message(id))?.delivery).toBe('pending');
@@ -412,15 +488,17 @@ describe('drainOutbox', () => {
     expect(calls).toHaveLength(2);
     expect(await message(id)).toMatchObject({
       delivery: 'failed',
-      deliveryError: expect.stringContaining('24 hours')
+      deliveryError: 'expired'
     });
-    expect(await bounces()).toHaveLength(1);
+    const [bounce, ...more] = await bounces();
+    expect(more).toHaveLength(0);
+    expect(bounce?.body).toContain('within 24 hours');
   });
 
   it.each([
-    ['switched off', { active: false }, 'switched off'],
-    ['blocked', { blockedReason: 'abuse report' }, 'abuse report']
-  ])('fails and bounces queued mail when the peer is %s', async (_case, patch, reason) => {
+    ['switched off', { active: false }, 'peer_inactive', 'switched off'],
+    ['blocked', { blockedReason: 'abuse report' }, 'peer_blocked', 'blocked']
+  ])('fails and bounces queued mail when the peer is %s', async (_case, patch, code, reason) => {
     const { rt, sendRemote, message, bounces, calls, ds } = await setup();
     const id = await sendRemote();
     await ds.write('MailPeer', [{ id: 'peer', ...patch }]);
@@ -428,24 +506,41 @@ describe('drainOutbox', () => {
     expect(calls).toHaveLength(0);
     expect(await message(id)).toMatchObject({
       delivery: 'failed',
-      deliveryError: expect.stringContaining(reason)
+      deliveryError: code
     });
     const [bounce] = await bounces();
     expect(bounce?.body).toContain(reason);
+    expect(bounce?.body).not.toContain('abuse report');
   });
 
-  it('stays pending and records the reason when the key file is missing', async () => {
-    const { rt, sendRemote, message, calls, ds, keyPath } = await setup();
+  it('stays pending when the key file is missing, naming the path only to the operator', async () => {
+    const { rt, sendRemote, message, bounces, calls, metrics, ds, keyPath, advance } =
+      await setup();
     const missing = join(keyPath, '..', 'missing.key');
     await ds.write('MailPeer', [{ id: 'peer', outboundKeyPath: missing }]);
-    const id = await sendRemote();
-    expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
-    expect(calls).toHaveLength(0);
-    expect(await message(id)).toMatchObject({
-      delivery: 'pending',
-      deliveryAttempts: 1,
-      deliveryError: expect.stringContaining(missing)
-    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const id = await sendRemote();
+      expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
+      expect(calls).toHaveLength(0);
+      expect(await message(id)).toMatchObject({
+        delivery: 'pending',
+        deliveryAttempts: 1,
+        deliveryError: 'key_unusable'
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(missing));
+      expect(metrics).toContainEqual({
+        name: 'cortext.mail_key_unusable',
+        payload: expect.objectContaining({ error: expect.stringContaining(missing) })
+      });
+      // Nor does the bounce, once it gives up.
+      advance(24 * 60 * MINUTE);
+      expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 0, failed: 1 });
+      expect(await bounces()).toHaveLength(1);
+      expect(JSON.stringify([await message(id), ...(await bounces())])).not.toContain(missing);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('never bounces a bounce', async () => {

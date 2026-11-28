@@ -14,6 +14,8 @@ export interface RelayRuntime {
   mailDomain: string;
   fetchImpl: typeof fetch;
   now: () => Date;
+  /** The plugin's metric sink, set by `onStart`; a no-op until then. */
+  metric: (name: string, payload?: unknown) => void;
 }
 
 export function createRelayRuntime(
@@ -27,6 +29,7 @@ export function createRelayRuntime(
     mailDomain: cfg.mailDomain ?? '',
     fetchImpl: fetch,
     now: () => new Date(),
+    metric: () => {},
     ...overrides
   };
 }

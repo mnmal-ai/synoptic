@@ -60,7 +60,9 @@ describe.skipIf(store === undefined)('the outbox on Postgres', () => {
     writeFileSync(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }));
     const cfg = { namespace: CORTEXT_NAMESPACE, mailDomain: 'substrate.example.org' };
     // Without its post-commit hook, so each test drains when it chooses.
-    const { onCommittedWrites: _hook, ...coordinator } = buildClaudeForTest(cfg);
+    const { onCommittedWrites: _hook, ...coordinator } = buildClaudeForTest(cfg, {
+      relay: { fetchImpl }
+    });
     const types = coordinator.namespaces?.[0]?.types ?? {};
     const edgesStore = new PgEdgesStore({ sql });
     composed = await compose({

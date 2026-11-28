@@ -7,6 +7,9 @@
  * in one conditional update, which also sets its next attempt time, then sent, then its outcome is
  * recorded in another conditional update. A row whose send or outcome write throws stays pending
  * and is tried again at that time.
+ *
+ * Nothing a peer writes reaches a row: `deliveryError` holds one of this server's fixed codes or a
+ * code from `KNOWN_CODES`, and a bounce says why in a sentence this server chose for that code.
  */
 
 import type { Dataset, Row } from '@mnmal-ai/substrate/sdk';
@@ -22,8 +25,6 @@ const BATCH_SIZE = 100;
 const MINUTE_MS = 60_000;
 const RETRY_MAX_MINUTES = 60;
 const GIVE_UP_MS = 24 * 60 * MINUTE_MS;
-/** How much of a peer's error message is kept in `deliveryError` and quoted in a bounce. */
-const PEER_MESSAGE_MAX_CHARS = 500;
 const BOUNCE_TAG = 'system:bounce';
 const TYPE = 'AgentMessage';
 
@@ -38,6 +39,25 @@ const PERMANENT_CODES: ReadonlySet<string> = new Set([
   'invalid_param',
   'unknown_param'
 ]);
+/** The peer codes kept as they are; any other code a peer answers is recorded as `refused`. */
+const KNOWN_CODES: ReadonlySet<string> = new Set([...PERMANENT_CODES, 'rate_limited']);
+
+/** Why the sender's mail did not arrive, by `deliveryError` code. */
+const BOUNCE_REASONS: Record<string, string> = {
+  unknown_recipient: 'that server has no active agent of that name',
+  foreign_sender: 'that server does not accept you as the sender',
+  kid_collision: 'that server does not accept you as the sender',
+  unknown_peer: 'that server does not recognise this server as a mail peer',
+  too_large: 'the message is larger than that server accepts',
+  unsupported_version: 'that server speaks another version of the relay protocol',
+  invalid_param: 'that server refused the message as malformed',
+  unknown_param: 'that server refused the message as malformed',
+  peer_missing: 'this server no longer exchanges mail with that server',
+  peer_blocked: 'this server has blocked mail to that server',
+  peer_inactive: 'this server has switched off mail to that server',
+  recipient_gone: 'the recipient is no longer in the directory as an agent of another server',
+  expired: 'it could not be delivered within 24 hours'
+};
 
 export function isPermanent(code: string | undefined): boolean {
   return code !== undefined && PERMANENT_CODES.has(code);
@@ -49,7 +69,7 @@ export interface DrainResult {
   failed: number;
 }
 
-/** What a peer answered: the HTTP status and the parsed JSON envelope. */
+/** What a peer answered: the HTTP status and the parsed JSON envelope, `{}` when not JSON. */
 export interface PeerAnswer {
   status: number;
   envelope: {
@@ -58,31 +78,56 @@ export interface PeerAnswer {
   };
 }
 
+/** A call to a peer that got no answer, with a code this server chose. */
+export class PeerCallError extends Error {
+  constructor(
+    readonly code: 'timeout' | 'network' | 'answer_too_large',
+    cause?: unknown
+  ) {
+    super(code, { cause });
+  }
+}
+
 /** The MailPeer row for `domain`, read through `ds`. */
 export async function peerFor(ds: Dataset, domain: string): Promise<Row | undefined> {
   return (await ds.read('MailPeer', { where: { domain: { eq: domain } }, limit: 1 })).rows[0];
 }
 
-/** Why mail for `domain` cannot go through `peer`, or undefined when it can. */
-export function peerUnavailable(peer: Row | undefined, domain: string): string | undefined {
-  if (peer === undefined) return `no mail peer serves ${domain}`;
-  if (typeof peer.blockedReason === 'string' && peer.blockedReason !== '') {
-    return `the mail peer for ${domain} is blocked: ${peer.blockedReason}`;
-  }
-  if (peer.active !== true) return `the mail peer for ${domain} is switched off`;
+/** What stops mail going through `peer`, or undefined when nothing does. */
+export function peerProblem(
+  peer: Row | undefined
+): 'peer_missing' | 'peer_blocked' | 'peer_inactive' | undefined {
+  if (peer === undefined) return 'peer_missing';
+  if (typeof peer.blockedReason === 'string' && peer.blockedReason !== '') return 'peer_blocked';
+  if (peer.active !== true) return 'peer_inactive';
   return undefined;
 }
 
+/** `peerProblem` as a sentence for the sender, naming `domain` and quoting `blockedReason`. */
+export function peerUnavailable(peer: Row | undefined, domain: string): string | undefined {
+  switch (peerProblem(peer)) {
+    case 'peer_missing':
+      return `no mail peer serves ${domain}`;
+    case 'peer_blocked':
+      return `the mail peer for ${domain} is blocked: ${String(peer?.blockedReason)}`;
+    case 'peer_inactive':
+      return `the mail peer for ${domain} is switched off`;
+    default:
+      return undefined;
+  }
+}
+
 /**
- * `Bearer <jwt>` signed with the peer row's outbound key and kid, for the peer's origin. A key that
- * cannot be read throws an error naming its path, never its contents.
+ * `Bearer <jwt>` signed with the peer row's outbound key and kid, for the peer's origin and the
+ * relay namespace only. A key that cannot be read throws an error naming its path, never its
+ * contents; the path is operator-only, so the message is for logs, never for a row.
  */
 export function peerAuthorization(peer: Row): string {
   const keyPath = String(peer.outboundKeyPath);
   try {
     return makeAuthorizationProvider(
       { keyPath, kid: String(peer.outboundKid) },
-      { audience: String(peer.origin) }
+      { audience: String(peer.origin), namespaces: [RELAY_NAMESPACE] }
     )();
   } catch (err) {
     const code = (err as { code?: unknown }).code;
@@ -94,9 +139,9 @@ export function peerAuthorization(peer: Row): string {
 
 /**
  * POST `frame` to `<origin>/substrate/v1/<route>`, signed when `authorization` is given. Follows no
- * redirect, gives up after 10 s and reads at most 1 MiB of the answer. Throws on a network error,
- * a timeout, a redirect, a larger answer or one that is not JSON. Any other answer is returned,
- * whatever its status: a 200 can still carry `errors`.
+ * redirect, gives up after 10 s and reads at most 1 MiB of the answer. No answer (a network error,
+ * a timeout, a redirect, a larger answer) throws a `PeerCallError`. Any answer is returned, whatever
+ * its status, so the caller reads `errors` first: a 200 can carry them.
  */
 export async function postToPeer(
   rt: RelayRuntime,
@@ -105,21 +150,31 @@ export async function postToPeer(
   frame: Record<string, unknown>,
   authorization?: string
 ): Promise<PeerAnswer> {
-  const res = await rt.fetchImpl(`${origin}/substrate/v1/${route}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(authorization !== undefined ? { authorization } : {})
-    },
-    body: JSON.stringify(frame),
-    redirect: 'error',
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-  });
-  const body = await readCapped(res);
+  let status: number;
+  let body: string;
   try {
-    return { status: res.status, envelope: JSON.parse(body) ?? {} };
+    const res = await rt.fetchImpl(`${origin}/substrate/v1/${route}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(authorization !== undefined ? { authorization } : {})
+      },
+      body: JSON.stringify(frame),
+      redirect: 'error',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    });
+    status = res.status;
+    body = await readCapped(res);
+  } catch (err) {
+    if (err instanceof PeerCallError) throw err;
+    const timedOut =
+      err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    throw new PeerCallError(timedOut ? 'timeout' : 'network', err);
+  }
+  try {
+    return { status, envelope: JSON.parse(body) ?? {} };
   } catch {
-    throw new Error(`${origin} answered ${res.status} without a JSON body`);
+    return { status, envelope: {} };
   }
 }
 
@@ -134,7 +189,7 @@ async function readCapped(res: Response): Promise<string> {
     size += value.byteLength;
     if (size > RESPONSE_MAX_BYTES) {
       await reader.cancel();
-      throw new Error(`the answer is larger than ${RESPONSE_MAX_BYTES} bytes`);
+      throw new PeerCallError('answer_too_large');
     }
     chunks.push(value);
   }
@@ -181,12 +236,14 @@ async function drainOnce(rt: RelayRuntime, result: DrainResult): Promise<void> {
     orderBy: [{ createdAt: 'asc' }],
     limit: BATCH_SIZE
   });
+  // Peers this pass could not reach, with why: their later rows are not sent until the next pass.
+  const unreachable = new Map<string, string>();
   // One at a time: a peer is never sent more than one delivery at once from this process. Copies,
   // since a memory store hands out its live rows and a claim must compare what this read saw.
   for (const row of rows.map((r) => ({ ...r }))) {
     let outcome: keyof DrainResult | undefined;
     try {
-      outcome = await drainRow(rt, ds, row);
+      outcome = await drainRow(rt, ds, row, unreachable);
     } catch (err) {
       console.warn(`cortext relay: message ${String(row.id)} stays pending: ${errorText(err)}`);
       outcome = 'retried';
@@ -199,7 +256,8 @@ async function drainOnce(rt: RelayRuntime, result: DrainResult): Promise<void> {
 async function drainRow(
   rt: RelayRuntime,
   ds: Dataset,
-  row: Row
+  row: Row,
+  unreachable: Map<string, string>
 ): Promise<keyof DrainResult | undefined> {
   const recipient =
     typeof row.recipient === 'string'
@@ -211,57 +269,36 @@ async function drainRow(
   const now = rt.now();
   const unclaimed = { delivery: 'pending', deliveryAttempts: row.deliveryAttempts ?? null };
   const age = now.getTime() - Date.parse(String(row._metadata?.createdAt));
-  const reason =
+  const problem =
     recipient?.domain == null
-      ? 'the recipient is no longer an agent of a peer server'
-      : (peerUnavailable(peer, domain) ??
-        (age >= GIVE_UP_MS
-          ? `not delivered within 24 hours; the last attempt said: ${String(row.deliveryError ?? 'nothing')}`
-          : undefined));
-  if (peer === undefined || reason !== undefined) {
-    // peerUnavailable names a missing peer, so `reason` is set here.
-    return fail(rt, ds, row, unclaimed, to, domain, String(reason));
+      ? 'recipient_gone'
+      : (peerProblem(peer) ?? (age >= GIVE_UP_MS ? 'expired' : undefined));
+  if (peer === undefined || problem !== undefined) {
+    // peerProblem names a missing peer, so `problem` is set here.
+    return fail(rt, ds, row, unclaimed, to, domain, String(problem));
   }
 
   const attempts = Number(row.deliveryAttempts ?? 0);
   const retryMs = Math.min(2 ** attempts, RETRY_MAX_MINUTES) * MINUTE_MS;
+  const skipped = unreachable.get(domain);
   const claim = await ds.conditionalUpdate(
     TYPE,
     row.id,
     unclaimed,
     {
       deliveryAttempts: attempts + 1,
-      deliveryNextAt: new Date(now.getTime() + retryMs).toISOString()
+      deliveryNextAt: new Date(now.getTime() + retryMs).toISOString(),
+      ...(skipped !== undefined ? { deliveryError: skipped } : {})
     },
     RELAY_ACTOR
   );
   if (!claim.matched) return undefined;
+  if (skipped !== undefined) return 'retried';
   const claimed = { deliveryAttempts: attempts + 1 };
-  const key = `${RELAY_NAMESPACE}/deliver`;
 
-  let answer: PeerAnswer;
-  try {
-    const params = await deliverParams(ds, row, to, domain);
-    answer = await postToPeer(
-      rt,
-      String(peer.origin),
-      'mutate',
-      { [key]: { params, fields: { id: true, shortId: true, duplicate: true } } },
-      peerAuthorization(peer)
-    );
-  } catch (err) {
-    await ds.conditionalUpdate(
-      TYPE,
-      row.id,
-      claimed,
-      { deliveryError: errorText(err) },
-      RELAY_ACTOR
-    );
-    return 'retried';
-  }
-  // A repeat of a delivered message answers with the first id, so it counts as delivered too.
-  const delivered = answer.envelope.data?.[key] as { id?: unknown } | undefined;
-  if (typeof delivered?.id === 'string') {
+  const { code, peerWide } = await send(rt, ds, row, peer, to, domain);
+  if (peerWide) unreachable.set(domain, code);
+  if (code === 'delivered') {
     await ds.conditionalUpdate(
       TYPE,
       row.id,
@@ -271,17 +308,55 @@ async function drainRow(
     );
     return 'delivered';
   }
-  const error = answer.envelope.errors?.[0];
-  const said =
-    error?.code !== undefined
-      ? `${error.code}: ${String(error.message ?? '').slice(0, PEER_MESSAGE_MAX_CHARS)}`
-      : undefined;
-  if (isPermanent(error?.code)) {
-    return fail(rt, ds, row, claimed, to, domain, `${domain} refused it with ${said}`);
-  }
-  const retry = `${domain} answered ${answer.status} ${said !== undefined ? `with ${said}` : 'without a message id'}`;
-  await ds.conditionalUpdate(TYPE, row.id, claimed, { deliveryError: retry }, RELAY_ACTOR);
+  if (isPermanent(code)) return fail(rt, ds, row, claimed, to, domain, code);
+  await ds.conditionalUpdate(TYPE, row.id, claimed, { deliveryError: code }, RELAY_ACTOR);
   return 'retried';
+}
+
+/**
+ * One delivery to the peer: `delivered`, or the `deliveryError` code. `peerWide` is set when the
+ * failure would be the same for any row of this peer: the key, no answer, or a 5xx.
+ */
+async function send(
+  rt: RelayRuntime,
+  ds: Dataset,
+  row: Row,
+  peer: Row,
+  to: string,
+  domain: string
+): Promise<{ code: string; peerWide: boolean }> {
+  const params = await deliverParams(ds, row, to, domain);
+  let authorization: string;
+  try {
+    authorization = peerAuthorization(peer);
+  } catch (err) {
+    console.warn(`cortext relay: mail to ${domain} is held: ${errorText(err)}`);
+    rt.metric('cortext.mail_key_unusable', { domain, error: errorText(err) });
+    return { code: 'key_unusable', peerWide: true };
+  }
+  const key = `${RELAY_NAMESPACE}/deliver`;
+  let answer: PeerAnswer;
+  try {
+    answer = await postToPeer(
+      rt,
+      String(peer.origin),
+      'mutate',
+      { [key]: { params, fields: { id: true, shortId: true, duplicate: true } } },
+      authorization
+    );
+  } catch (err) {
+    return { code: err instanceof PeerCallError ? err.code : 'network', peerWide: true };
+  }
+  // A repeat of a delivered message answers with the first id, so it counts as delivered too.
+  const delivered = answer.envelope.data?.[key] as { id?: unknown } | undefined;
+  if (typeof delivered?.id === 'string') return { code: 'delivered', peerWide: false };
+  if (answer.status >= 500) return { code: `http_${answer.status}`, peerWide: true };
+  const peerCode = answer.envelope.errors?.[0]?.code;
+  if (peerCode !== undefined) {
+    return { code: KNOWN_CODES.has(peerCode) ? peerCode : 'refused', peerWide: false };
+  }
+  const ok = answer.status >= 200 && answer.status < 300;
+  return { code: ok ? 'no_message_id' : `http_${answer.status}`, peerWide: false };
 }
 
 async function deliverParams(
@@ -310,7 +385,7 @@ async function deliverParams(
   };
 }
 
-/** Mark the row failed, if `match` still holds, and bounce it to its sender. */
+/** Mark the row failed with `code`, if `match` still holds, and bounce it to its sender. */
 async function fail(
   rt: RelayRuntime,
   ds: Dataset,
@@ -318,18 +393,18 @@ async function fail(
   match: Record<string, unknown>,
   to: string,
   domain: string,
-  reason: string
+  code: string
 ): Promise<'failed' | undefined> {
   const { matched } = await ds.conditionalUpdate(
     TYPE,
     row.id,
     match,
-    { delivery: 'failed', deliveryNextAt: null, deliveryError: reason },
+    { delivery: 'failed', deliveryNextAt: null, deliveryError: code },
     RELAY_ACTOR
   );
   if (!matched) return undefined;
   try {
-    await bounce(rt, row, to, domain, reason);
+    await bounce(rt, row, to, domain, code);
   } catch (err) {
     console.warn(`cortext relay: no bounce for message ${String(row.id)}: ${errorText(err)}`);
   }
@@ -342,19 +417,20 @@ async function bounce(
   row: Row,
   to: string,
   domain: string,
-  reason: string
+  code: string
 ): Promise<void> {
   if (Array.isArray(row.tags) && row.tags.includes(BOUNCE_TAG)) return;
   const engine = rt.engine;
   if (engine === undefined) throw new Error('the engine is not available yet');
   const ns = rt.mailNamespace;
+  const why = BOUNCE_REASONS[code] ?? 'it could not be delivered';
   const envelope = await engine.mutate({
     frame: {
       [formatQualifiedKey(ns, 'sendAgentMessage')]: {
         params: {
           to: [String(row._metadata?.createdBy?.id)],
           subject: `Undelivered: ${String(row.subject)}`,
-          body: `Your message to ${to} on ${domain} was not delivered: ${reason}`,
+          body: `Your message to ${to} on ${domain} was not delivered: ${why}.`,
           inReplyTo: row.id,
           tags: [BOUNCE_TAG]
         },
