@@ -124,7 +124,8 @@ export async function recall(substrateUrl, opts = {}) {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     onFrameFailure = null,
     boost,
-    where
+    where,
+    rowFields
   } = opts;
   const key = 'recall/Hit';
   const params = { to: query, namespace, type, k };
@@ -141,7 +142,13 @@ export async function recall(substrateUrl, opts = {}) {
   try {
     const data = await substrateQuery(
       substrateUrl,
-      { [key]: { params, fields: { id: true, score: true } } },
+      // `rowFields` asks for handle fields on each hit's row; without it a hit is `{ id, score }`.
+      {
+        [key]: {
+          params,
+          fields: { id: true, score: true, ...(rowFields !== undefined ? { row: rowFields } : {}) }
+        }
+      },
       { fetchImpl, timeoutMs, onFrameFailure }
     );
     // Presence, not emptiness. `data[key] ?? []` would read a refusal — no
