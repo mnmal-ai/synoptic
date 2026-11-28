@@ -464,19 +464,92 @@ describe('syncPeer', () => {
     expect(Date.parse(String(row.lastSyncAt))).toBe(NOW.getTime());
   });
 
-  it("keeps a reason this server did not write, such as an operator's", async () => {
-    const { peer, sync, peerOf, ds } = await setup();
+  it('does not sync a peer an operator blocked', async () => {
+    const { rt, peer, peerOf, ds, calls, identity, metrics } = await setup();
     await ds.write('MailPeer', [{ id: 'peer', blockedReason: 'abuse report' }]);
-    expect((await sync()).blocked).toBeNull();
-    expect(await peerOf('peer')).toMatchObject({ blockedReason: 'abuse report' });
+    peer.directory = [{ kid: REMOTE }];
     peer.openReads = true;
-    expect((await sync()).blocked).toBe(OPEN_READS);
-    expect(await peerOf('peer')).toMatchObject({ blockedReason: 'abuse report' });
+    await syncPeers(rt);
+    expect(calls.some((c) => c.url.startsWith(`${ORIGIN}/`))).toBe(false);
+    expect(await identity(REMOTE)).toBeUndefined();
+    const row = await peerOf('peer');
+    expect(row.blockedReason).toBe('abuse report');
+    expect(row.lastSyncAt ?? null).toBeNull();
+    expect(metrics).toEqual([]);
   });
+
+  it.each([
+    ['a 503', () => new Response('unavailable', { status: 503 }), 'unclear'],
+    ['a 200 that is not JSON', () => new Response('<html>ok</html>', { status: 200 }), 'unclear'],
+    ['data: null', () => json({ data: null }), 'unclear'],
+    [
+      'an error for another frame',
+      () => json({ data: {}, errors: [{ code: 'forbidden', message: 'no', path: ['x/Y'] }] }),
+      'unclear'
+    ],
+    ['a 401', () => refused(401), 'refused'],
+    ['a 403', () => refused(403), 'refused'],
+    [
+      'an envelope refusing the frame',
+      () => json({ data: {}, errors: [{ code: 'forbidden', message: 'no', path: [MAILBOX] }] }),
+      'refused'
+    ],
+    ['an answered read', () => json({ data: { [MAILBOX]: [] } }), 'open']
+  ])('decides the unsigned mail read from %s', async (_case, probe, outcome) => {
+    const { rt, h, peer, peerOf, calls, metrics } = await setup();
+    peer.directory = [{ kid: REMOTE }];
+    const scripted = h.respond;
+    h.respond = (url, init, key, signed) =>
+      key === MAILBOX ? probe() : scripted(url, init, key, signed);
+    await syncPeers(rt);
+    const row = await peerOf('peer');
+    const directoryRead = calls.some((c) => c.url.startsWith(`${ORIGIN}/`) && c.key === DIRECTORY);
+    if (outcome === 'refused') {
+      expect(directoryRead).toBe(true);
+      expect(Date.parse(String(row.lastSyncAt))).toBe(NOW.getTime());
+      expect(row.blockedReason ?? null).toBeNull();
+      return;
+    }
+    expect(directoryRead).toBe(false);
+    expect(row.lastSyncAt ?? null).toBeNull();
+    if (outcome === 'open') {
+      expect(row.blockedReason).toBe(OPEN_READS);
+      return;
+    }
+    // Unclear: this sync fails and leaves the peer as it was.
+    expect(row.blockedReason ?? null).toBeNull();
+    expect(metrics).toContainEqual({
+      name: 'cortext.mail_peer_sync_failed',
+      payload: {
+        domain: PEER_DOMAIN,
+        reason: 'the peer gave no clear answer to the unsigned mail read'
+      }
+    });
+  });
+
+  it.each([401, 403])(
+    'says the peer refused this server key when Info answers %i',
+    async (status) => {
+      const { rt, h, peerOf, metrics } = await setup();
+      const scripted = h.respond;
+      h.respond = (url, init, key, signed) =>
+        key === INFO && url.startsWith(`${ORIGIN}/`)
+          ? refused(status)
+          : scripted(url, init, key, signed);
+      await syncPeers(rt);
+      expect(metrics).toEqual([
+        {
+          name: 'cortext.mail_peer_sync_failed',
+          payload: { domain: PEER_DOMAIN, reason: "the peer refused this server's key" }
+        }
+      ]);
+      expect((await peerOf('peer')).lastSyncAt ?? null).toBeNull();
+    }
+  );
 
   it('skips and counts a malformed kid', async () => {
     const { peer, sync, identities, metrics } = await setup();
-    const bidi = 'agent‮b@host-b.example';
+    const bidi = 'agent\u202Eb@host-b.example';
     peer.directory = [
       { kid: 42 },
       { kid: 'no-at-sign' },
@@ -495,7 +568,7 @@ describe('syncPeer', () => {
     expect(metrics).toEqual([
       { name: 'cortext.mail_peer_entries_skipped', payload: { domain: PEER_DOMAIN, skipped: 9 } }
     ]);
-    expect(warnings().join('\n')).not.toContain('‮');
+    expect(warnings().join('\n')).not.toContain('\u202E');
   });
 
   it('skips a kid naming a host of this server, in any case', async () => {
@@ -510,9 +583,9 @@ describe('syncPeer', () => {
     peer.directory = [
       {
         kid: REMOTE,
-        displayName: `A\u0007gent​ B‮${'n'.repeat(300)}`,
+        displayName: `A\u0007gent\u200B B\u202E${'n'.repeat(300)}`,
         project: `p\n${'p'.repeat(250)}`,
-        description: 'd⁦'.repeat(1500)
+        description: 'd\u2066'.repeat(1500)
       },
       { kid: NEIGHBOUR, displayName: 42, project: { name: 'x' }, description: ['x'] }
     ];

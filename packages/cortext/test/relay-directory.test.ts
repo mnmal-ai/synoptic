@@ -158,6 +158,23 @@ describe('relay Directory', () => {
     expect(res.data?.['cortext-relay/Directory']?.map((r) => r.id)).toEqual(['a']);
   });
 
+  it('lists every local agent however many newer remote rows there are', async () => {
+    const { query, engine } = await setup({ mailDomain: 'substrate.example.org' });
+    const ds = engine.datasetFor('cortext');
+    await ds?.write('MailPeer', [PEER_ROW]);
+    await ds?.write('AgentIdentity', [ident('a'), ident('b')], {
+      now: new Date('2026-11-01T00:00:00.000Z')
+    });
+    // More remote rows than one read takes, newer and with lower ids, so a read of every active
+    // row would fill its limit with them whichever order the store returns.
+    const remote = Array.from({ length: 1000 }, (_, i) =>
+      ident(`0${i}`, { kid: `r${i}@host-r.example`, host: '', domain: 'peer.example.net' })
+    );
+    await ds?.write('AgentIdentity', remote, { now: new Date('2026-11-27T00:00:00.000Z') });
+    const res = await query(DIRECTORY, PEER);
+    expect(res.data?.['cortext-relay/Directory']?.map((r) => r.id).sort()).toEqual(['a', 'b']);
+  });
+
   it('lists a row written before the listed field existed', async () => {
     const res = await directory([ident('old')]);
     expect(res.data?.['cortext-relay/Directory']?.map((r) => r.id)).toEqual(['old']);

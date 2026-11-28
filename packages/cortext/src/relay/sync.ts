@@ -4,7 +4,9 @@
  * local agents can address them, and that domain's rows it no longer lists are marked unlisted;
  * sync never changes whether an existing row is active, so an agent its operator hides can still
  * be answered. A peer whose server answers an unsigned read of its mailbox is blocked, unless its
- * row sets `allowOpenReads`. A peer's first clean sync is what makes it usable for sending.
+ * row sets `allowOpenReads`; an answer that neither refuses nor answers the read fails the sync. A
+ * peer's first clean sync is what makes it usable for sending. A peer carrying a reason an
+ * operator wrote is not synced.
  *
  * Sync holds no connection, transaction or lock while it waits on a peer: it reads the peer's
  * answers first, then writes each row in a short transaction of its own. Each write to the MailPeer
@@ -55,8 +57,9 @@ export interface SyncResult {
 }
 
 /**
- * One peer's sync. Throws, writing nothing, when the peer gives no usable answer; returns with
- * `blocked` set when it blocks the peer, and `changed` set when the peer's row changed under it.
+ * One peer's sync. Returns at once for a peer an operator blocked. Throws, writing nothing, when
+ * the peer gives no usable answer; returns with `blocked` set when it blocks the peer, and
+ * `changed` set when the peer's row changed under it.
  */
 export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult> {
   const ds = coordinator(rt);
@@ -69,9 +72,13 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
     blocked: null,
     changed: false
   };
+  // An operator's block stands: sync neither calls the peer nor writes anything for it.
+  if (!syncOwnsReason(peer)) return result;
 
   const infoFields = { v: true, domain: true, mailNamespace: true };
-  const info = rowsOf(await ask(rt, peer, INFO, { fields: infoFields }), INFO)?.[0];
+  const infoAnswer = await ask(rt, peer, INFO, { fields: infoFields });
+  if (refusedStatus(infoAnswer)) throw new Error("the peer refused this server's key");
+  const info = rowsOf(infoAnswer, INFO)?.[0];
   if (!isRecord(info)) throw new Error("the peer's Info answer is missing or malformed");
   if (info.v !== RELAY_PROTOCOL_VERSION) return block(rt, ds, peer, BLOCKED.version, result);
   if (info.domain !== domain) return block(rt, ds, peer, BLOCKED.domain, result);
@@ -82,10 +89,10 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
   if (peer.allowOpenReads !== true) {
     const mailbox = `${info.mailNamespace}/AgentMessage`;
     const frame = { params: { limit: 1 }, fields: { id: true } };
-    const probe = await ask(rt, peer, mailbox, frame, false);
-    // A refused frame is absent from `data`; present, even empty, means the read was answered.
-    if (probe.data !== undefined && Object.hasOwn(probe.data, mailbox)) {
-      return block(rt, ds, peer, BLOCKED.openReads, result);
+    const outcome = probeOutcome(await ask(rt, peer, mailbox, frame, false), mailbox);
+    if (outcome === 'open') return block(rt, ds, peer, BLOCKED.openReads, result);
+    if (outcome === 'unclear') {
+      throw new Error('the peer gave no clear answer to the unsigned mail read');
     }
   }
 
@@ -97,17 +104,14 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
   if (entries === undefined) {
     throw new Error("the peer's Directory answer is missing or malformed");
   }
-  if (entries.length > DIRECTORY_MAX_ENTRIES || answer._pagination?.[DIRECTORY]?.hasMore === true) {
+  const more = answer.envelope._pagination?.[DIRECTORY]?.hasMore === true;
+  if (entries.length > DIRECTORY_MAX_ENTRIES || more) {
     throw new Error(`the peer's directory has more than ${DIRECTORY_MAX_ENTRIES} entries`);
   }
 
   // An operator may have switched the peer off or blocked it while sync waited on the network.
   const fresh = (await ds.read('MailPeer', { id: peer.id })).rows[0];
-  if (
-    fresh === undefined ||
-    fresh.active !== true ||
-    ((fresh.blockedReason ?? null) !== (peer.blockedReason ?? null) && !syncOwnsReason(fresh))
-  ) {
+  if (fresh === undefined || fresh.active !== true || !syncOwnsReason(fresh)) {
     return changed(rt, peer, result);
   }
   const current: Row = { ...fresh };
@@ -158,7 +162,7 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
   result.unlisted = await unlist(rt, ds, domain, listed);
   const synced = await writePeer(rt, ds, current, {
     lastSyncAt: rt.now().toISOString(),
-    ...(syncOwnsReason(current) ? { blockedReason: null } : {})
+    blockedReason: null
   });
   return synced ? result : changed(rt, current, result);
 }
@@ -211,9 +215,13 @@ function coordinator(rt: RelayRuntime): Dataset {
   return ds;
 }
 
-type Envelope = PeerAnswer['envelope'] & {
-  _pagination?: Record<string, { hasMore?: boolean } | undefined>;
-};
+/** A peer's answer: whatever JSON it sent, so every field is checked before use. */
+interface Answer {
+  status: number;
+  envelope: PeerAnswer['envelope'] & {
+    _pagination?: Record<string, { hasMore?: boolean } | undefined>;
+  };
+}
 
 /** One query frame to the peer, signed with its outbound key unless `signed` is false. */
 async function ask(
@@ -222,22 +230,34 @@ async function ask(
   key: string,
   frame: Record<string, unknown>,
   signed = true
-): Promise<Envelope> {
+): Promise<Answer> {
   const authorization = signed ? peerAuthorization(peer) : undefined;
-  const answer = await postToPeer(
-    rt,
-    String(peer.origin),
-    'query',
-    { [key]: frame },
-    authorization
-  );
-  return answer.envelope;
+  return postToPeer(rt, String(peer.origin), 'query', { [key]: frame }, authorization);
 }
 
-const rowsOf = (envelope: Envelope, key: string): unknown[] | undefined => {
-  const rows = envelope.data?.[key];
+const rowsOf = (answer: Answer, key: string): unknown[] | undefined => {
+  const data: unknown = answer.envelope.data;
+  const rows = isRecord(data) ? data[key] : undefined;
   return Array.isArray(rows) ? rows : undefined;
 };
+
+const refusedStatus = (answer: Answer): boolean => answer.status === 401 || answer.status === 403;
+
+/**
+ * What an unsigned read of the peer's mailbox showed. `open` when `data` holds the frame, even
+ * empty; `refused` on a 401 or 403, or on an envelope whose `errors` refuse the frame and whose
+ * `data` lacks it; anything else, such as a 5xx or a page that is not an envelope, is `unclear`.
+ */
+function probeOutcome(answer: Answer, key: string): 'open' | 'refused' | 'unclear' {
+  const data: unknown = answer.envelope.data;
+  const errors: unknown = answer.envelope.errors;
+  if (isRecord(data) && Object.hasOwn(data, key)) return 'open';
+  if (refusedStatus(answer)) return 'refused';
+  const refusesFrame =
+    Array.isArray(errors) &&
+    errors.some((e) => isRecord(e) && Array.isArray(e.path) && e.path[0] === key);
+  return refusesFrame && (data === undefined || isRecord(data)) ? 'refused' : 'unclear';
+}
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -284,9 +304,7 @@ async function block(
   result: SyncResult
 ): Promise<SyncResult> {
   const domain = String(peer.domain);
-  if (syncOwnsReason(peer) && !(await writePeer(rt, ds, peer, { blockedReason: reason }))) {
-    return changed(rt, peer, result);
-  }
+  if (!(await writePeer(rt, ds, peer, { blockedReason: reason }))) return changed(rt, peer, result);
   report(
     rt,
     'cortext.mail_peer_blocked',

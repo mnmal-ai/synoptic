@@ -12,11 +12,17 @@ export interface DirectoryEntry {
   description: string | null;
 }
 
-/** Active, local, listed identities. A row written before `listed` existed has no key and counts as listed. */
+/**
+ * Active, local, listed identities. A row written before `listed` existed has no key and counts as
+ * listed. The read selects local rows, so remote ones never use up its limit.
+ */
 export async function listDirectory(rt: RelayRuntime): Promise<DirectoryEntry[]> {
   const ds = rt.engine?.datasetFor(rt.mailNamespace);
   if (ds === undefined) return [];
-  const { rows } = await ds.read('AgentIdentity', { where: { active: { eq: true } }, limit: 1000 });
+  const { rows } = await ds.read('AgentIdentity', {
+    where: { active: { eq: true }, domain: { eq: null } },
+    limit: 1000
+  });
   return rows
     .filter((r: Row) => isLocalIdentity(r) && r.listed !== false)
     .map((r: Row) => ({
