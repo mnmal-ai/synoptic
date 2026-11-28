@@ -30,6 +30,8 @@ import { CORTEXT_COORDINATOR_NAME, SUBSTRATE_CONTRACT_RANGE } from './kernel/ind
 import { reportUncoveredNamespaces } from './kernel-invariants.js';
 import { buildArchitectureNamespace, buildClaudeNamespace } from './namespace.js';
 import { registerOnboardRoute } from './onboard.js';
+import { buildRelayNamespace } from './relay/namespace.js';
+import { createRelayRuntime, type RelayRuntime } from './relay/runtime.js';
 
 export { buildAuthPolicies, DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
 export { type CompactResult, registerCompactRoute, runCompact } from './compact.js';
@@ -74,7 +76,11 @@ export {
   type TodoResolution
 } from './todo-resolution.js';
 
-export function createCortextPlugin(cfg: CortextPluginConfig): CoordinatorPlugin {
+export function createCortextPlugin(
+  cfg: CortextPluginConfig,
+  deps: { relay?: Partial<RelayRuntime> } = {}
+): CoordinatorPlugin {
+  const relay = createRelayRuntime(cfg, deps.relay);
   return {
     // From the shared constant, not a literal. The KERNEL
     // resolves which namespace to target by filtering
@@ -91,10 +97,13 @@ export function createCortextPlugin(cfg: CortextPluginConfig): CoordinatorPlugin
     // ./kernel-invariants.ts.
     onStart: (ctx) => {
       reportUncoveredNamespaces(cfg, ctx.metric);
+      relay.engine = ctx.engine;
     },
     namespaces: [
       buildClaudeNamespace(cfg.namespace),
-      buildArchitectureNamespace(cfg.architectureNamespace)
+      buildArchitectureNamespace(cfg.architectureNamespace),
+      // Only a server with a mail domain exposes the relay surface.
+      ...(cfg.mailDomain !== undefined ? [buildRelayNamespace(relay)] : [])
     ],
     // Auth posture. The context store is the agent's memory
     // estate — anonymous writes are a prompt-injection vector with

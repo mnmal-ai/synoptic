@@ -38,6 +38,24 @@ describe('bootstrap — namespace install', () => {
   });
 });
 
+describe('bootstrap — mailDomain', () => {
+  it('installs no relay namespace by default', () => {
+    expect(bootstrap({}).namespaces.map((n) => n.namespace)).not.toContain('cortext-relay');
+  });
+
+  it('installs the relay namespace when mailDomain is set', () => {
+    const plugin = bootstrap({ mailDomain: 'substrate.example.org' });
+    expect(plugin.namespaces.map((n) => n.namespace)).toContain('cortext-relay');
+  });
+
+  it.each(['localhost', 'Substrate.Example.org', 'a b.example', 'host..example', '-a.example.org'])(
+    'rejects mailDomain %s',
+    (mailDomain) => {
+      expect(() => bootstrap({ mailDomain })).toThrow(BootstrapConfigError);
+    }
+  );
+});
+
 describe('bootstrap — config validation', () => {
   it('rejects empty namespace', () => {
     expect(() => bootstrap({ namespace: '' })).toThrow(BootstrapConfigError);

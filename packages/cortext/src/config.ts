@@ -40,4 +40,9 @@ export interface CortextPluginConfig {
   autoCompactIntervalMs: number | undefined;
   /** Auth posture. Undefined = DEFAULT_AUTH (reads/writes open, deletes identity). */
   auth: CortextAuthConfig | undefined;
+  /**
+   * This server's mail domain (e.g. `substrate.example.org`). Set = the `cortext-relay`
+   * namespace is registered for cross-server mail. Undefined = no relay surface.
+   */
+  mailDomain?: string | undefined;
 }
