@@ -53,7 +53,7 @@ import {
   resolveIdentity,
   updateResolver
 } from '@mnmal-ai/substrate/sdk';
-import { messageParticipantsOnly } from './participants.js';
+import { isLocalIdentity, messageParticipantsOnly } from './participants.js';
 
 const TYPE = 'AgentMessage';
 const DIRECTORY_TYPE = 'AgentIdentity';
@@ -217,7 +217,8 @@ async function resolveRecipients(
     });
     // `Row`'s index signature surfaces kid/active as `unknown` — the runtime
     // equality/typeof guards do the real narrowing.
-    const others = rows.filter((r) => r.kid !== senderId);
+    // A broadcast stays on this server: rows for agents on peers are skipped.
+    const others = rows.filter((r) => r.kid !== senderId && isLocalIdentity(r));
 
     // Broadcast eligibility is filtered HERE rather than in the `where` above,
     // and that is deliberate. `broadcastEligible` defaults true, but a

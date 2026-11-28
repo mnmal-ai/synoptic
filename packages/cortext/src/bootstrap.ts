@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
 import { createCortextPlugin } from './index.js';
 import { ARCHITECTURE_NAMESPACE, CORTEXT_NAMESPACE } from './kernel/index.js';
+import { RELAY_NAMESPACE } from './relay/namespace.js';
 
 const NamespaceSchema = z
   .string()
@@ -73,6 +74,15 @@ export const CortextBootstrapConfigSchema = z
     message: 'architectureNamespace must differ from namespace',
     path: ['architectureNamespace']
   })
+  .refine(
+    (cfg) =>
+      cfg.mailDomain === undefined ||
+      (cfg.namespace !== RELAY_NAMESPACE && cfg.architectureNamespace !== RELAY_NAMESPACE),
+    {
+      message: `with mailDomain set, no namespace may be named '${RELAY_NAMESPACE}': the relay namespace owns that name`,
+      path: ['mailDomain']
+    }
+  )
   .refine((cfg) => isMonotonicAuth(cfg.auth), {
     message:
       'auth posture must be monotonic — strictness non-decreasing along reads → writes → deletes ' +

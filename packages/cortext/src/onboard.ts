@@ -326,7 +326,10 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           active: 'retired/revoked identities flip false',
           broadcastEligible: "false = a to:'*' broadcast skips this identity",
           roaming:
-            "true = works whichever repo it is sent into on its own host (no project); the fleet audit accepts it as any repo's HostInstall writer there"
+            "true = works whichever repo it is sent into on its own host (no project); the fleet audit accepts it as any repo's HostInstall writer there",
+          domain:
+            'mail domain of the server an agent lives on; null = an identity on this server (nullable, operator-set)',
+          listed: 'false = peer servers do not see this identity in the directory'
         },
         writeWhen: [
           'On identity registration (normally via /substrate-setup or substrate-admin register)'
@@ -352,6 +355,23 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           "Send via sendAgentMessage with `to` as a kid list ('*' fans out to all active identities except the sender)",
           'Recipients mark lifecycle with markAgentMessageRead / ackAgentMessage'
         ]
+      },
+      MailPeer: {
+        purpose:
+          'A peer server this one exchanges agent mail with; operator-only, because a row names a key path',
+        fields: {
+          id: 'auto-generated',
+          domain: "the peer's mail domain, unique",
+          origin: "base URL of the peer's Substrate",
+          inboundKid: 'the kid the peer signs with when it sends here, unique',
+          outboundKid: 'the kid this server signs with when it sends there',
+          outboundKeyPath: 'path to that key on this machine, never the key itself (not indexed)',
+          active: 'false = no mail is exchanged with this peer',
+          allowOpenReads: 'true = the peer may read the directory without a key',
+          blockedReason: 'why the peer is blocked (not indexed, nullable)',
+          lastSyncAt: 'ISO 8601 UTC datetime of the last directory sync (nullable)'
+        },
+        writeWhen: ['When an operator pairs this server with a peer']
       },
       HostInstall: {
         purpose:

@@ -216,3 +216,20 @@ export async function rescopeHostInstallKeyIndex(s: Sql, namespace: string): Pro
         AND deleted_at IS NULL
   `);
 }
+
+/**
+ * The unique index behind relayed mail: one live AgentMessage per sending
+ * server and the id it had there. Messages that never left this server have no
+ * `viaDomain` and stay outside it.
+ */
+export async function rescopeRelayMessageIndex(s: Sql, namespace: string): Promise<void> {
+  await s.unsafe('DROP INDEX IF EXISTS rows_agent_message_relay_unique');
+  await s.unsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS rows_agent_message_relay_unique
+      ON rows ((body->>'viaDomain'), (body->>'remoteId'))
+      WHERE namespace = '${namespace}'
+        AND type = 'AgentMessage'
+        AND body->>'viaDomain' IS NOT NULL
+        AND deleted_at IS NULL
+  `);
+}

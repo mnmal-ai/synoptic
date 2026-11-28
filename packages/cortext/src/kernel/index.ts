@@ -29,6 +29,7 @@ export {
   cortextDropEngineOwnedIndexesMigration,
   ENGINE_OWNED_INDEXES
 } from './migrations/0002_drop_engine_owned_indexes.js';
+export { cortextRelayMessageUniqueMigration } from './migrations/0003_relay_message_unique.js';
 export { createCortextKernelPlugin } from './plugin.js';
 export {
   REPAIR_ENV_VAR,

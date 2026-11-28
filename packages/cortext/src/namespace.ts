@@ -40,6 +40,7 @@ import {
   identityCreateGuard,
   identitySelfOnly,
   operatorOnly,
+  todoOwnerLocal,
   todoResolutionGuard
 } from './participants.js';
 
@@ -179,6 +180,9 @@ export const HOST_INSTALL_FRAGMENT_STATES = [
 
 /** HostInstall's per-check verdicts: the worst finding each check produced. */
 export const HOST_INSTALL_CHECK_STATES = ['ok', 'warn', 'unknown'] as const;
+
+/** Where a relayed message stands: queued for the peer, accepted by it, or given up on. */
+export const AGENT_MESSAGE_DELIVERY_VOCAB = ['pending', 'delivered', 'failed'] as const;
 
 export const TASK_STATUS_VOCAB = ['active', 'paused', 'done'] as const;
 
@@ -815,7 +819,15 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // any repo". Only an explicit `true` counts: rows that predate the
         // field have no value, and the same three-valued logic as above
         // applies to a `where` on it.
-        roaming: field.boolean({ default: false })
+        roaming: field.boolean({ default: false }),
+        // The mail domain of the server this identity lives on; null for an
+        // identity on this server. A remote row is an address-book entry for
+        // mail sent through a MailPeer: it has no host here, never roams, and
+        // is never an owner. Only an operator sets it.
+        domain: field.string({ nullable: true }),
+        // Whether the directory lists this identity to peer servers. Absent
+        // reads as listed, as for broadcastEligible.
+        listed: field.boolean({ default: true })
       },
       // The mailbox's recipient-only trust model rests on one live row per kid.
       // Named as kernel 0001 builds it on legacy stores, so the engine adopts it.
@@ -876,8 +888,28 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // replaces, but indexed, projectable and present by construction.
         // Set once at send; mailboxWriteGuard refuses it on update.
         instance: field.string({ nullable: true }),
+        // Relay state, written only by the relay: null on a message that
+        // never leaves this server. mailboxWriteGuard refuses all of it on update.
+        delivery: field.enum(AGENT_MESSAGE_DELIVERY_VOCAB, { nullable: true }),
+        deliveryAttempts: field.number({ default: 0 }),
+        deliveryNextAt: field.date({ nullable: true }),
+        deliveryError: field.string({ nullable: true, indexed: false }),
+        // On a message received from a peer: who sent it there, which server
+        // it came through and the id it had on that server.
+        remoteFrom: field.string({ nullable: true }),
+        viaDomain: field.string({ nullable: true }),
+        remoteId: field.string({ nullable: true }),
         archived: field.boolean({ default: false })
       },
+      // A relayed message is stored once per sending server.
+      indexes: [
+        {
+          fields: ['viaDomain', 'remoteId'],
+          unique: true,
+          where: 'live',
+          name: 'rows_agent_message_relay_unique'
+        }
+      ],
       // `act` sketches: `send AgentMessage to=peer@host subject="…" body="…"`,
       // `ack AgentMessage #12` and `read AgentMessage #12`. Each calls its
       // mailbox mutation, so addressing, fan-out and the recipient-only
@@ -887,6 +919,36 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         ack: { mutation: 'ackAgentMessage', past: 'acked' },
         read: { mutation: 'markAgentMessageRead', past: 'read' }
       }
+    },
+    // A peer server this one exchanges mail with. Operator-only throughout
+    // (see the install wrapper): a row names the path of the key that signs
+    // outbound mail, and the key itself is never stored.
+    MailPeer: {
+      fields: {
+        // The peer's mail domain, as in `kid@domain`.
+        domain: field.string(),
+        // Base URL of the peer's Substrate.
+        origin: field.string(),
+        // The kid the peer signs with when it sends here.
+        inboundKid: field.string(),
+        // The kid this server signs with when it sends there.
+        outboundKid: field.string(),
+        // Path to that key on this machine. A path only, never key material.
+        outboundKeyPath: field.string({ indexed: false }),
+        active: field.boolean({ default: true }),
+        allowOpenReads: field.boolean({ default: false }),
+        blockedReason: field.string({ nullable: true, indexed: false }),
+        lastSyncAt: field.date({ nullable: true })
+      },
+      indexes: [
+        { fields: ['domain'], unique: true, where: 'live', name: 'rows_mail_peer_domain_unique' },
+        {
+          fields: ['inboundKid'],
+          unique: true,
+          where: 'live',
+          name: 'rows_mail_peer_inbound_kid_unique'
+        }
+      ]
     },
     // What one host has installed for one repo. One row per (host, repo,
     // harness), upserted by that repo's cold-start on every session with an identity.
@@ -1058,18 +1120,36 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         ],
         [
           'deleteAgentIdentity',
-          (r: RegistryEntryResolver) => operatorOnly('deleteAgentIdentity', r)
+          (r: RegistryEntryResolver) =>
+            operatorOnly(
+              'deleteAgentIdentity',
+              r,
+              'delete an identity row; retire it with active: false instead'
+            )
         ],
         [
           'createTodo',
           (r: RegistryEntryResolver) =>
-            todoResolutionGuard(ctx, 'createTodo', r, TODO_STATUS_ALIASES)
+            todoOwnerLocal(
+              ctx,
+              'createTodo',
+              todoResolutionGuard(ctx, 'createTodo', r, TODO_STATUS_ALIASES)
+            )
         ],
         [
           'updateTodo',
           (r: RegistryEntryResolver) =>
-            todoResolutionGuard(ctx, 'updateTodo', r, TODO_STATUS_ALIASES)
+            todoOwnerLocal(
+              ctx,
+              'updateTodo',
+              todoResolutionGuard(ctx, 'updateTodo', r, TODO_STATUS_ALIASES)
+            )
         ],
+        // A peer row names a key path, so every verb on it, reads included, is an operator's.
+        ...(['MailPeer', 'createMailPeer', 'updateMailPeer', 'deleteMailPeer'] as const).map(
+          (n) =>
+            [n, (r: RegistryEntryResolver) => operatorOnly(n, r, 'use a mail peer row')] as const
+        ),
         // A shared session's feed: only its owner writes it, and events are never edited.
         [
           'updateSessionFeed',
@@ -1119,6 +1199,7 @@ export const CLAUDE_TYPE_NAMES = [
   'Skill',
   'AgentIdentity',
   'AgentMessage',
+  'MailPeer',
   'HostInstall',
   'Task',
   'ExecutionCheckpoint',

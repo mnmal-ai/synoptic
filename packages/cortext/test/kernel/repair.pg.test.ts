@@ -16,6 +16,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auditObjects, INVARIANT_OBJECTS } from '../../src/kernel/invariant-audit.js';
 import { cortextBaselineMigration } from '../../src/kernel/migrations/0001_baseline.js';
+import { cortextRelayMessageUniqueMigration } from '../../src/kernel/migrations/0003_relay_message_unique.js';
 import { repairInvariants } from '../../src/kernel/repair.js';
 import { countDuplicateHostInstallKeys, countDuplicateKids } from '../../src/kernel/rescope.js';
 
@@ -58,6 +59,7 @@ describePg('opt-in repair against a drifted store', () => {
 
     const ctx = { sql: tx, metric: (): void => {}, layout: 'legacy' };
     await cortextBaselineMigration.apply(ctx as never);
+    await cortextRelayMessageUniqueMigration.apply(ctx as never);
   }, 60_000);
 
   afterAll(async () => {

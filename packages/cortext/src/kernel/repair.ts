@@ -46,6 +46,7 @@ import {
   countDuplicateKids,
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
+  rescopeRelayMessageIndex,
   rescopeVocabConstraint,
   VOCAB_CONSTRAINTS
 } from './rescope.js';
@@ -139,6 +140,9 @@ export async function repairInvariants(
     await rescopeHostInstallKeyIndex(s, namespace);
     outcomes.push({ kind: 'repaired', object: 'rows_host_install_key_unique' });
   }
+
+  await rescopeRelayMessageIndex(s, namespace);
+  outcomes.push({ kind: 'repaired', object: 'rows_agent_message_relay_unique' });
 
   return outcomes;
 }

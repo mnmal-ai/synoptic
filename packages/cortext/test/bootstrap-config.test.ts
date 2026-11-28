@@ -56,6 +56,21 @@ describe('bootstrap — mailDomain', () => {
   );
 });
 
+describe('bootstrap — relay namespace name', () => {
+  it.each(['namespace', 'architectureNamespace'])(
+    'rejects %s cortext-relay when mailDomain is set',
+    (key) => {
+      expect(() =>
+        bootstrap({ mailDomain: 'substrate.example.org', [key]: 'cortext-relay' })
+      ).toThrow(BootstrapConfigError);
+    }
+  );
+
+  it('allows the name when mailDomain is unset', () => {
+    expect(() => bootstrap({ namespace: 'cortext-relay' })).not.toThrow();
+  });
+});
+
 describe('bootstrap — config validation', () => {
   it('rejects empty namespace', () => {
     expect(() => bootstrap({ namespace: '' })).toThrow(BootstrapConfigError);

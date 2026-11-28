@@ -126,7 +126,14 @@ describe('relay namespace boundary', () => {
     const { query } = await setup({ mailDomain: 'substrate.example.org' });
     const res = await query(INFO);
     expect(res.data?.['cortext-relay/Info']).toBeUndefined();
-    expect(res.errors).toBeDefined();
+    expect(res.errors?.[0]?.code).toBe('policy_denied');
+  });
+
+  it('refuses Info to a key granted only the coordinator namespace', async () => {
+    const { query } = await setup({ mailDomain: 'substrate.example.org' });
+    const res = await query(INFO, AGENT);
+    expect(res.data?.['cortext-relay/Info']).toBeUndefined();
+    expect(res.errors?.[0]?.code).toBe('unauthorized_namespace');
   });
 
   it('refuses a relay key on cortext/AgentMessage', async () => {

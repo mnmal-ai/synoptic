@@ -18,11 +18,12 @@ describe('createCortextKernelPlugin', () => {
     expect(plugin.contractVersion).toBe(SUBSTRATE_CONTRACT_RANGE);
   });
 
-  it('declares the baseline then the engine-owned index drop, each with a rollback', () => {
+  it('declares the baseline, the engine-owned index drop and the relay index, each with a rollback', () => {
     const migrations = createCortextKernelPlugin().migrations ?? [];
     expect(migrations.map((m) => m.id)).toEqual([
       '0001_baseline',
-      '0002_drop_engine_owned_indexes'
+      '0002_drop_engine_owned_indexes',
+      '0003_relay_message_unique'
     ]);
     for (const m of migrations) expect(m.rollback).toBeTypeOf('function');
   });

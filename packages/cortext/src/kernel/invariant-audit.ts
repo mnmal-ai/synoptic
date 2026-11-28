@@ -52,7 +52,7 @@ export interface InvariantObject {
 }
 
 /**
- * The five objects. Enumerated by hand rather than derived from the migration
+ * The six objects. Enumerated by hand rather than derived from the migration
  * array, deliberately: a migration's `apply` is opaque SQL text, so anything
  * "derived" would be a regex over it that agrees with reality only by luck.
  * `invariant-audit.test.ts` greps the migration sources for the DDL and fails
@@ -96,6 +96,12 @@ export const INVARIANT_OBJECTS: readonly InvariantObject[] = [
     migration: '0001_baseline',
     guarantee:
       'HostInstall.key is unique — one record per host, repo and harness, so the fleet view cannot show duplicates'
+  },
+  {
+    name: 'rows_agent_message_relay_unique',
+    kind: 'index',
+    migration: '0003_relay_message_unique',
+    guarantee: 'a relayed message is stored once per sending server'
   }
 ];
 

@@ -30,6 +30,7 @@ import type { KernelPlugin } from '@mnmal-ai/substrate/sdk';
 import { reportInvariantAudit, resolveCortextNamespaces } from './invariant-audit.js';
 import { cortextBaselineMigration } from './migrations/0001_baseline.js';
 import { cortextDropEngineOwnedIndexesMigration } from './migrations/0002_drop_engine_owned_indexes.js';
+import { cortextRelayMessageUniqueMigration } from './migrations/0003_relay_message_unique.js';
 import { repairIfRequested } from './repair.js';
 import { SUBSTRATE_CONTRACT_RANGE } from './substrate-contract.js';
 
@@ -56,6 +57,10 @@ export function createCortextKernelPlugin(): KernelPlugin {
         metric: ctx.metric
       });
     },
-    migrations: [cortextBaselineMigration, cortextDropEngineOwnedIndexesMigration]
+    migrations: [
+      cortextBaselineMigration,
+      cortextDropEngineOwnedIndexesMigration,
+      cortextRelayMessageUniqueMigration
+    ]
   };
 }

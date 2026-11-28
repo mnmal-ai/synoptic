@@ -37,6 +37,7 @@ export { buildAuthPolicies, DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.
 export { type CompactResult, registerCompactRoute, runCompact } from './compact.js';
 export type { CortextAuthConfig, CortextAuthMode, CortextPluginConfig } from './config.js';
 export {
+  AGENT_MESSAGE_DELIVERY_VOCAB,
   AGENT_MESSAGE_STATUS_VOCAB,
   AGENT_RULE_CATEGORY_VOCAB,
   AGENT_RULE_SEVERITY_ALIASES,
