@@ -1,11 +1,14 @@
 // The relay's receiving side: `cortext-relay/deliver` called by a peer's relay key writes one
-// message into this server's mailbox, after checking the version, the peer, the sizes, the rate,
-// the recipient and the sender, in that order.
+// message into this server's mailbox, after checking the version, the peer, the shape, the sizes
+// and the rate, then (under the message's lock) whether it was delivered before, the recipient
+// and the sender, in that order.
 
 import { generateKeyPairSync, type KeyObject, randomUUID, sign } from 'node:crypto';
-import type { CommittedWriteBatch, Row } from '@mnmal-ai/substrate/sdk';
+import type { CommittedWriteBatch, EdgesStore, Row } from '@mnmal-ai/substrate/sdk';
 import { compose, MemoryDataset, MemorySubstrateServer } from '@mnmal-ai/substrate/testing';
 import { afterEach, describe, expect, it } from 'vitest';
+import { upsertRemoteIdentity } from '../src/relay/deliver.js';
+import { createRelayRuntime } from '../src/relay/runtime.js';
 import { buildClaudeForTest } from './_helpers.js';
 
 const LOCAL = 'agent-a@host-a.example';
@@ -58,6 +61,16 @@ async function setup(opts: { namespace?: string; now?: () => Date } = {}) {
     { namespace: ns, mailDomain: 'substrate.example.org' },
     opts.now !== undefined ? { relay: { now: opts.now } } : {}
   );
+  // The edges store the namespaces install with, for calling upsertRemoteIdentity directly.
+  let edges: EdgesStore | undefined;
+  const relayNs = coordinator.namespaces.find((n) => n.namespace === 'cortext-relay');
+  const install = relayNs?.install.bind(relayNs);
+  if (relayNs !== undefined && install !== undefined) {
+    relayNs.install = (ctx) => {
+      edges = ctx.edges;
+      return install(ctx);
+    };
+  }
   const server = new MemorySubstrateServer();
   const composed = await compose({
     server,
@@ -132,7 +145,11 @@ async function setup(opts: { namespace?: string; now?: () => Date } = {}) {
   const identity = async (kid: string): Promise<Row | undefined> =>
     (await ds.read('AgentIdentity', { where: { kid: { eq: kid } } })).rows[0];
   const identities = async (): Promise<Row[]> => (await ds.read('AgentIdentity', {})).rows;
-  return { deliver, messages, identity, identities, ds, batches };
+  const rt = createRelayRuntime(
+    { namespace: ns, mailDomain: 'substrate.example.org' },
+    { engine: composed.engine, edges }
+  );
+  return { deliver, messages, identity, identities, ds, batches, rt };
 }
 
 const payload = (extra: Record<string, unknown> = {}) => ({
@@ -206,6 +223,30 @@ describe('cortext-relay/deliver', () => {
     expect(again.errors).toBeUndefined();
     expect(again.result).toEqual({ ...first.result, duplicate: true });
     expect(await messages()).toHaveLength(1);
+  });
+
+  it('returns the first result after its recipient is made inactive', async () => {
+    const { deliver, ds } = await setup();
+    const sent = payload();
+    const first = await deliver(sent);
+    await ds.write('AgentIdentity', [
+      { id: 'local', kid: LOCAL, host: 'host-a.example', active: false }
+    ]);
+    expect((await deliver(payload())).errors?.[0]?.code).toBe('unknown_recipient');
+    const again = await deliver(sent);
+    expect(again.errors).toBeUndefined();
+    expect(again.result).toEqual({ ...first.result, duplicate: true });
+  });
+
+  it('creates no identity for a repeat naming a different sender', async () => {
+    const { deliver, identity, batches } = await setup();
+    const sent = payload();
+    await deliver(sent);
+    const announced = batches.length;
+    const again = await deliver({ ...sent, from: 'someone-else@host-z.example' });
+    expect(again.result?.duplicate).toBe(true);
+    expect(await identity('someone-else@host-z.example')).toBeUndefined();
+    expect(batches).toHaveLength(announced);
   });
 
   it('threads a reply to mail this server sent', async () => {
@@ -310,14 +351,16 @@ describe('cortext-relay/deliver', () => {
   );
 
   it.each([
-    'no-at-sign',
-    'a@b@c.example',
-    '@host-b.example',
-    'agent-b@',
-    'agent b@host-b.example',
-    'agent-b@host-b\t.example',
-    'agent-b\u0007@host-b.example'
-  ])('refuses the malformed kid %j as from and as to', async (bad) => {
+    ['no @', 'no-at-sign'],
+    ['two @', 'a@b@c.example'],
+    ['an empty name', '@host-b.example'],
+    ['an empty host', 'agent-b@'],
+    ['a space', 'agent b@host-b.example'],
+    ['a tab', 'agent-b@host-b\t.example'],
+    ['a control character', 'agent-b\u0007@host-b.example'],
+    ['a bidi override', 'agent-\u202eb@host-b.example'],
+    ['a zero-width space', 'agent-b@host\u200b-b.example']
+  ])('refuses a kid with %s as from and as to', async (_case, bad) => {
     const { deliver, messages } = await setup();
     expect((await deliver(payload({ from: bad }))).errors?.[0]?.code).toBe('invalid_param');
     expect((await deliver(payload({ to: bad }))).errors?.[0]?.code).toBe('invalid_param');
@@ -365,6 +408,11 @@ describe('cortext-relay/deliver', () => {
     for (const [extra, kid, code] of steps) {
       expect((await deliver(payload(extra), kid)).errors?.[0]?.code).toBe(code);
     }
+    // A repeat answers before the recipient and sender checks.
+    const sent = payload();
+    expect((await deliver(sent)).errors).toBeUndefined();
+    const again = await deliver({ ...sent, to: GONE, from: LOCAL });
+    expect(again.result?.duplicate).toBe(true);
   });
 
   it('refuses a param it does not know and a malformed one', async () => {
@@ -398,5 +446,55 @@ describe('cortext-relay/deliver', () => {
     expect(errors).toBeUndefined();
     expect((await messages()).map((m) => m.id)).toEqual([result?.id]);
     expect(batches.some((b) => b.namespace === 'codex' && b.type === 'AgentMessage')).toBe(true);
+  });
+});
+
+describe('upsertRemoteIdentity without a scope', () => {
+  const kid = 'agent-x@host-x.example';
+
+  it('creates the identity in a transaction of its own and announces it', async () => {
+    const { rt, batches } = await setup();
+    const created = await upsertRemoteIdentity(rt, PEER_DOMAIN, { kid, project: 'proj' });
+    expect(created).toMatchObject({
+      kid,
+      domain: PEER_DOMAIN,
+      host: '',
+      active: true,
+      project: 'proj'
+    });
+    expect(batches).toContainEqual(
+      expect.objectContaining({ type: 'AgentIdentity', operation: 'create', ids: [created.id] })
+    );
+  });
+
+  it('returns the same row on a repeat and writes nothing', async () => {
+    const { rt, batches } = await setup();
+    const created = await upsertRemoteIdentity(rt, PEER_DOMAIN, { kid });
+    const announced = batches.length;
+    expect((await upsertRemoteIdentity(rt, PEER_DOMAIN, { kid })).id).toBe(created.id);
+    expect(batches).toHaveLength(announced);
+  });
+
+  it('refuses a kid held by a local row or by another domain', async () => {
+    const { rt, identities, batches } = await setup();
+    const before = await identities();
+    await expect(upsertRemoteIdentity(rt, PEER_DOMAIN, { kid: LOCAL })).rejects.toMatchObject({
+      code: 'kid_collision'
+    });
+    await expect(
+      upsertRemoteIdentity(rt, PEER_DOMAIN, { kid: OTHER_REMOTE })
+    ).rejects.toMatchObject({ code: 'kid_collision' });
+    expect(await identities()).toEqual(before);
+    expect(batches).toEqual([]);
+  });
+
+  it('updates the fields given and announces the update', async () => {
+    const { rt, batches } = await setup();
+    await upsertRemoteIdentity(rt, PEER_DOMAIN, { kid, project: 'proj' });
+    const updated = await upsertRemoteIdentity(rt, PEER_DOMAIN, { kid, description: 'does d' });
+    expect(updated).toMatchObject({ project: 'proj', description: 'does d' });
+    expect(batches).toContainEqual(
+      expect.objectContaining({ type: 'AgentIdentity', operation: 'update', ids: [updated.id] })
+    );
   });
 });

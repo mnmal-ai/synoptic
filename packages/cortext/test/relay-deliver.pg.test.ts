@@ -1,7 +1,8 @@
 /**
  * `deliver` on Postgres, with the driver's default pool and more concurrent deliveries than it
  * has connections: each delivery works on its frame's one connection, concurrent repeats store
- * once, and a failed delivery leaves nothing behind. Runs in a schema of its own, rebuilt each run.
+ * once, a failed delivery leaves nothing behind, and an upsert outside any frame works alongside
+ * deliveries. Runs in a schema of its own, rebuilt each run.
  */
 
 import type { RequestContext } from '@mnmal-ai/substrate/sdk';
@@ -17,8 +18,10 @@ import {
   runMigrations
 } from '@mnmal-ai/substrate/testing';
 import postgres from 'postgres';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CORTEXT_NAMESPACE } from '../src/kernel/cortext-namespace.js';
+import { upsertRemoteIdentity } from '../src/relay/deliver.js';
+import { createRelayRuntime, type RelayRuntime } from '../src/relay/runtime.js';
 import { buildClaudeForTest } from './_helpers.js';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
@@ -37,12 +40,16 @@ const store = POSTGRES_URL ? await openStore(POSTGRES_URL) : undefined;
 describe.skipIf(store === undefined)('cortext-relay/deliver on Postgres', () => {
   const sql = store as ReturnType<typeof postgres>;
   let composed: Awaited<ReturnType<typeof compose>>;
+  let rt: RelayRuntime;
+  // Each test starts a fresh rate window, so the suite's deliveries never reach the limit.
+  let clock = Date.now();
+  beforeEach(() => {
+    clock += 61_000;
+  });
 
   beforeAll(async () => {
-    const coordinator = buildClaudeForTest({
-      namespace: CORTEXT_NAMESPACE,
-      mailDomain: 'substrate.example.org'
-    });
+    const cfg = { namespace: CORTEXT_NAMESPACE, mailDomain: 'substrate.example.org' };
+    const coordinator = buildClaudeForTest(cfg, { relay: { now: () => new Date(clock) } });
     const types = coordinator.namespaces?.[0]?.types ?? {};
     const edgesStore = new PgEdgesStore({ sql });
     composed = await compose({
@@ -58,6 +65,7 @@ describe.skipIf(store === undefined)('cortext-relay/deliver on Postgres', () => 
       coordinators: [coordinator],
       systemActor: 'test'
     });
+    rt = createRelayRuntime(cfg, { engine: composed.engine, edges: edgesStore });
     const ds = composed.engine.datasetFor(CORTEXT_NAMESPACE);
     if (ds === undefined) throw new Error('no cortext dataset');
     const storage = { indexes: 'unique', newFields: 'column' } as const;
@@ -144,5 +152,24 @@ describe.skipIf(store === undefined)('cortext-relay/deliver on Postgres', () => 
     }
     expect(await count('AgentIdentity', { kid: { eq: from } })).toBe(0);
     expect(await count('AgentMessage', { remoteId: { eq: 'doomed' } })).toBe(0);
+  });
+
+  it('completes upserts outside any frame alongside deliveries from the same new sender', async () => {
+    const from = 'agent-e@host-e.example';
+    const deliveries: Array<ReturnType<typeof deliver>> = [];
+    const upserts: Array<ReturnType<typeof upsertRemoteIdentity>> = [];
+    // Upserts that each write, spread through the deliveries, so the kid's lock changes hands often.
+    for (let i = 0; i < 30; i++) {
+      if (i % 3 === 0) {
+        const description = `upsert ${i}`;
+        upserts.push(upsertRemoteIdentity(rt, 'peer.example.net', { kid: from, description }));
+      }
+      deliveries.push(deliver({ messageId: `mixed-${i}`, from }));
+    }
+    const [envelopes, rows] = await Promise.all([Promise.all(deliveries), Promise.all(upserts)]);
+    expect(envelopes.flatMap((e) => e.errors ?? [])).toEqual([]);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(1);
+    expect(await count('AgentIdentity', { kid: { eq: from } })).toBe(1);
+    expect(await count('AgentMessage', { remoteFrom: { eq: from } })).toBe(30);
   });
 });

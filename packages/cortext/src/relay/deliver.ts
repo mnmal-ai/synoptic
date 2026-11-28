@@ -4,11 +4,11 @@
  * `deliver` runs as the peer's relay key, which holds no grant on the coordinator namespace. Its
  * reads and writes of coordinator rows go straight to the coordinator dataset, not through the
  * guarded registry entries, and run inside the relay frame's own transaction: on Postgres that
- * is one connection per delivery, and a failed delivery leaves nothing behind. The sender's
- * identity is upserted first (stamped with the system actor `cortext:relay`), then the message is
- * stored (stamped with the peer's relay kid). Advisory locks on the sender's kid and on the
- * message serialise concurrent deliveries, so a repeat sees the first one's row; the unique
- * index on `(viaDomain, remoteId)` is the backstop.
+ * is one connection per delivery, and a failed delivery leaves nothing behind. Under a lock on
+ * the message, a repeat returns the first result; a new message gets its sender's identity
+ * upserted (under a lock on the kid, stamped with the system actor `cortext:relay`) and is then
+ * stored (stamped with the peer's relay kid). Locks are always taken message first, then kid. The
+ * unique index on `(viaDomain, remoteId)` is the backstop.
  */
 
 import type {
@@ -18,7 +18,6 @@ import type {
   EngineHandle,
   FieldDef,
   RequestContext,
-  ResolverArgs,
   Row,
   TypedResolver,
   WriteEvent
@@ -84,8 +83,11 @@ interface DeliverParams {
 const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v !== '';
 const text = (v: unknown): boolean => typeof v === 'string';
 const optional = (v: unknown): boolean => v == null || typeof v === 'string';
-/** `<name>@<host>`: one `@`, both parts non-empty, no whitespace or control characters. */
-const KID = /^[^@\s\p{Cc}]+@[^@\s\p{Cc}]+$/u;
+/**
+ * `<name>@<host>`: one `@`, both parts non-empty, no whitespace, control or format characters
+ * (bidi overrides, zero-width), since kids are shown to agents.
+ */
+const KID = /^[^@\s\p{Cc}\p{Cf}]+@[^@\s\p{Cc}\p{Cf}]+$/u;
 const kid = (v: unknown): boolean => typeof v === 'string' && KID.test(v);
 /** `v` is checked on its own, before anything else. */
 const PARAM_SHAPES: Record<string, (v: unknown) => boolean> = {
@@ -99,9 +101,8 @@ const PARAM_SHAPES: Record<string, (v: unknown) => boolean> = {
 };
 
 /**
- * Where coordinator writes go: a dataset, its edges, and the frame's write sink, which announces
- * the writes after the frame commits. Without a scope, writes go to the committed dataset and are
- * announced at once.
+ * Where coordinator reads and writes go inside a transaction: its dataset, its edges, and the
+ * sink that announces the writes once it commits.
  */
 export interface CoordinatorScope {
   ds: Dataset;
@@ -117,9 +118,6 @@ function coordinator(rt: RelayRuntime): { engine: EngineHandle; ds: Dataset; edg
   return { engine: rt.engine, ds, edges: rt.edges };
 }
 
-const isUniqueViolation = (err: unknown): boolean =>
-  isResolverFrameError(err) && err.code === 'unique_violation';
-
 /**
  * `fn` holding the lock `key`. On a Postgres transaction the lock lasts until the transaction
  * ends, so the next holder sees what this one committed. A store without locks relies on the
@@ -129,36 +127,36 @@ const locked = <T>(ds: Dataset, key: string, fn: () => Promise<T>): Promise<T> =
   ds.withAdvisoryLock !== undefined ? ds.withAdvisoryLock(key, fn) : fn();
 
 /**
- * `fn` with the coordinator dataset on the frame's own transaction where the store can share it
- * (Postgres), else on the committed dataset in a transaction of its own (memory).
+ * `fn` on the coordinator dataset inside one transaction. `base` is a delivery frame's dataset,
+ * whose transaction the coordinator joins (Postgres: the frame's one connection), or the committed
+ * coordinator dataset, which opens a transaction of its own. A store that cannot share a
+ * transaction across namespaces (memory) gets one on the coordinator dataset.
  */
-async function inCoordinatorScope<T>(
+function onTransaction<T>(
   rt: RelayRuntime,
-  args: ResolverArgs,
-  fn: (scope: CoordinatorScope) => Promise<T>
+  base: Dataset,
+  fn: (ds: Dataset, edges: EdgesStore) => Promise<T>
 ): Promise<T> {
-  const sink = args.onWrite !== undefined ? { onWrite: args.onWrite } : {};
-  const frame = args.dataset;
-  if (frame?.withScopedTransaction !== undefined) {
-    return frame.withScopedTransaction([rt.mailNamespace], ({ datasets, edges }) => {
+  const committed = coordinator(rt);
+  if (base.withScopedTransaction !== undefined) {
+    return base.withScopedTransaction([rt.mailNamespace], ({ datasets, edges }) => {
       const ds = datasets.get(rt.mailNamespace);
       if (ds === undefined) throw new Error(`cortext relay: no '${rt.mailNamespace}' in the scope`);
-      return fn({ ds, edges: edges ?? coordinator(rt).edges, ...sink });
+      return fn(ds, edges ?? committed.edges);
     });
   }
-  const { ds, edges } = coordinator(rt);
-  return ds.withTransaction((tx) => fn({ ds: tx, edges, ...sink }));
+  return committed.ds.withTransaction((tx) => fn(tx, committed.edges));
 }
 
 /**
  * One write through an autoCRUD resolver, stamped with `actor`, so validation, defaults, shortId
- * and crossRef edges are what a local write gets. The write is announced, so subscriptions and
- * coordinator hooks hear of it as of a commit through `mutate`: by the scope's sink after the
- * frame commits, or at once without a scope.
+ * and crossRef edges are what a local write gets. It goes to the scope's sink, which announces it
+ * once the transaction commits, so subscriptions and coordinator hooks hear of it as of a commit
+ * through `mutate`.
  */
 async function coordinatorWrite(
   rt: RelayRuntime,
-  scope: CoordinatorScope | undefined,
+  scope: CoordinatorScope,
   actor: ActorIdentity,
   type: string,
   verb: 'create',
@@ -166,7 +164,7 @@ async function coordinatorWrite(
 ): Promise<Row>;
 async function coordinatorWrite(
   rt: RelayRuntime,
-  scope: CoordinatorScope | undefined,
+  scope: CoordinatorScope,
   actor: ActorIdentity,
   type: string,
   verb: 'update',
@@ -174,15 +172,14 @@ async function coordinatorWrite(
 ): Promise<Row | null>;
 async function coordinatorWrite(
   rt: RelayRuntime,
-  scope: CoordinatorScope | undefined,
+  scope: CoordinatorScope,
   actor: ActorIdentity,
   type: string,
   verb: 'create' | 'update',
   params: Record<string, unknown>
 ): Promise<Row | null> {
-  const committed = coordinator(rt);
-  const { engine } = committed;
-  const { ds, edges } = scope ?? committed;
+  const { engine } = coordinator(rt);
+  const { ds, edges, onWrite } = scope;
   const fields = engine.typeEntry?.(rt.mailNamespace, type)?.fields;
   if (fields === undefined) throw new Error(`cortext relay: no ${rt.mailNamespace}/${type} type`);
   const resolver: TypedResolver<Row | null> =
@@ -203,16 +200,12 @@ async function coordinatorWrite(
     headers: {},
     meta: {}
   };
-  const events: WriteEvent[] = [];
-  const onWrite = scope === undefined ? (e: WriteEvent) => void events.push(e) : scope.onWrite;
-  const row = await resolver(ctx, {
+  return resolver(ctx, {
     params,
     dataset: ds,
     edges,
     ...(onWrite !== undefined ? { onWrite } : {})
   });
-  if (scope === undefined) await engine.announceWrites(events, actor);
-  return row;
 }
 
 async function identityByKid(ds: Dataset, kid: string): Promise<Row | undefined> {
@@ -224,8 +217,9 @@ async function identityByKid(ds: Dataset, kid: string): Promise<Row | undefined>
  * given whichever of `displayName`, `project` and `description` the entry carries. A kid held by
  * a local identity or by another domain is `kid_collision`, naming both holders; it is never merged.
  * Runs under a lock on the kid, whichever domain claims it, so concurrent claims serialise. With a
- * `scope` it reads and writes there (a delivery's transaction); without one, on the committed
- * dataset.
+ * `scope` it runs in that transaction (a delivery's); without one, in a transaction of its own,
+ * announced once it commits. A create that loses to a writer taking no lock (an operator's) fails
+ * on the unique index and is not retried.
  */
 export async function upsertRemoteIdentity(
   rt: RelayRuntime,
@@ -233,16 +227,30 @@ export async function upsertRemoteIdentity(
   entry: RemoteIdentityEntry,
   scope?: CoordinatorScope
 ): Promise<Row> {
-  const { ds } = scope ?? coordinator(rt);
-  return locked(ds, `cortext-relay:kid:${entry.kid}`, () =>
-    upsertLocked(rt, scope, ds, domain, entry)
+  if (scope !== undefined) return upsertIn(rt, scope, domain, entry);
+  const events: WriteEvent[] = [];
+  const onWrite = (e: WriteEvent) => void events.push(e);
+  const row = await onTransaction(rt, coordinator(rt).ds, (ds, edges) =>
+    upsertIn(rt, { ds, edges, onWrite }, domain, entry)
+  );
+  await coordinator(rt).engine.announceWrites(events, RELAY_ACTOR);
+  return row;
+}
+
+function upsertIn(
+  rt: RelayRuntime,
+  scope: CoordinatorScope,
+  domain: string,
+  entry: RemoteIdentityEntry
+): Promise<Row> {
+  return locked(scope.ds, `cortext-relay:kid:${entry.kid}`, () =>
+    upsertLocked(rt, scope, domain, entry)
   );
 }
 
 async function upsertLocked(
   rt: RelayRuntime,
-  scope: CoordinatorScope | undefined,
-  ds: Dataset,
+  scope: CoordinatorScope,
   domain: string,
   entry: RemoteIdentityEntry
 ): Promise<Row> {
@@ -250,22 +258,15 @@ async function upsertLocked(
   for (const key of ['displayName', 'project', 'description'] as const) {
     if (entry[key] !== undefined) described[key] = entry[key];
   }
-  let row = await identityByKid(ds, entry.kid);
+  const row = await identityByKid(scope.ds, entry.kid);
   if (row === undefined) {
-    try {
-      return await coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'create', {
-        kid: entry.kid,
-        host: '',
-        domain,
-        active: true,
-        ...described
-      });
-    } catch (err) {
-      // Outside a transaction, a writer that takes no lock (an operator's create) may have won.
-      if (scope !== undefined || !isUniqueViolation(err)) throw err;
-      row = await identityByKid(ds, entry.kid);
-      if (row === undefined) throw err;
-    }
+    return coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'create', {
+      kid: entry.kid,
+      host: '',
+      domain,
+      active: true,
+      ...described
+    });
   }
   if (isLocalIdentity(row) || row.domain !== domain) {
     const holder = isLocalIdentity(row) ? 'a local identity' : `an agent of ${String(row.domain)}`;
@@ -275,16 +276,15 @@ async function upsertLocked(
       { kid: entry.kid, holder: isLocalIdentity(row) ? null : row.domain, claimant: domain }
     );
   }
-  const current = row;
   const patch = Object.fromEntries(
-    Object.entries({ active: true, ...described }).filter(([k, v]) => (current[k] ?? null) !== v)
+    Object.entries({ active: true, ...described }).filter(([k, v]) => (row[k] ?? null) !== v)
   );
-  if (Object.keys(patch).length === 0) return current;
+  if (Object.keys(patch).length === 0) return row;
   const updated = await coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'update', {
-    id: current.id,
+    id: row.id,
     ...patch
   });
-  return updated ?? current;
+  return updated ?? row;
 }
 
 /** Declared params only, each of its expected shape. */
@@ -375,7 +375,11 @@ export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> 
         { supported: RELAY_PROTOCOL_VERSION }
       );
     }
-    return inCoordinatorScope(rt, args, (scope) => deliverIn(rt, ctx, raw, scope, withinRate));
+    // The writes go to the frame's sink, which announces them after the frame commits.
+    const sink = args.onWrite !== undefined ? { onWrite: args.onWrite } : {};
+    return onTransaction(rt, args.dataset ?? coordinator(rt).ds, (ds, edges) =>
+      deliverIn(rt, ctx, raw, { ds, edges, ...sink }, withinRate)
+    );
   };
 }
 
@@ -407,37 +411,38 @@ async function deliverIn(
       `deliver: ${domain} has delivered ${RATE_PER_WINDOW} messages in the last minute; retry later`
     );
   }
-  // Only an active agent of this server; nothing is forwarded onward.
-  const recipient = await identityByKid(ds, p.to);
-  if (recipient === undefined || recipient.active !== true || !isLocalIdentity(recipient)) {
-    throw new ResolverFrameError(
-      'unknown_recipient',
-      `deliver: '${p.to}' is not an active agent on this server`,
-      { kid: p.to }
-    );
-  }
-  // A peer names senders on its own machines, never on this server's.
-  if (await isLocalHost(ds, p.from.slice(p.from.indexOf('@') + 1))) {
-    throw new ResolverFrameError(
-      'foreign_sender',
-      `deliver: '${p.from}' names a host of this server`,
-      { kid: p.from }
-    );
-  }
-  try {
-    await upsertRemoteIdentity(rt, domain, { kid: p.from }, scope);
-  } catch (err) {
-    if (!isResolverFrameError(err) || err.code !== 'kid_collision') throw err;
-    throw new ResolverFrameError(
-      'foreign_sender',
-      `deliver: '${p.from}' is not an agent of ${domain}`,
-      { kid: p.from }
-    );
-  }
-  // Concurrent deliveries of one message take turns, so a repeat finds the first one's row.
+  // Deliveries of one message take turns. A repeat returns the first result and changes nothing,
+  // even if the recipient or the sender has changed since, so a lost response is never bounced.
   return locked(ds, `cortext-relay:message:${domain}:${p.messageId}`, async () => {
     const earlier = await relayedMessage(ds, domain, p.messageId);
     if (earlier !== undefined) return resultOf(earlier, true);
+    // Only an active agent of this server; nothing is forwarded onward.
+    const recipient = await identityByKid(ds, p.to);
+    if (recipient === undefined || recipient.active !== true || !isLocalIdentity(recipient)) {
+      throw new ResolverFrameError(
+        'unknown_recipient',
+        `deliver: '${p.to}' is not an active agent on this server`,
+        { kid: p.to }
+      );
+    }
+    // A peer names senders on its own machines, never on this server's.
+    if (await isLocalHost(ds, p.from.slice(p.from.indexOf('@') + 1))) {
+      throw new ResolverFrameError(
+        'foreign_sender',
+        `deliver: '${p.from}' names a host of this server`,
+        { kid: p.from }
+      );
+    }
+    try {
+      await upsertRemoteIdentity(rt, domain, { kid: p.from }, scope);
+    } catch (err) {
+      if (!isResolverFrameError(err) || err.code !== 'kid_collision') throw err;
+      throw new ResolverFrameError(
+        'foreign_sender',
+        `deliver: '${p.from}' is not an agent of ${domain}`,
+        { kid: p.from }
+      );
+    }
     const inReplyTo =
       p.inReplyToRemoteId != null ? await parentId(ds, domain, p.inReplyToRemoteId) : undefined;
     // No tags: relayed mail is never urgent and never a broadcast.
