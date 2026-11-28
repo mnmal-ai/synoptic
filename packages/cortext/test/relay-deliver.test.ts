@@ -10,6 +10,8 @@ import { buildClaudeForTest } from './_helpers.js';
 
 const LOCAL = 'agent-a@host-a.example';
 const GONE = 'gone@host-a.example';
+// A local kid whose host part is not a host of this server, as older short-host kids are.
+const LEGACY = 'legacy@oldname';
 const SENDER = 'agent-b@host-b.example';
 const OTHER_REMOTE = 'agent-c@host-c.example';
 const PEER = 'relay-peer@peer.example.net';
@@ -88,6 +90,7 @@ async function setup(opts: { namespace?: string; now?: () => Date } = {}) {
   await ds.write('AgentIdentity', [
     { id: 'local', kid: LOCAL, host: 'host-a.example', active: true },
     { id: 'gone', kid: GONE, host: 'host-a.example', active: false },
+    { id: 'legacy', kid: LEGACY, host: 'host-a.example', active: true },
     { id: 'other', kid: OTHER_REMOTE, host: '', domain: 'other.example.net', active: true }
   ]);
 
@@ -128,7 +131,8 @@ async function setup(opts: { namespace?: string; now?: () => Date } = {}) {
   const messages = async (): Promise<Row[]> => (await ds.read('AgentMessage', {})).rows;
   const identity = async (kid: string): Promise<Row | undefined> =>
     (await ds.read('AgentIdentity', { where: { kid: { eq: kid } } })).rows[0];
-  return { deliver, messages, identity, ds, batches };
+  const identities = async (): Promise<Row[]> => (await ds.read('AgentIdentity', {})).rows;
+  return { deliver, messages, identity, identities, ds, batches };
 }
 
 const payload = (extra: Record<string, unknown> = {}) => ({
@@ -166,6 +170,8 @@ describe('cortext-relay/deliver', () => {
       viaDomain: PEER_DOMAIN,
       remoteId: sent.messageId
     });
+    // Stamped with the relay key that signed the delivery; the sender is remoteFrom.
+    expect(row?._metadata).toMatchObject({ createdBy: { kind: 'agent', id: PEER } });
     expect(row?.tags ?? null).toBeNull();
     // Inbox subscriptions and coordinator hooks hear of it as of a local send.
     expect(batches).toContainEqual(
@@ -244,10 +250,14 @@ describe('cortext-relay/deliver', () => {
     }
   });
 
-  it('accepts a 200-character subject and a 65,536-byte body', async () => {
+  it('accepts a 200-character subject, a 65,536-byte body and a 256-character messageId', async () => {
     const { deliver } = await setup();
     const { errors } = await deliver(
-      payload({ subject: '\u{1F600}'.repeat(200), body: 'é'.repeat(32_768) })
+      payload({
+        subject: '\u{1F600}'.repeat(200),
+        body: 'é'.repeat(32_768),
+        messageId: 'm'.repeat(256)
+      })
     );
     expect(errors).toBeUndefined();
   });
@@ -260,15 +270,67 @@ describe('cortext-relay/deliver', () => {
     ['to is unknown', { to: 'nobody@host-a.example' }, PEER, 'unknown_recipient'],
     ['to is a remote row', { to: OTHER_REMOTE }, PEER, 'unknown_recipient'],
     ['to is inactive', { to: GONE }, PEER, 'unknown_recipient'],
-    ['from is a local kid', { from: LOCAL }, PEER, 'foreign_sender'],
+    ['from is a local kid', { from: LEGACY }, PEER, 'foreign_sender'],
     ["from is another domain's kid", { from: OTHER_REMOTE }, PEER, 'foreign_sender']
   ])('refuses when %s', async (_case, extra, kid, code) => {
-    const { deliver, messages, identity } = await setup();
+    const { deliver, messages, identities } = await setup();
+    const before = await identities();
     const { errors, result } = await deliver(payload(extra), kid);
     expect(result).toBeUndefined();
     expect(errors?.[0]?.code).toBe(code);
     expect(await messages()).toHaveLength(0);
-    expect(await identity(SENDER)).toBeUndefined();
+    expect(await identities()).toEqual(before);
+  });
+
+  it.each(['messageId', 'from', 'to', 'instance', 'inReplyToRemoteId'])(
+    'refuses a %s over 256 characters',
+    async (key) => {
+      const { deliver, messages } = await setup();
+      const long =
+        key === 'from' || key === 'to' ? `${'a'.repeat(250)}@host-x.example` : 'r'.repeat(257);
+      expect((await deliver(payload({ [key]: long }))).errors?.[0]?.code).toBe('too_large');
+      expect(await messages()).toHaveLength(0);
+    }
+  );
+
+  it.each([
+    'no-at-sign',
+    'a@b@c.example',
+    '@host-b.example',
+    'agent-b@',
+    'agent b@host-b.example',
+    'agent-b@host-b\t.example',
+    'agent-b\u0007@host-b.example'
+  ])('refuses the malformed kid %j as from and as to', async (bad) => {
+    const { deliver, messages } = await setup();
+    expect((await deliver(payload({ from: bad }))).errors?.[0]?.code).toBe('invalid_param');
+    expect((await deliver(payload({ to: bad }))).errors?.[0]?.code).toBe('invalid_param');
+    expect(await messages()).toHaveLength(0);
+  });
+
+  it("refuses a sender on one of this server's hosts, in any case", async () => {
+    const { deliver, identity } = await setup();
+    const { errors } = await deliver(payload({ from: 'intruder@HOST-A.example' }));
+    expect(errors?.[0]?.code).toBe('foreign_sender');
+    expect(await identity('intruder@HOST-A.example')).toBeUndefined();
+  });
+
+  it("reactivates its own domain's inactive sender and no other row", async () => {
+    const { deliver, identity, ds } = await setup();
+    const asleep = { host: '', active: false };
+    await ds.write('AgentIdentity', [
+      { id: 'sleeper', kid: 'sleeper@host-b.example', domain: PEER_DOMAIN, ...asleep },
+      { id: 'elsewhere', kid: 'agent-d@host-d.example', domain: 'other.example.net', ...asleep },
+      { id: 'retired', kid: 'retired@oldname', host: 'host-a.example', active: false }
+    ]);
+    const untouched = ['agent-d@host-d.example', 'retired@oldname', GONE];
+    const before = await Promise.all(untouched.map(identity));
+    expect((await deliver(payload({ from: 'sleeper@host-b.example' }))).errors).toBeUndefined();
+    expect((await identity('sleeper@host-b.example'))?.active).toBe(true);
+    for (const from of untouched) {
+      expect((await deliver(payload({ from }))).errors?.[0]?.code).toBe('foreign_sender');
+    }
+    expect(await Promise.all(untouched.map(identity))).toEqual(before);
   });
 
   it('applies the checks in order', async () => {

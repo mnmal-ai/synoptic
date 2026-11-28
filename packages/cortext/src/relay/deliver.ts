@@ -3,17 +3,21 @@
  *
  * `deliver` runs as the peer's relay key, which holds no grant on the coordinator namespace, and a
  * relay mutation's transaction covers only `cortext-relay`. So the sender's identity and the
- * message are system writes through the committed coordinator dataset, in an order that is safe
- * to repeat: the identity first (an upsert), then the message, which the unique index on
- * `(viaDomain, remoteId)` stores once however often it arrives.
+ * message are written through the committed coordinator dataset, not the guarded registry
+ * entries, in an order that is safe to repeat: the identity first (an upsert, stamped with the
+ * system actor `cortext:relay`), then the message (stamped with the peer's relay kid), which the
+ * unique index on `(viaDomain, remoteId)` stores once however often it arrives.
  *
  * shortcut: on Postgres each deliver holds its relay frame's transaction connection while these
  * writes take another from the same pool, so as many concurrent deliveries as the pool has
- * connections stall the server; make `cortext-relay` a virtual (dataset-less) namespace, whose
- * mutations the engine runs without a transaction, before peers can deliver concurrently.
+ * connections stall the server. A virtual namespace does not avoid it (the engine still opens a
+ * transaction for it); doing this work on the frame's own connection, through
+ * `args.dataset.withScopedTransaction([mailNamespace])`, does, but the duplicate paths then need
+ * advisory locks, since a unique violation aborts that transaction.
  */
 
 import type {
+  ActorIdentity,
   Dataset,
   EdgesStore,
   EngineHandle,
@@ -37,11 +41,13 @@ import type { RelayRuntime } from './runtime.js';
 
 const SUBJECT_MAX_CHARS = 200;
 const BODY_MAX_BYTES = 65_536;
+/** messageId, from, to, instance and inReplyToRemoteId. */
+const FIELD_MAX_CHARS = 256;
 const RATE_PER_WINDOW = 60;
 const RATE_WINDOW_MS = 60_000;
 
-/** The actor the relay's writes are stamped with. */
-const RELAY_ACTOR = { kind: 'system', id: 'cortext:relay' } as const;
+/** Stamped on remote AgentIdentity writes; a message is stamped with the peer's relay kid. */
+const RELAY_ACTOR: ActorIdentity = { kind: 'system', id: 'cortext:relay' };
 
 export const DELIVER_PARAMS: Record<string, FieldDef> = {
   v: field.number(),
@@ -83,11 +89,14 @@ interface DeliverParams {
 const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v !== '';
 const text = (v: unknown): boolean => typeof v === 'string';
 const optional = (v: unknown): boolean => v == null || typeof v === 'string';
+/** `<name>@<host>`: one `@`, both parts non-empty, no whitespace or control characters. */
+const KID = /^[^@\s\p{Cc}]+@[^@\s\p{Cc}]+$/u;
+const kid = (v: unknown): boolean => typeof v === 'string' && KID.test(v);
 /** `v` is checked on its own, before anything else. */
 const PARAM_SHAPES: Record<string, (v: unknown) => boolean> = {
   messageId: nonEmpty,
-  from: nonEmpty,
-  to: nonEmpty,
+  from: kid,
+  to: kid,
   subject: text,
   body: text,
   instance: optional,
@@ -106,24 +115,27 @@ const isUniqueViolation = (err: unknown): boolean =>
   isResolverFrameError(err) && err.code === 'unique_violation';
 
 /**
- * One write through an autoCRUD resolver as the relay's system actor, so validation, defaults,
- * shortId and crossRef edges are what a local write gets; then the write is announced, so
- * subscriptions and coordinator hooks hear of it as of a commit through `mutate`.
+ * One write through an autoCRUD resolver, stamped with `actor`, so validation, defaults, shortId
+ * and crossRef edges are what a local write gets; then the write is announced, so subscriptions
+ * and coordinator hooks hear of it as of a commit through `mutate`.
  */
-async function systemWrite(
+async function coordinatorWrite(
   rt: RelayRuntime,
+  actor: ActorIdentity,
   type: string,
   verb: 'create',
   params: Record<string, unknown>
 ): Promise<Row>;
-async function systemWrite(
+async function coordinatorWrite(
   rt: RelayRuntime,
+  actor: ActorIdentity,
   type: string,
   verb: 'update',
   params: Record<string, unknown>
 ): Promise<Row | null>;
-async function systemWrite(
+async function coordinatorWrite(
   rt: RelayRuntime,
+  actor: ActorIdentity,
   type: string,
   verb: 'create' | 'update',
   params: Record<string, unknown>
@@ -136,8 +148,13 @@ async function systemWrite(
       ? createResolverWithEdges(type, ds, edges, { fields })
       : updateResolver(type, ds, edges, { fields });
   const ctx: RequestContext = {
-    // Read is what the crossRef existence check needs; nothing else is granted.
-    identity: { ...RELAY_ACTOR, grants: { [rt.mailNamespace]: ['read', 'mutate'] } },
+    // The metadata stamp reads `agentKeyId` for an agent and `kind` for a system actor. The grant
+    // is for this write alone: read is what the crossRef existence check needs.
+    identity: {
+      ...(actor.kind === 'agent' ? { agentKeyId: actor.id } : { kind: actor.kind }),
+      id: actor.id,
+      grants: { [rt.mailNamespace]: ['read', 'mutate'] }
+    },
     namespace: rt.mailNamespace,
     operation: 'mutate',
     now: rt.now(),
@@ -147,7 +164,7 @@ async function systemWrite(
   const events: WriteEvent[] = [];
   const args: ResolverArgs = { params, dataset: ds, onWrite: (e) => events.push(e) };
   const row = await resolver(ctx, args);
-  await engine.announceWrites(events, RELAY_ACTOR);
+  await engine.announceWrites(events, actor);
   return row;
 }
 
@@ -173,7 +190,7 @@ export async function upsertRemoteIdentity(
   let row = await identityByKid(ds, entry.kid);
   if (row === undefined) {
     try {
-      return await systemWrite(rt, 'AgentIdentity', 'create', {
+      return await coordinatorWrite(rt, RELAY_ACTOR, 'AgentIdentity', 'create', {
         kid: entry.kid,
         host: '',
         domain,
@@ -200,9 +217,11 @@ export async function upsertRemoteIdentity(
     Object.entries({ active: true, ...described }).filter(([k, v]) => (current[k] ?? null) !== v)
   );
   if (Object.keys(patch).length === 0) return current;
-  return (
-    (await systemWrite(rt, 'AgentIdentity', 'update', { id: current.id, ...patch })) ?? current
-  );
+  const updated = await coordinatorWrite(rt, RELAY_ACTOR, 'AgentIdentity', 'update', {
+    id: current.id,
+    ...patch
+  });
+  return updated ?? current;
 }
 
 /** Declared params only, each of its expected shape. */
@@ -258,6 +277,24 @@ async function parentId(ds: Dataset, domain: string, ref: string): Promise<strin
   return parent === undefined ? undefined : String(parent.id);
 }
 
+/** Whether `host`, in any case, is the host of an identity on this server. */
+async function isLocalHost(ds: Dataset, host: string): Promise<boolean> {
+  const wanted = host.toLowerCase();
+  let cursor: string | undefined;
+  do {
+    const page = await ds.read('AgentIdentity', {
+      where: { domain: { eq: null } },
+      limit: 1000,
+      ...(cursor !== undefined ? { cursor } : {})
+    });
+    if (page.rows.some((r) => isLocalIdentity(r) && String(r.host).toLowerCase() === wanted)) {
+      return true;
+    }
+    cursor = page.hasMore ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return false;
+}
+
 const resultOf = (row: Row, duplicate: boolean): DeliverResult => ({
   id: String(row.id),
   shortId: Number(row.shortId),
@@ -278,10 +315,15 @@ export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> 
     const peer = await requirePeer(rt, ctx);
     const domain = String(peer.domain);
     const p = readParams(raw);
-    if ([...p.subject].length > SUBJECT_MAX_CHARS || Buffer.byteLength(p.body) > BODY_MAX_BYTES) {
+    const short = [p.messageId, p.from, p.to, p.instance, p.inReplyToRemoteId];
+    if (
+      short.some((v) => v != null && [...v].length > FIELD_MAX_CHARS) ||
+      [...p.subject].length > SUBJECT_MAX_CHARS ||
+      Buffer.byteLength(p.body) > BODY_MAX_BYTES
+    ) {
       throw new ResolverFrameError(
         'too_large',
-        `deliver: a subject holds at most ${SUBJECT_MAX_CHARS} characters and a body at most ${BODY_MAX_BYTES} bytes`
+        `deliver: a subject holds at most ${SUBJECT_MAX_CHARS} characters, a body at most ${BODY_MAX_BYTES} bytes, and messageId, from, to, instance and inReplyToRemoteId at most ${FIELD_MAX_CHARS} characters each`
       );
     }
     if (!withinRate(String(peer.id))) {
@@ -298,6 +340,14 @@ export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> 
         'unknown_recipient',
         `deliver: '${p.to}' is not an active agent on this server`,
         { kid: p.to }
+      );
+    }
+    // A peer names senders on its own machines, never on this server's.
+    if (await isLocalHost(ds, p.from.slice(p.from.indexOf('@') + 1))) {
+      throw new ResolverFrameError(
+        'foreign_sender',
+        `deliver: '${p.from}' names a host of this server`,
+        { kid: p.from }
       );
     }
     try {
@@ -327,7 +377,9 @@ export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> 
       ...(inReplyTo !== undefined ? { inReplyTo } : {})
     };
     try {
-      return resultOf(await systemWrite(rt, 'AgentMessage', 'create', params), false);
+      // Stamped with the key that signed the delivery; the sender is `remoteFrom`.
+      const signer: ActorIdentity = { kind: 'agent', id: String(peer.inboundKid) };
+      return resultOf(await coordinatorWrite(rt, signer, 'AgentMessage', 'create', params), false);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       // A concurrent delivery of the same message won the insert.
