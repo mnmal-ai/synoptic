@@ -827,10 +827,14 @@ export function buildClaudeNamespace(
         // The mail domain of the server this identity lives on; null for an
         // identity on this server. A remote row is an address-book entry for
         // mail sent through a MailPeer: it has no host here, never roams, and
-        // is never an owner. Only an operator sets it.
+        // is never an owner. Only an operator sets it. Sync and deliveries
+        // create such rows for the peer's agents.
         domain: field.string({ nullable: true }),
-        // Whether the directory lists this identity to peer servers. Absent
-        // reads as listed, as for broadcastEligible.
+        // On an identity of this server: whether the directory lists it to
+        // peer servers (false hides it; mail addressed to it by kid still
+        // arrives). On a remote row: false once the peer no longer lists it.
+        // Never changes `active`. Absent reads as listed, as for
+        // broadcastEligible.
         listed: field.boolean({ default: true })
       },
       // The mailbox's recipient-only trust model rests on one live row per kid.

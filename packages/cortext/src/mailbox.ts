@@ -209,7 +209,7 @@ async function resolveRecipients(
     if (list.length > 1) {
       throw new ResolverFrameError(
         'wildcard_mixed',
-        "sendAgentMessage: the '*' wildcard cannot be combined with explicit kids — it already reaches every active identity",
+        "sendAgentMessage: the '*' wildcard cannot be combined with explicit kids — it already reaches every active local identity",
         { field: 'to' }
       );
     }

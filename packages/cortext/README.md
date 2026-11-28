@@ -70,3 +70,4 @@ side-channel around `reads: "identity"`.
 ## More
 
 - Type definitions: `src/namespace.ts`
+- Mail between servers, for operators: [docs/cross-server-mail.md](docs/cross-server-mail.md)

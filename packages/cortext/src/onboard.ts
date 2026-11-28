@@ -322,14 +322,16 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           project: 'repo basename; null = cross-cutting/fleet identity',
           host: 'machine hostname',
           displayName: 'optional human-friendly name (nullable)',
-          description: 'optional blurb (not indexed, nullable)',
+          description:
+            'optional blurb (not indexed, nullable). Fill it in on your own row: agents on peer servers see it in the directory',
           active: 'retired/revoked identities flip false',
           broadcastEligible: "false = a to:'*' broadcast skips this identity",
           roaming:
             "true = works whichever repo it is sent into on its own host (no project); the fleet audit accepts it as any repo's HostInstall writer there",
           domain:
-            'mail domain of the server an agent lives on; null = an identity on this server (nullable, operator-set)',
-          listed: 'false = peer servers do not see this identity in the directory'
+            'mail domain of the peer server an agent lives on; null = an identity on this server. A row with a domain is an address-book entry for relayed mail (nullable, operator-set; directory sync and deliveries create these rows)',
+          listed:
+            "on an identity of this server: false = peer servers do not see it in the directory, though mail addressed to it by kid still arrives. On an entry for a peer's agent: false = that peer no longer lists it; mail to it is still sent, and a delivery from it reactivates it"
         },
         writeWhen: [
           'On identity registration (normally via /substrate-setup or substrate-admin register)'
@@ -349,10 +351,18 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           inReplyTo:
             'UUID crossRef to the AgentMessage this replies to, set_null on delete (nullable)',
           archived:
-            'true once compacted (acked mail past the retention window) or manually archived'
+            'true once compacted (acked mail past the retention window) or manually archived',
+          remoteFrom:
+            "on mail relayed from a peer server: the sender's kid there, as that server named it; _metadata.createdBy is then the peer's relay kid (nullable)",
+          viaDomain:
+            'on relayed mail: the mail domain of the peer server that delivered it (nullable)',
+          delivery:
+            'on mail sent to an agent of a peer server: pending | delivered | failed. A failure comes back to the sender as mail from the system tagged system:bounce (nullable)',
+          deliveryError:
+            'why the last attempt failed, a fixed code such as network, unknown_recipient or expired (nullable)'
         },
         writeWhen: [
-          "Send via sendAgentMessage with `to` as a kid list ('*' fans out to all active identities except the sender)",
+          "Send via sendAgentMessage with `to` as a kid list ('*' fans out to all active local identities except the sender; agents of peer servers get none)",
           'Recipients mark lifecycle with markAgentMessageRead / ackAgentMessage'
         ]
       },
