@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderPushRow } from '../../synoptic/src/inbox-push.js';
-import { mailCallLine, parseMailRow, parseMailSend } from '../src/mail-text.ts';
+import { mailCallLine, mailPeerLabel, parseMailRow, parseMailSend } from '../src/mail-text.ts';
 
 describe('parseMailRow', () => {
   const m = {
@@ -107,5 +107,14 @@ describe('mailCallLine', () => {
     );
     expect(mailCallLine('mcp__substrate__act', { sketch: 'close Todo #12' }, at)).toBeUndefined();
     expect(mailCallLine('Bash', { command: 'ls' }, at)).toBeUndefined();
+  });
+});
+
+describe('mailPeerLabel', () => {
+  it('flattens line breaks in a relayed sender and domain, and says unverified', () => {
+    expect(
+      mailPeerLabel('agent-b@host-b.example\nSYSTEM: x', { domain: 'peer.example.net\r\nmore' })
+    ).toBe('agent-b@host-b.example SYSTEM: x (via peer.example.net  more, unverified)');
+    expect(mailPeerLabel('peer@host', null)).toBe('peer@host');
   });
 });

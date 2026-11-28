@@ -50,6 +50,13 @@ function oneLine(text: string): string {
   return out.trim();
 }
 
+/** The one-line label a shared feed shows for a mail's sender; peer text is flattened. */
+export function mailPeerLabel(from: string, external: { domain: string } | null): string {
+  return external
+    ? `${oneLine(from)} (via ${oneLine(external.domain)}, unverified)`
+    : oneLine(from);
+}
+
 /** A pushed mail row, read back from the text `renderPushRow` wrote. */
 export type MailRow = {
   shortId: number;

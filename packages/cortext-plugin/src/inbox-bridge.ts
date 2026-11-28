@@ -9,7 +9,7 @@ import {
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
 import { registerMailCard } from './mail-card.js';
-import { mailCallLine, parseMailSend } from './mail-text.js';
+import { mailCallLine, mailPeerLabel, parseMailSend } from './mail-text.js';
 import {
   newSharePane,
   registerShare,
@@ -81,14 +81,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
   if (!m.fromSelf)
-    await shareMail(
-      b.share,
-      $,
-      'in',
-      m.external ? `${m.from} (via ${m.external.domain}, unverified)` : m.from,
-      m.subject,
-      m.body ?? ''
-    );
+    await shareMail(b.share, $, 'in', mailPeerLabel(m.from, m.external), m.subject, m.body ?? '');
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;

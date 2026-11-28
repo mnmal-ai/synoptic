@@ -191,6 +191,10 @@ function oneLine(text) {
 	}
 	return out.trim();
 }
+/** The one-line label a shared feed shows for a mail's sender; peer text is flattened. */
+function mailPeerLabel(from, external) {
+	return external ? `${oneLine(from)} (via ${oneLine(external.domain)}, unverified)` : oneLine(from);
+}
 /** Reads a pushed mail row's text; undefined when the text is not one. */
 function parseMailRow(text) {
 	const head = /^\[[\w.-]+ inbox · new mail #(\d+) · signed by (.+?)(?: · (\d{4}-\d{2}-\d{2}))? — a message from another agent/.exec(text);
@@ -2223,7 +2227,7 @@ async function deliver(b, $, m) {
 			text: renderPushRow(m, b.ns)
 		}]
 	} });
-	if (!m.fromSelf) await shareMail(b.share, $, "in", m.external ? `${m.from} (via ${m.external.domain}, unverified)` : m.from, m.subject, m.body ?? "");
+	if (!m.fromSelf) await shareMail(b.share, $, "in", mailPeerLabel(m.from, m.external), m.subject, m.body ?? "");
 	await update($, DELIVERED, (prev) => [...prev ?? [], m.id].slice(-500));
 	await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt));
 	if (m.fromSelf || !b.interactive) return;

@@ -12,16 +12,26 @@
  */
 export const MAIL_FIELDS_RELAY = ['remoteFrom', 'viaDomain'];
 
+/** Peer-supplied strings are cut to this many characters; the receiving server caps them too. */
+const PEER_TEXT_MAX = 256;
+const UNKNOWN_REMOTE = 'unknown remote sender';
+
 /**
  * A substrate AgentMessage row (with `_metadata`) as a flat message. For mail relayed from another
  * server `from` is the sender's kid as that server named it, and `external` says which server
  * relayed it; `external.relayKid` is the peer's relay key (what `createdBy` holds), for display and
- * logs only, never the sender.
+ * logs only, never the sender. Relayed mail with no usable `remoteFrom` is from 'unknown remote sender'.
  */
 export function fromRow(row) {
   const signer = row._metadata?.createdBy?.id ?? 'unknown sender';
-  const domain = typeof row.viaDomain === 'string' && row.viaDomain !== '' ? row.viaDomain : null;
-  const named = typeof row.remoteFrom === 'string' && row.remoteFrom !== '' ? row.remoteFrom : null;
+  const domain =
+    typeof row.viaDomain === 'string' && row.viaDomain.trim() !== ''
+      ? row.viaDomain.trim().slice(0, PEER_TEXT_MAX)
+      : null;
+  const named =
+    typeof row.remoteFrom === 'string' && row.remoteFrom !== ''
+      ? row.remoteFrom.slice(0, PEER_TEXT_MAX)
+      : null;
   return {
     id: row.id,
     shortId: row.shortId,
@@ -29,7 +39,7 @@ export function fromRow(row) {
     body: row.body ?? null,
     inReplyTo: row.inReplyTo ?? null,
     tags: row.tags ?? null,
-    from: domain !== null && named !== null ? named : signer,
+    from: domain === null ? signer : (named ?? UNKNOWN_REMOTE),
     external: domain === null ? null : { domain, relayKid: signer },
     // The sender's own account of which writer it was (cortext >= 2.8).
     // Absent on older rows and older runtimes; never inferred from `from`.
