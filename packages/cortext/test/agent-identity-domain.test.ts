@@ -18,18 +18,21 @@ const LOCAL_B = 'agent-b@host-b.example';
 const REMOTE = 'agent-c@peer.example.net';
 const OPERATOR = 'ops@host-a.example';
 let stop: (() => Promise<void>) | null = null;
+/** The coordinator dataset of the last `setup`, for writing rows directly. */
+let store: MemoryDataset;
 afterEach(async () => {
   await stop?.();
   stop = null;
 });
 
 async function setup(): Promise<MemorySubstrateServer> {
+  store = new MemoryDataset({ namespace: NS });
   const server = new MemorySubstrateServer();
   const composed = await compose({
     server,
     dataset: new MemoryDataset({ namespace: 'default' }),
     datasets: {
-      [NS]: new MemoryDataset({ namespace: NS }),
+      [NS]: store,
       architecture: new MemoryDataset({ namespace: 'architecture' })
     },
     coordinators: [buildClaudeForTest({ namespace: NS })],
@@ -160,6 +163,40 @@ describe('AgentIdentity.domain', () => {
       [`${NS}/AgentMessage`]: { params: {}, fields: { recipient: true } }
     });
     expect(env.data[`${NS}/AgentMessage`]).toEqual([{ recipient: b }]);
+  });
+
+  it("reaches every local agent on to:'*' however many newer remote rows there are", async () => {
+    const server = await setup();
+    const locals = [LOCAL_A, LOCAL_B, 'agent-d@host-d.example'].map((kid, i) => ({
+      id: `local-${i}`,
+      ...local(kid),
+      active: true
+    }));
+    await store.write('AgentIdentity', locals, { now: new Date('2026-11-01T00:00:00.000Z') });
+    // More remote rows than one read takes, newer and with lower ids, so a read of every active
+    // row would fill its limit with them whichever order the store returns.
+    const remotes = Array.from({ length: 1000 }, (_, i) => ({
+      id: `0${i}`,
+      kid: `r${i}@host-r.example`,
+      host: '',
+      domain: 'peer.example.net',
+      active: true
+    }));
+    await store.write('AgentIdentity', remotes, { now: new Date('2026-11-27T00:00:00.000Z') });
+    const sent = await mutate(server, LOCAL_A, {
+      [`${NS}/sendAgentMessage`]: {
+        params: { to: ['*'], subject: 's', body: 'b' },
+        fields: { id: true }
+      }
+    });
+    expect(sent.errors).toBeUndefined();
+    const env = await call(server, OPERATOR, '/substrate/v1/query', {
+      [`${NS}/AgentMessage`]: { params: {}, fields: { recipient: true } }
+    });
+    const recipients = (env.data[`${NS}/AgentMessage`] as Array<{ recipient: string }>)
+      .map((m) => m.recipient)
+      .sort();
+    expect(recipients).toEqual(['local-1', 'local-2']);
   });
 
   it('refuses a remote row as Todo owner', async () => {

@@ -213,8 +213,10 @@ async function resolveRecipients(
         { field: 'to' }
       );
     }
+    // Local rows only, so rows for agents on peers never use up the limit. `eq: null` is the
+    // is-null filter and also matches rows written before `domain` existed.
     const { rows } = await ds.read(DIRECTORY_TYPE, {
-      where: { active: { eq: true } },
+      where: { active: { eq: true }, domain: { eq: null } },
       limit: DIRECTORY_READ_LIMIT
     });
     // `Row`'s index signature surfaces kid/active as `unknown` — the runtime

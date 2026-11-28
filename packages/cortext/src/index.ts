@@ -103,7 +103,16 @@ export function createCortextPlugin(
       reportUncoveredNamespaces(cfg, ctx.metric);
       relay.engine = ctx.engine;
       relay.metric = ctx.metric;
-      if (relaying) await warnOwnOpenReads(relay, cfg.auth ?? DEFAULT_AUTH);
+      // A warning only: a failure to check is reported, and the server starts regardless.
+      if (relaying) {
+        await warnOwnOpenReads(relay, cfg.auth ?? DEFAULT_AUTH).catch((err: unknown) => {
+          const error = err instanceof Error ? err.message : String(err);
+          ctx.metric('cortext.mail_open_reads_check_failed', { error });
+          console.warn(
+            `cortext relay: could not check at start whether mail received here is readable without a key: ${error}`
+          );
+        });
+      }
     },
     namespaces: [
       buildClaudeNamespace(cfg.namespace, { relay: relaying }),

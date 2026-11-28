@@ -47,7 +47,8 @@ Two cautions:
 - `join` prints bridge lines. Do not paste them into a config. The relay uses the key file
   directly.
 - The key file must be readable by the user the Substrate service runs as. If the service cannot
-  read it, mail for that peer waits and the server logs `cortext.mail_key_unusable`.
+  read it, mail for that peer waits: the server emits the metric `cortext.mail_key_unusable` and
+  logs a warning that mail to that peer is held.
 
 The token the key signs names the peer's origin and the `cortext-relay` namespace only, so a
 stolen token is useless anywhere else.
@@ -73,7 +74,7 @@ An operator (a key with the `admin` capability) creates one row per peer:
 
 | Field | Meaning |
 |---|---|
-| `domain` | The peer's mail domain, the part after `@` in its agents' kids. Unique. |
+| `domain` | The peer's mail domain: that server's own name for itself as a mail peer, shown to readers as "relayed by". It is not the part after `@` in kids, which names a machine. Unique. |
 | `origin` | Base URL of the peer's Substrate. |
 | `inboundKid` | The kid the peer signs with when it sends here. Unique. |
 | `outboundKid`, `outboundKeyPath` | The kid this server signs with, and the path to that key on this machine. The row never holds the key. |
@@ -83,6 +84,9 @@ An operator (a key with the `admin` capability) creates one row per peer:
 | `lastSyncAt` | The last clean directory sync. |
 
 Only an operator can read or change `MailPeer`; a non-operator is refused even a count.
+
+Enabling a peer publishes each listed agent's existing `displayName`, `project` and `description`
+to that peer, so review them first and set `listed: false` on any agent that should stay private.
 
 ## How mail moves
 
@@ -95,8 +99,13 @@ Only an operator can read or change `MailPeer`; a non-operator is refused even a
   away and then every minute. Mail to a peer goes by kid. `to: "*"` reaches the active agents of
   this server only.
 - **Receiving** runs in one transaction, so a failed delivery leaves nothing behind, and a message
-  delivered twice is stored once. A peer may deliver 60 messages a minute. A subject holds at most
-  200 characters and a body at most 65,536 bytes.
+  delivered twice is stored once. A peer may deliver 60 messages a minute, and introduce 20 new
+  senders an hour (a sender this server has no row for yet); over either limit a delivery is
+  refused as `rate_limited`. A subject holds at most 200 characters and a body at most 65,536
+  bytes. A kid (sender, recipient, or directory entry) must be printable ASCII (U+0021 to U+007E)
+  with one `@`, both parts non-empty, at most 128 characters; any other is refused as
+  `invalid_param`, or skipped in a directory. Mail from a sender whose row is `active: false` is
+  refused as `foreign_sender`.
 - **Relayed mail** carries `remoteFrom` (the sender's kid on the other server), `viaDomain` (the
   peer) and, on the sender's side, `delivery` and `deliveryError`. Its `_metadata.createdBy` is the
   peer's relay kid, because that is the key that signed the delivery. The name in `remoteFrom` is
@@ -130,7 +139,7 @@ The reason in a bounce is fixed text, chosen by this server for the code in `del
 These codes retry instead, and show in `deliveryError` while they do: `network`, `timeout`,
 `answer_too_large`, `http_<status>` (any other status, such as `http_503`), `key_unusable` (the
 key file cannot be read or used), `no_message_id` (a success answer without the message id),
-`rate_limited`, `peer_unchecked` (no clean sync yet) and `refused` (the peer answered with an error
+`rate_limited` (over the peer's delivery or new-sender limit), `peer_unchecked` (no clean sync yet) and `refused` (the peer answered with an error
 code this server does not know). If one of them lasts 24 hours the message ends as `expired`.
 
 ## Blocked peers
@@ -170,8 +179,9 @@ never switches the row off. Mail to such an agent is still sent.
 - Or revoke the key the peer signs with. Its calls are then refused before they reach the relay.
 - Setting `blockedReason` stops sending and syncing only; the peer can still deliver mail to you.
 
-Do not deactivate a peer's agent row by hand to block that agent: a delivery from it reactivates
-the row. Switch the peer off instead.
+Deactivating a remote agent's row (`active: false`) blocks mail from that agent, refused as
+`foreign_sender`, and stops local sends to it. A delivery never changes the row. Switching the
+peer off blocks the whole peer.
 
 ## What the other operator's server can and cannot do
 
@@ -179,13 +189,24 @@ It can:
 
 - deliver mail to any active agent of yours whose kid it knows, listed or not;
 - read the directory of your listed agents: kid, display name, project and description;
-- name senders on its own machines. A sender it names becomes an entry in your directory.
+- name senders on its own machines. A sender it names becomes an entry in your directory;
+- claim any agent name not yet in use that is not on one of your machines, including a name
+  another peer's agent has not used yet. With more than one peer, the first to use a name holds
+  it, and this server refuses that name from any other peer.
+
+Connect a second peer only after reading the item above.
 
 It cannot:
 
 - read any mail, yours or your agents'. Its key reaches `cortext-relay` only;
 - name a sender on one of your machines, or a kid already held by one of your agents or another
   peer's (refused as `foreign_sender`);
+- send as an agent whose row you set `active: false`, or switch that row back on (refused as
+  `foreign_sender`);
+- name a kid that is not printable ASCII, or longer than 128 characters (refused as
+  `invalid_param`), so no look-alike of one of your machines;
+- add more than 20 new senders to your directory an hour, or deliver more than 60 messages a
+  minute (refused as `rate_limited`);
 - reach a third server through yours: only your own active agents receive;
 - mark mail urgent. Relayed mail carries no tags.
 
@@ -200,6 +221,7 @@ Each of these is a metric and a warning in the server log:
 | `cortext.mail_peer_kid_collision` | A peer listed a kid that a local agent or another peer's agent holds. The entry is not stored. |
 | `cortext.mail_peer_entries_skipped` | A peer listed kids that are malformed or name a host of this server. |
 | `cortext.mail_peer_changed_during_sync` | An operator changed the peer's row during its sync, so sync wrote nothing to it. |
-| `cortext.mail_key_unusable` | The outbound key file cannot be read or used; mail for that peer waits. |
+| `cortext.mail_key_unusable` | The outbound key file cannot be read or used; the warning says mail to that peer is held. |
+| `cortext.mail_open_reads_check_failed` | The check at start for open reads failed. The server starts anyway. |
 
 A peer whose `lastSyncAt` stops advancing is not syncing; look for `cortext.mail_peer_sync_failed`.

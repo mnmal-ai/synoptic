@@ -6,9 +6,10 @@
  * guarded registry entries, and run inside the relay frame's own transaction: on Postgres that
  * is one connection per delivery, and a failed delivery leaves nothing behind. Under a lock on
  * the message, a repeat returns the first result; a new message gets its sender's identity
- * upserted (under a lock on the kid, stamped with the system actor `cortext:relay`) and is then
- * stored (stamped with the peer's relay kid). Locks are always taken message first, then kid. The
- * unique index on `(viaDomain, remoteId)` is the backstop.
+ * created if it has none, an existing one being left as it is (under a lock on the kid, stamped
+ * with the system actor `cortext:relay`), and is then stored (stamped with the peer's relay kid).
+ * Locks are always taken message first, then kid. The unique index on `(viaDomain, remoteId)` is
+ * the backstop.
  */
 
 import type {
@@ -39,6 +40,10 @@ export const BODY_MAX_BYTES = 65_536;
 export const FIELD_MAX_CHARS = 256;
 const RATE_PER_WINDOW = 60;
 const RATE_WINDOW_MS = 60_000;
+/** New sender identities a peer may create per hour. */
+const NEW_SENDERS_PER_WINDOW = 20;
+const NEW_SENDERS_WINDOW_MS = 3_600_000;
+const UNSAFE = /[\p{Cc}\p{Cf}]/gu;
 
 /**
  * Stamped on remote AgentIdentity writes and on the outbox's writes; a received message is stamped
@@ -68,7 +73,6 @@ export type DeliverResult = { id: string; shortId: number; duplicate: boolean };
 
 export interface RemoteIdentityEntry {
   kid: string;
-  active?: boolean;
   listed?: boolean;
   displayName?: string | null;
   project?: string | null;
@@ -89,11 +93,13 @@ const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v !== '';
 const text = (v: unknown): boolean => typeof v === 'string';
 const optional = (v: unknown): boolean => v == null || typeof v === 'string';
 /**
- * `<name>@<host>`: one `@`, both parts non-empty, no whitespace, control or format characters
- * (bidi overrides, zero-width), since kids are shown to agents.
+ * `<name>@<host>`: printable ASCII only (U+0021 to U+007E), one `@`, both parts non-empty, at most
+ * 128 characters. Kids are shown to agents, so no look-alike or invisible characters.
  */
-const KID = /^[^@\s\p{Cc}\p{Cf}]+@[^@\s\p{Cc}\p{Cf}]+$/u;
-export const isKid = (v: unknown): v is string => typeof v === 'string' && KID.test(v);
+const KID = /^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$/;
+const KID_MAX_CHARS = 128;
+export const isKid = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= KID_MAX_CHARS && KID.test(v);
 /** `v` is checked on its own, before anything else. */
 const PARAM_SHAPES: Record<string, (v: unknown) => boolean> = {
   messageId: nonEmpty,
@@ -218,10 +224,11 @@ async function identityByKid(ds: Dataset, kid: string): Promise<Row | undefined>
 }
 
 /**
- * The remote identity `entry.kid` of `domain`: created active on first sight, otherwise given
- * whichever of `active`, `listed`, `displayName`, `project` and `description` the entry carries.
+ * The remote identity `entry.kid` of `domain`: created active on first sight, after
+ * `beforeCreate`, which may throw to refuse it; otherwise given whichever of `listed`,
+ * `displayName`, `project` and `description` the entry carries. Never changes `active`.
  * A kid held by a local identity or by another domain is `kid_collision`, naming both holders; it
- * is never merged. Otherwise a kid whose host, in any case, is the host of a local identity is
+ * is never merged. Otherwise a kid whose host, in any case, is the machine of a local identity is
  * `local_host`: a peer names agents on its own machines, never on this server's. Runs under a lock
  * on the kid, whichever domain claims it, so concurrent claims serialise. With a `scope` it runs in
  * that transaction (a delivery's); without one, in a transaction of its own, announced once it
@@ -233,13 +240,14 @@ export async function upsertRemoteIdentity(
   rt: RelayRuntime,
   domain: string,
   entry: RemoteIdentityEntry,
-  scope?: CoordinatorScope
+  scope?: CoordinatorScope,
+  beforeCreate?: () => void
 ): Promise<Row> {
-  if (scope !== undefined) return upsertIn(rt, scope, domain, entry);
+  if (scope !== undefined) return upsertIn(rt, scope, domain, entry, beforeCreate);
   const events: WriteEvent[] = [];
   const onWrite = (e: WriteEvent) => void events.push(e);
   const row = await onTransaction(rt, coordinator(rt).ds, (ds, edges) =>
-    upsertIn(rt, { ds, edges, onWrite }, domain, entry)
+    upsertIn(rt, { ds, edges, onWrite }, domain, entry, beforeCreate)
   );
   await coordinator(rt).engine.announceWrites(events, RELAY_ACTOR);
   return row;
@@ -249,10 +257,11 @@ function upsertIn(
   rt: RelayRuntime,
   scope: CoordinatorScope,
   domain: string,
-  entry: RemoteIdentityEntry
+  entry: RemoteIdentityEntry,
+  beforeCreate?: () => void
 ): Promise<Row> {
   return locked(scope.ds, `cortext-relay:kid:${entry.kid}`, () =>
-    upsertLocked(rt, scope, domain, entry)
+    upsertLocked(rt, scope, domain, entry, beforeCreate)
   );
 }
 
@@ -260,10 +269,11 @@ async function upsertLocked(
   rt: RelayRuntime,
   scope: CoordinatorScope,
   domain: string,
-  entry: RemoteIdentityEntry
+  entry: RemoteIdentityEntry,
+  beforeCreate?: () => void
 ): Promise<Row> {
   const given: Record<string, unknown> = {};
-  for (const key of ['active', 'listed', 'displayName', 'project', 'description'] as const) {
+  for (const key of ['listed', 'displayName', 'project', 'description'] as const) {
     if (entry[key] !== undefined) given[key] = entry[key];
   }
   const row = await identityByKid(scope.ds, entry.kid);
@@ -283,6 +293,7 @@ async function upsertLocked(
     );
   }
   if (row === undefined) {
+    beforeCreate?.();
     return coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'create', {
       kid: entry.kid,
       host: '',
@@ -323,13 +334,20 @@ function readParams(params: Record<string, unknown>): DeliverParams {
   return params as unknown as DeliverParams;
 }
 
-/** Deliveries per peer in the last minute, counted in this process with the relay's clock. */
-function rateLimiter(now: () => Date): (peerId: string) => boolean {
+/**
+ * Whether a peer has used fewer than `limit` in the last `windowMs`, counting this use if so;
+ * counted in this process with the relay's clock.
+ */
+function rateLimiter(
+  now: () => Date,
+  limit: number,
+  windowMs: number
+): (peerId: string) => boolean {
   const recent = new Map<string, number[]>();
   return (peerId) => {
     const at = now().getTime();
-    const kept = (recent.get(peerId) ?? []).filter((t) => t > at - RATE_WINDOW_MS);
-    const allowed = kept.length < RATE_PER_WINDOW;
+    const kept = (recent.get(peerId) ?? []).filter((t) => t > at - windowMs);
+    const allowed = kept.length < limit;
     if (allowed) kept.push(at);
     recent.set(peerId, kept);
     return allowed;
@@ -355,9 +373,20 @@ async function parentId(ds: Dataset, domain: string, ref: string): Promise<strin
   return parent === undefined ? undefined : String(parent.id);
 }
 
-/** Whether `host`, in any case, is the host of an identity on this server. */
+/** The part of a kid after `@`, or '' without one. */
+const kidHost = (kid: unknown): string => {
+  const s = String(kid);
+  const at = s.indexOf('@');
+  return at === -1 ? '' : s.slice(at + 1);
+};
+
+/**
+ * Whether `host`, in any case, is the machine of an identity on this server: its `host` field or
+ * the host part of its kid.
+ */
 async function isLocalHost(ds: Dataset, host: string): Promise<boolean> {
   const wanted = host.toLowerCase();
+  const isWanted = (h: string): boolean => h.toLowerCase() === wanted;
   let cursor: string | undefined;
   do {
     const page = await ds.read('AgentIdentity', {
@@ -365,7 +394,11 @@ async function isLocalHost(ds: Dataset, host: string): Promise<boolean> {
       limit: 1000,
       ...(cursor !== undefined ? { cursor } : {})
     });
-    if (page.rows.some((r) => isLocalIdentity(r) && String(r.host).toLowerCase() === wanted)) {
+    if (
+      page.rows.some(
+        (r) => isLocalIdentity(r) && (isWanted(String(r.host)) || isWanted(kidHost(r.kid)))
+      )
+    ) {
       return true;
     }
     cursor = page.hasMore ? page.nextCursor : undefined;
@@ -380,7 +413,8 @@ const resultOf = (row: Row, duplicate: boolean): DeliverResult => ({
 });
 
 export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> {
-  const withinRate = rateLimiter(rt.now);
+  const withinRate = rateLimiter(rt.now, RATE_PER_WINDOW, RATE_WINDOW_MS);
+  const withinNewSenders = rateLimiter(rt.now, NEW_SENDERS_PER_WINDOW, NEW_SENDERS_WINDOW_MS);
   return async (ctx, args) => {
     const raw = args.params ?? {};
     if (raw.v !== RELAY_PROTOCOL_VERSION) {
@@ -393,7 +427,7 @@ export function deliverResolver(rt: RelayRuntime): TypedResolver<DeliverResult> 
     // The writes go to the frame's sink, which announces them after the frame commits.
     const sink = args.onWrite !== undefined ? { onWrite: args.onWrite } : {};
     return onTransaction(rt, args.dataset ?? coordinator(rt).ds, (ds, edges) =>
-      deliverIn(rt, ctx, raw, { ds, edges, ...sink }, withinRate)
+      deliverIn(rt, ctx, raw, { ds, edges, ...sink }, withinRate, withinNewSenders)
     );
   };
 }
@@ -403,7 +437,8 @@ async function deliverIn(
   ctx: RequestContext,
   raw: Record<string, unknown>,
   scope: CoordinatorScope,
-  withinRate: (peerId: string) => boolean
+  withinRate: (peerId: string) => boolean,
+  withinNewSenders: (peerId: string) => boolean
 ): Promise<DeliverResult> {
   const { ds } = scope;
   const peer = await requirePeer(rt, ctx, ds);
@@ -440,8 +475,17 @@ async function deliverIn(
         { kid: p.to }
       );
     }
+    // A sender's existing row is left as it is; a new one uses the peer's new-sender budget.
+    const admitNewSender = (): void => {
+      if (withinNewSenders(String(peer.id))) return;
+      throw new ResolverFrameError(
+        'rate_limited',
+        `deliver: ${domain} has introduced ${NEW_SENDERS_PER_WINDOW} new senders in the last hour; retry later`
+      );
+    };
+    let sender: Row;
     try {
-      await upsertRemoteIdentity(rt, domain, { kid: p.from, active: true }, scope);
+      sender = await upsertRemoteIdentity(rt, domain, { kid: p.from }, scope, admitNewSender);
     } catch (err) {
       const code = isResolverFrameError(err) ? err.code : undefined;
       if (code !== 'kid_collision' && code !== 'local_host') throw err;
@@ -451,17 +495,27 @@ async function deliverIn(
         kid: p.from
       });
     }
+    // An operator switched this sender off: its mail is refused, and the row stays off.
+    if (sender.active === false) {
+      throw new ResolverFrameError(
+        'foreign_sender',
+        `deliver: '${p.from}' is switched off on this server`,
+        { kid: p.from }
+      );
+    }
     const inReplyTo =
       p.inReplyToRemoteId != null ? await parentId(ds, domain, p.inReplyToRemoteId) : undefined;
     // No tags: relayed mail is never urgent and never a broadcast.
+    // Subject and instance are shown in one line, so control and format characters go and a
+    // newline becomes a space; the body is stored as sent.
     const params: Record<string, unknown> = {
       recipient: recipient.id,
-      subject: p.subject,
+      subject: p.subject.replace(/\r\n?|\n/g, ' ').replace(UNSAFE, ''),
       body: p.body,
       remoteFrom: p.from,
       viaDomain: domain,
       remoteId: p.messageId,
-      ...(p.instance != null ? { instance: p.instance } : {}),
+      ...(p.instance != null ? { instance: p.instance.replace(UNSAFE, '') } : {}),
       ...(inReplyTo !== undefined ? { inReplyTo } : {})
     };
     // Stamped with the key that signed the delivery; the sender is `remoteFrom`.

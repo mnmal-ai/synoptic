@@ -339,16 +339,27 @@ describe('cortext-relay/deliver', () => {
     expect(batches).toEqual([]);
   });
 
-  it.each(['messageId', 'from', 'to', 'instance', 'inReplyToRemoteId'])(
+  it.each(['messageId', 'instance', 'inReplyToRemoteId'])(
     'refuses a %s over 256 characters',
     async (key) => {
       const { deliver, messages } = await setup();
-      const long =
-        key === 'from' || key === 'to' ? `${'a'.repeat(250)}@host-x.example` : 'r'.repeat(257);
-      expect((await deliver(payload({ [key]: long }))).errors?.[0]?.code).toBe('too_large');
+      expect((await deliver(payload({ [key]: 'r'.repeat(257) }))).errors?.[0]?.code).toBe(
+        'too_large'
+      );
       expect(await messages()).toHaveLength(0);
     }
   );
+
+  it('accepts a 128-character kid and refuses a 129-character one, as from and as to', async () => {
+    const { deliver, messages } = await setup();
+    const host = '@host-b.example';
+    const longest = `${'a'.repeat(128 - host.length)}${host}`;
+    expect((await deliver(payload({ from: longest }))).errors).toBeUndefined();
+    const over = `${'a'.repeat(129 - host.length)}${host}`;
+    expect((await deliver(payload({ from: over }))).errors?.[0]?.code).toBe('invalid_param');
+    expect((await deliver(payload({ to: over }))).errors?.[0]?.code).toBe('invalid_param');
+    expect(await messages()).toHaveLength(1);
+  });
 
   it.each([
     ['no @', 'no-at-sign'],
@@ -359,7 +370,9 @@ describe('cortext-relay/deliver', () => {
     ['a tab', 'agent-b@host-b\t.example'],
     ['a control character', 'agent-b\u0007@host-b.example'],
     ['a bidi override', 'agent-\u202eb@host-b.example'],
-    ['a zero-width space', 'agent-b@host\u200b-b.example']
+    ['a zero-width space', 'agent-b@host\u200b-b.example'],
+    ['a Cyrillic letter in the host', 'agent-b@host-\u0430.example'],
+    ['a blank-looking letter', 'agent-b@host-b\u3164.example']
   ])('refuses a kid with %s as from and as to', async (_case, bad) => {
     const { deliver, messages } = await setup();
     expect((await deliver(payload({ from: bad }))).errors?.[0]?.code).toBe('invalid_param');
@@ -374,22 +387,82 @@ describe('cortext-relay/deliver', () => {
     expect(await identity('intruder@HOST-A.example')).toBeUndefined();
   });
 
-  it("reactivates its own domain's inactive sender and no other row", async () => {
+  it('refuses a sender on the machine in a local kid whose row has no host', async () => {
     const { deliver, identity, ds } = await setup();
+    await ds.write('AgentIdentity', [
+      { id: 'hostless', kid: 'agent-z@host-z.example', host: '', active: true }
+    ]);
+    const { errors } = await deliver(payload({ from: 'intruder@HOST-Z.example' }));
+    expect(errors?.[0]?.code).toBe('foreign_sender');
+    expect(await identity('intruder@HOST-Z.example')).toBeUndefined();
+  });
+
+  it("refuses its own domain's inactive sender and changes no row", async () => {
+    const { deliver, identity, messages, ds, batches } = await setup();
     const asleep = { host: '', active: false };
     await ds.write('AgentIdentity', [
       { id: 'sleeper', kid: 'sleeper@host-b.example', domain: PEER_DOMAIN, ...asleep },
       { id: 'elsewhere', kid: 'agent-d@host-d.example', domain: 'other.example.net', ...asleep },
       { id: 'retired', kid: 'retired@oldname', host: 'host-a.example', active: false }
     ]);
-    const untouched = ['agent-d@host-d.example', 'retired@oldname', GONE];
+    const untouched = ['sleeper@host-b.example', 'agent-d@host-d.example', 'retired@oldname', GONE];
     const before = await Promise.all(untouched.map(identity));
-    expect((await deliver(payload({ from: 'sleeper@host-b.example' }))).errors).toBeUndefined();
-    expect((await identity('sleeper@host-b.example'))?.active).toBe(true);
     for (const from of untouched) {
       expect((await deliver(payload({ from }))).errors?.[0]?.code).toBe('foreign_sender');
     }
     expect(await Promise.all(untouched.map(identity))).toEqual(before);
+    expect(await messages()).toHaveLength(0);
+    expect(batches).toEqual([]);
+  });
+
+  it("leaves a known sender's row exactly as it is", async () => {
+    const { deliver, identity, ds } = await setup();
+    await ds.write('AgentIdentity', [
+      {
+        id: 'known',
+        kid: SENDER,
+        host: '',
+        domain: PEER_DOMAIN,
+        active: true,
+        listed: false,
+        description: 'set by sync'
+      }
+    ]);
+    const before = await identity(SENDER);
+    expect((await deliver(payload())).errors).toBeUndefined();
+    expect(await identity(SENDER)).toEqual(before);
+  });
+
+  it('refuses the 21st new sender in an hour, but not a known one, and reopens after the hour', async () => {
+    let clock = new Date('2026-11-27T12:00:00.000Z');
+    const { deliver, identity, messages } = await setup({ now: () => clock });
+    const sender = (i: number) => `agent-${i}@host-b.example`;
+    for (let i = 0; i < 20; i++) {
+      expect((await deliver(payload({ from: sender(i) }))).errors).toBeUndefined();
+    }
+    expect((await deliver(payload({ from: sender(20) }))).errors?.[0]?.code).toBe('rate_limited');
+    expect(await identity(sender(20))).toBeUndefined();
+    expect(await messages()).toHaveLength(20);
+    // A sender that already has a row uses none of the budget.
+    expect((await deliver(payload({ from: sender(0) }))).errors).toBeUndefined();
+    clock = new Date(clock.getTime() + 3_600_000);
+    expect((await deliver(payload({ from: sender(20) }))).errors).toBeUndefined();
+    expect(await identity(sender(20))).toMatchObject({ domain: PEER_DOMAIN, active: true });
+  });
+
+  it('strips control and format characters from subject and instance, and leaves the body as sent', async () => {
+    const { deliver, messages } = await setup();
+    const body = 'line one\nline\u0007 two\u202e';
+    const { errors, result } = await deliver(
+      payload({
+        subject: 'line one\nline\u0007 two\u202e\r\nend',
+        instance: 'session:\u200b1a2b',
+        body
+      })
+    );
+    expect(errors).toBeUndefined();
+    const row = (await messages()).find((m) => m.id === result?.id);
+    expect(row).toMatchObject({ subject: 'line one line two end', instance: 'session:1a2b', body });
   });
 
   it('applies the checks in order', async () => {

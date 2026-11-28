@@ -933,7 +933,8 @@ export function buildClaudeNamespace(
     // outbound mail, and the key itself is never stored.
     MailPeer: {
       fields: {
-        // The peer's mail domain, as in `kid@domain`.
+        // The peer's mail domain: that server's own name for itself as a mail peer, shown to
+        // readers as "relayed by". Not the part after `@` in kids, which names a machine.
         domain: field.string(),
         // Base URL of the peer's Substrate.
         origin: field.string(),

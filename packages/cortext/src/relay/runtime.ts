@@ -10,7 +10,10 @@ export interface RelayRuntime {
   edges: EdgesStore | undefined;
   /** The coordinator namespace that holds the mailbox. */
   mailNamespace: string;
-  /** This server's mail domain, the part after `@` in the kids it serves. */
+  /**
+   * This server's mail domain: its own name for itself as a mail peer, shown to readers as
+   * "relayed by". Not the part after `@` in kids, which names a machine.
+   */
   mailDomain: string;
   fetchImpl: typeof fetch;
   now: () => Date;

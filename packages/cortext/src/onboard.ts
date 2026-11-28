@@ -331,7 +331,7 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           domain:
             'mail domain of the peer server an agent lives on; null = an identity on this server. A row with a domain is an address-book entry for relayed mail (nullable, operator-set; directory sync and deliveries create these rows)',
           listed:
-            "on an identity of this server: false = peer servers do not see it in the directory, though mail addressed to it by kid still arrives. On an entry for a peer's agent: false = that peer no longer lists it; mail to it is still sent, and a delivery from it reactivates it"
+            "on an identity of this server: false = peer servers do not see it in the directory, though mail addressed to it by kid still arrives. On an entry for a peer's agent: false = that peer no longer lists it; mail to it is still sent. active: false on such an entry blocks mail from that agent and stops local sends to it; switching the peer off blocks the whole peer"
         },
         writeWhen: [
           'On identity registration (normally via /substrate-setup or substrate-admin register)'
@@ -377,7 +377,8 @@ function buildBody(namespace: string, retention: number): OnboardBody {
           outboundKid: 'the kid this server signs with when it sends there',
           outboundKeyPath: 'path to that key on this machine, never the key itself (not indexed)',
           active: 'false = no mail is exchanged with this peer',
-          allowOpenReads: 'true = the peer may read the directory without a key',
+          allowOpenReads:
+            'true = accept this peer although its server answers mail reads without a key, so mail sent there may be readable by anyone who can reach that server',
           blockedReason: 'why the peer is blocked (not indexed, nullable)',
           lastSyncAt: 'ISO 8601 UTC datetime of the last directory sync (nullable)'
         },

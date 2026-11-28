@@ -557,16 +557,18 @@ describe('syncPeer', () => {
       { kid: 'white space@host-b.example' },
       { kid: bidi },
       { kid: `${'x'.repeat(250)}@host-b.example` },
+      { kid: `${'x'.repeat(114)}@host-b.example` },
+      { kid: 'agent-b@host-а.example' },
       'not a row',
       null,
       { displayName: 'no kid' },
       { kid: REMOTE }
     ];
-    expect(await sync()).toMatchObject({ upserted: 1, skipped: 9, collisions: [] });
+    expect(await sync()).toMatchObject({ upserted: 1, skipped: 11, collisions: [] });
     const kids = (await identities()).map((r) => r.kid);
     expect(kids.sort()).toEqual([LOCAL, REMOTE, OTHER].sort());
     expect(metrics).toEqual([
-      { name: 'cortext.mail_peer_entries_skipped', payload: { domain: PEER_DOMAIN, skipped: 9 } }
+      { name: 'cortext.mail_peer_entries_skipped', payload: { domain: PEER_DOMAIN, skipped: 11 } }
     ]);
     expect(warnings().join('\n')).not.toContain('\u202E');
   });
@@ -832,6 +834,30 @@ describe('sync wiring', () => {
     });
     cleanup.push(() => composed.stop());
     expect(warnings().filter((w) => w.includes('readable without a key'))).toHaveLength(expected);
+  });
+
+  it('starts, reporting the failure, when the start-time open-reads check cannot read', async () => {
+    const store = new MemoryDataset({ namespace: NS });
+    const read = store.read.bind(store);
+    store.read = async (type, opts) => {
+      if (type === 'MailPeer') throw new Error('injected read failure');
+      return read(type, opts);
+    };
+    const composed = await compose({
+      server: new MemorySubstrateServer(),
+      dataset: new MemoryDataset({ namespace: 'default' }),
+      datasets: {
+        [NS]: store,
+        architecture: new MemoryDataset({ namespace: 'architecture' }),
+        'cortext-relay': new MemoryDataset({ namespace: 'cortext-relay' })
+      },
+      coordinators: [buildClaudeForTest({ namespace: NS, mailDomain: MAIL_DOMAIN })],
+      systemActor: 'test'
+    });
+    cleanup.push(() => composed.stop());
+    expect(
+      warnings().some((w) => w.includes('could not check at start') && w.includes('injected'))
+    ).toBe(true);
   });
 
   it('the scheduled task syncs through the plugin', async () => {
