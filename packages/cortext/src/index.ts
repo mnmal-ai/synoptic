@@ -33,6 +33,7 @@ import { registerOnboardRoute } from './onboard.js';
 import { buildRelayNamespace } from './relay/namespace.js';
 import { drainOutbox, OUTBOX_INTERVAL_MS } from './relay/outbox.js';
 import { createRelayRuntime, type RelayRuntime } from './relay/runtime.js';
+import { SYNC_INTERVAL_MS, syncPeers, warnOwnOpenReads } from './relay/sync.js';
 
 export { buildAuthPolicies, DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
 export { type CompactResult, registerCompactRoute, runCompact } from './compact.js';
@@ -98,10 +99,11 @@ export function createCortextPlugin(
     // overrides are a supported capability; what was missing was any signal
     // that using one silently disables every kernel invariant. See
     // ./kernel-invariants.ts.
-    onStart: (ctx) => {
+    onStart: async (ctx) => {
       reportUncoveredNamespaces(cfg, ctx.metric);
       relay.engine = ctx.engine;
       relay.metric = ctx.metric;
+      if (relaying) await warnOwnOpenReads(relay, cfg.auth ?? DEFAULT_AUTH);
     },
     namespaces: [
       buildClaudeNamespace(cfg.namespace, { relay: relaying }),
@@ -155,7 +157,7 @@ export function createCortextPlugin(
             }
           ]
         : []),
-      // Retries, and mail whose post-commit send did not run.
+      // Retries, and mail whose post-commit send did not run; and the peers' directories.
       ...(relaying
         ? [
             {
@@ -164,6 +166,14 @@ export function createCortextPlugin(
               runOnStart: false,
               handler: async (): Promise<void> => {
                 await drainOutbox(relay);
+              }
+            },
+            {
+              name: `${cfg.namespace}-mail-sync`,
+              intervalMs: SYNC_INTERVAL_MS,
+              runOnStart: true,
+              handler: async (): Promise<void> => {
+                await syncPeers(relay);
               }
             }
           ]

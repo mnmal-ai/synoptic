@@ -36,7 +36,7 @@ import type { RelayRuntime } from './runtime.js';
 export const SUBJECT_MAX_CHARS = 200;
 export const BODY_MAX_BYTES = 65_536;
 /** messageId, from, to, instance and inReplyToRemoteId. */
-const FIELD_MAX_CHARS = 256;
+export const FIELD_MAX_CHARS = 256;
 const RATE_PER_WINDOW = 60;
 const RATE_WINDOW_MS = 60_000;
 
@@ -91,12 +91,12 @@ const optional = (v: unknown): boolean => v == null || typeof v === 'string';
  * (bidi overrides, zero-width), since kids are shown to agents.
  */
 const KID = /^[^@\s\p{Cc}\p{Cf}]+@[^@\s\p{Cc}\p{Cf}]+$/u;
-const kid = (v: unknown): boolean => typeof v === 'string' && KID.test(v);
+export const isKid = (v: unknown): v is string => typeof v === 'string' && KID.test(v);
 /** `v` is checked on its own, before anything else. */
 const PARAM_SHAPES: Record<string, (v: unknown) => boolean> = {
   messageId: nonEmpty,
-  from: kid,
-  to: kid,
+  from: isKid,
+  to: isKid,
   subject: text,
   body: text,
   instance: optional,
@@ -219,10 +219,13 @@ async function identityByKid(ds: Dataset, kid: string): Promise<Row | undefined>
  * The remote identity `entry.kid` of `domain`: created on first sight, otherwise made active and
  * given whichever of `displayName`, `project` and `description` the entry carries. A kid held by
  * a local identity or by another domain is `kid_collision`, naming both holders; it is never merged.
- * Runs under a lock on the kid, whichever domain claims it, so concurrent claims serialise. With a
- * `scope` it runs in that transaction (a delivery's); without one, in a transaction of its own,
- * announced once it commits. A create that loses to a writer taking no lock (an operator's) fails
- * on the unique index and is not retried.
+ * Otherwise a kid whose host, in any case, is the host of a local identity is `local_host`: a peer
+ * names agents on its own machines, never on this server's. Runs under a lock on the kid, whichever
+ * domain claims it, so concurrent claims serialise. With a `scope` it runs in that transaction (a
+ * delivery's); without one, in a transaction of its own, announced once it commits. Never call the
+ * form without a scope from inside a frame's resolver: its transaction would take a second pooled
+ * connection beside the frame's. A create that loses to a writer taking no lock (an operator's)
+ * fails on the unique index and is not retried.
  */
 export async function upsertRemoteIdentity(
   rt: RelayRuntime,
@@ -262,6 +265,21 @@ async function upsertLocked(
     if (entry[key] !== undefined) described[key] = entry[key];
   }
   const row = await identityByKid(scope.ds, entry.kid);
+  if (row !== undefined && (isLocalIdentity(row) || row.domain !== domain)) {
+    const holder = isLocalIdentity(row) ? 'a local identity' : `an agent of ${String(row.domain)}`;
+    throw new ResolverFrameError(
+      'kid_collision',
+      `kid '${entry.kid}' is held by ${holder} and claimed by ${domain}; it is not merged`,
+      { kid: entry.kid, holder: isLocalIdentity(row) ? null : row.domain, claimant: domain }
+    );
+  }
+  if (await isLocalHost(scope.ds, entry.kid.slice(entry.kid.indexOf('@') + 1))) {
+    throw new ResolverFrameError(
+      'local_host',
+      `kid '${entry.kid}' names a host of this server and is claimed by ${domain}`,
+      { kid: entry.kid, claimant: domain }
+    );
+  }
   if (row === undefined) {
     return coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'create', {
       kid: entry.kid,
@@ -270,14 +288,6 @@ async function upsertLocked(
       active: true,
       ...described
     });
-  }
-  if (isLocalIdentity(row) || row.domain !== domain) {
-    const holder = isLocalIdentity(row) ? 'a local identity' : `an agent of ${String(row.domain)}`;
-    throw new ResolverFrameError(
-      'kid_collision',
-      `kid '${entry.kid}' is held by ${holder} and claimed by ${domain}; it is not merged`,
-      { kid: entry.kid, holder: isLocalIdentity(row) ? null : row.domain, claimant: domain }
-    );
   }
   const patch = Object.fromEntries(
     Object.entries({ active: true, ...described }).filter(([k, v]) => (row[k] ?? null) !== v)
@@ -428,23 +438,16 @@ async function deliverIn(
         { kid: p.to }
       );
     }
-    // A peer names senders on its own machines, never on this server's.
-    if (await isLocalHost(ds, p.from.slice(p.from.indexOf('@') + 1))) {
-      throw new ResolverFrameError(
-        'foreign_sender',
-        `deliver: '${p.from}' names a host of this server`,
-        { kid: p.from }
-      );
-    }
     try {
       await upsertRemoteIdentity(rt, domain, { kid: p.from }, scope);
     } catch (err) {
-      if (!isResolverFrameError(err) || err.code !== 'kid_collision') throw err;
-      throw new ResolverFrameError(
-        'foreign_sender',
-        `deliver: '${p.from}' is not an agent of ${domain}`,
-        { kid: p.from }
-      );
+      const code = isResolverFrameError(err) ? err.code : undefined;
+      if (code !== 'kid_collision' && code !== 'local_host') throw err;
+      const why =
+        code === 'local_host' ? 'names a host of this server' : `is not an agent of ${domain}`;
+      throw new ResolverFrameError('foreign_sender', `deliver: '${p.from}' ${why}`, {
+        kid: p.from
+      });
     }
     const inReplyTo =
       p.inReplyToRemoteId != null ? await parentId(ds, domain, p.inReplyToRemoteId) : undefined;
