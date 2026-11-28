@@ -3033,14 +3033,18 @@ async function gatherFleet({ fleetDir, hosts = false, directoryRows, candidates,
 //#endregion
 //#region ../synoptic/src/audit-facts/server.js
 const DIRECTORY_LIMIT = 200;
+const DIRECTORY_MAX_PAGES = 50;
 /**
-* The AgentIdentity directory. All three are null when there is no server or
-* it did not answer: `unknown`, never "unregistered".
+* This server's own AgentIdentity rows: rows for agents on peer servers (a
+* non-empty `domain`) are left out. The three lists are null when there is no
+* server or it did not answer: `unknown`, never "unregistered".
+* `directoryTruncated` is true when paging stopped at DIRECTORY_MAX_PAGES.
 */
 async function readDirectory({ substrateUrl, env, fetchImpl }) {
 	let directoryKids = null;
 	let directoryRows = null;
 	let activeKids = null;
+	let directoryTruncated = false;
 	if (substrateUrl !== null) try {
 		const key = `${env.SUBSTRATE_NAMESPACE ?? "cortext"}/AgentIdentity`;
 		const fields = {
@@ -3050,25 +3054,57 @@ async function readDirectory({ substrateUrl, env, fetchImpl }) {
 			project: true,
 			host: true
 		};
-		const readDirectory = (f) => substrateQuery(substrateUrl, { [key]: {
-			params: { limit: 200 },
-			fields: f
-		} }, { fetchImpl });
-		let data = await readDirectory({
+		const readPage = async (f, cursor) => {
+			let pagination = {};
+			const data = await substrateQuery(substrateUrl, { [key]: {
+				params: {
+					limit: 200,
+					...cursor !== void 0 ? { cursor } : {}
+				},
+				fields: f
+			} }, {
+				fetchImpl,
+				onPagination: (p) => pagination = p
+			});
+			return {
+				rows: Object.hasOwn(data, key) ? data[key] : null,
+				page: pagination[key] ?? {}
+			};
+		};
+		let f = {
 			...fields,
-			roaming: true
-		});
-		if (!Object.hasOwn(data, key)) data = await readDirectory(fields);
-		directoryRows = Object.hasOwn(data, key) ? data[key] : null;
-		directoryKids = directoryRows === null ? null : directoryRows.map((r) => r.kid);
-		activeKids = directoryRows === null ? null : directoryRows.filter((r) => r.active !== false).map((r) => r.kid);
+			roaming: true,
+			domain: true
+		};
+		let { rows, page } = await readPage(f);
+		if (rows === null) {
+			f = fields;
+			({rows, page} = await readPage(f));
+		}
+		if (rows !== null) {
+			const all = [...rows];
+			for (let pages = 1; page.hasMore === true; pages++) {
+				if (pages === 50) {
+					directoryTruncated = true;
+					break;
+				}
+				if (page.nextCursor === void 0) throw new Error(`${key}: hasMore with no nextCursor`);
+				({rows, page} = await readPage(f, page.nextCursor));
+				if (rows === null) throw new Error(`${key}: a later page was refused`);
+				all.push(...rows);
+			}
+			directoryRows = all.filter((r) => !(typeof r.domain === "string" && r.domain !== ""));
+			directoryKids = directoryRows.map((r) => r.kid);
+			activeKids = directoryRows.filter((r) => r.active !== false).map((r) => r.kid);
+		}
 	} catch {
 		directoryKids = null;
 	}
 	return {
 		directoryRows,
 		directoryKids,
-		activeKids
+		activeKids,
+		directoryTruncated
 	};
 }
 /**
@@ -3120,7 +3156,7 @@ async function probeServer({ substrateUrl, env, fetchImpl, kid, declaredKid = nu
 //#region ../synoptic/src/audit-facts/groups.js
 /** @param {Record<string, any>} facts every gatherer's output, plus the target and cwd. */
 function buildGroups(facts) {
-	const { pin, installedVersion, cloneFreshness, cloneDetail, opencodeSkinVersion, installedRegistry, candidates, cacheDirState, servedVersion, servedRootState, resolution, kid, source, declaredName, declaredKid, keyNames, revokedNames, directoryKids, activeKids, directoryRows, whoami, authWarning, targetDir, cwd, env, keyRefs, refScanComplete, mcpJsonFacts, recallFindings, settingsFindings, fleetFindings, hostFindings } = facts;
+	const { pin, installedVersion, cloneFreshness, cloneDetail, opencodeSkinVersion, installedRegistry, candidates, cacheDirState, servedVersion, servedRootState, resolution, kid, source, declaredName, declaredKid, keyNames, revokedNames, directoryKids, activeKids, directoryRows, directoryTruncated, whoami, authWarning, targetDir, cwd, env, keyRefs, refScanComplete, mcpJsonFacts, recallFindings, settingsFindings, fleetFindings, hostFindings } = facts;
 	return [
 		["pin", auditPin({
 			pin,
@@ -3168,7 +3204,7 @@ function buildGroups(facts) {
 			directoryRows,
 			keyRefs,
 			refScanComplete
-		}), ...directoryRows !== null && directoryRows.length >= 200 ? [check("directory.truncated", "unknown", `read ${directoryRows.length} AgentIdentity rows, the query limit, so some may be missing`, "\"unregistered\" and \"never reported\" findings may be false; this audit does not page")] : []]],
+		}), ...directoryTruncated === true ? [check("directory.truncated", "unknown", `stopped reading AgentIdentity rows after ${50} pages, so some may be missing`, "\"unregistered\" and \"never reported\" findings may be false")] : []]],
 		["mcp-json", auditMcpJson(mcpJsonFacts)],
 		["inbox push", auditInboxPush({ env })],
 		["recall", recallFindings],

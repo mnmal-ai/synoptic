@@ -7,51 +7,80 @@ import { probeWhoami, recall, substrateQuery } from '../substrate-http.js';
 // The directory is the one fact needing the server. Unreachable -> null ->
 // `unknown`, never "unregistered": reporting a missing row when the server was
 // simply down invites deleting a good identity.
-// The directory read does not page. A full page means identities may be
-// missing, which would surface as false "unregistered" and "never reported"
-// findings, so it is reported rather than trusted.
+// The directory read pages to the end, up to DIRECTORY_MAX_PAGES. Stopping
+// short means identities may be missing, which would surface as false
+// "unregistered" and "never reported" findings, so it is reported rather than
+// trusted.
 export const DIRECTORY_LIMIT = 200;
+export const DIRECTORY_MAX_PAGES = 50;
 
 /**
- * The AgentIdentity directory. All three are null when there is no server or
- * it did not answer: `unknown`, never "unregistered".
+ * This server's own AgentIdentity rows: rows for agents on peer servers (a
+ * non-empty `domain`) are left out. The three lists are null when there is no
+ * server or it did not answer: `unknown`, never "unregistered".
+ * `directoryTruncated` is true when paging stopped at DIRECTORY_MAX_PAGES.
  */
 export async function readDirectory({ substrateUrl, env, fetchImpl }) {
   let directoryKids = null;
   let directoryRows = null;
   let activeKids = null;
+  let directoryTruncated = false;
   if (substrateUrl !== null) {
     try {
       const ns = env.SUBSTRATE_NAMESPACE ?? 'cortext';
       const key = `${ns}/AgentIdentity`;
       const fields = { kid: true, active: true, description: true, project: true, host: true };
-      const readDirectory = (f) =>
-        substrateQuery(
-          substrateUrl,
-          { [key]: { params: { limit: DIRECTORY_LIMIT }, fields: f } },
-          { fetchImpl }
-        );
-      // `roaming` arrived with cortext 2.13.0. An older runtime projects it as
-      // null with a diagnostic, so no identity is roaming there; the re-read
-      // covers one that refuses the frame outright instead.
-      let data = await readDirectory({ ...fields, roaming: true });
-      if (!Object.hasOwn(data, key)) data = await readDirectory(fields);
       // Presence of the key, not `?? []` — a rejected frame must not read as an
       // empty directory.
-      // Carry `active` through rather than discarding it — the query was
-      // already paying for the field and dropping it made orphans.hosts count
-      // retired identities as live hosts.
-      directoryRows = Object.hasOwn(data, key) ? data[key] : null;
-      directoryKids = directoryRows === null ? null : directoryRows.map((r) => r.kid);
-      activeKids =
-        directoryRows === null
-          ? null
-          : directoryRows.filter((r) => r.active !== false).map((r) => r.kid);
+      const readPage = async (f, cursor) => {
+        let pagination = {};
+        const data = await substrateQuery(
+          substrateUrl,
+          {
+            [key]: {
+              params: { limit: DIRECTORY_LIMIT, ...(cursor !== undefined ? { cursor } : {}) },
+              fields: f
+            }
+          },
+          { fetchImpl, onPagination: (p) => (pagination = p) }
+        );
+        return { rows: Object.hasOwn(data, key) ? data[key] : null, page: pagination[key] ?? {} };
+      };
+      // `roaming` arrived with cortext 2.13.0 and `domain` later. An older runtime
+      // projects each as null with a diagnostic, so no identity is roaming or
+      // remote there; the re-read covers one that refuses the frame outright.
+      // `domain` is projected, not filtered on: an older runtime refuses an
+      // unknown field in `where`.
+      let f = { ...fields, roaming: true, domain: true };
+      let { rows, page } = await readPage(f);
+      if (rows === null) {
+        f = fields;
+        ({ rows, page } = await readPage(f));
+      }
+      if (rows !== null) {
+        const all = [...rows];
+        for (let pages = 1; page.hasMore === true; pages++) {
+          if (pages === DIRECTORY_MAX_PAGES) {
+            directoryTruncated = true;
+            break;
+          }
+          if (page.nextCursor === undefined) throw new Error(`${key}: hasMore with no nextCursor`);
+          ({ rows, page } = await readPage(f, page.nextCursor));
+          if (rows === null) throw new Error(`${key}: a later page was refused`);
+          all.push(...rows);
+        }
+        // Carry `active` through rather than discarding it — the query was
+        // already paying for the field and dropping it made orphans.hosts count
+        // retired identities as live hosts.
+        directoryRows = all.filter((r) => !(typeof r.domain === 'string' && r.domain !== ''));
+        directoryKids = directoryRows.map((r) => r.kid);
+        activeKids = directoryRows.filter((r) => r.active !== false).map((r) => r.kid);
+      }
     } catch {
       directoryKids = null;
     }
   }
-  return { directoryRows, directoryKids, activeKids };
+  return { directoryRows, directoryKids, activeKids, directoryTruncated };
 }
 
 /**
