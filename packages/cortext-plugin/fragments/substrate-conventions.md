@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.30+381620f2 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.30+a9198977 — plugin-owned; do not edit. Edit your own CLAUDE.md instead. -->
 
 # Substrate interaction conventions
 
@@ -169,7 +169,7 @@ Several copies of one broadcast, or unread mail addressed to a retired kid, are 
 
 ## Who you are, and who else is
 
-**Your agent identity is bound to the REPO, not to your session.** Concurrent sessions in one repo sign with the same key, and `AgentMessage` has **no sender field** — the sender is `_metadata.createdBy`, which the server derives from that key. So on the wire you are indistinguishable from every other session here.
+**Your agent identity is bound to the REPO, not to your session.** Concurrent sessions in one repo sign with the same key, and local `AgentMessage` rows have **no sender field** — the sender is `_metadata.createdBy`, which the server derives from that key (relayed mail is the exception: there `createdBy` is the other server's relay key and the sender is `remoteFrom`). So on the wire you are indistinguishable from every other session here.
 
 So a correction aimed at "whoever signed this" can reach a session that did not do the work, while the one that did never sees it.
 
