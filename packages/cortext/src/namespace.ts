@@ -194,7 +194,11 @@ const CONCEPT_NAME_TTL_MS = 60_000;
 /** Long-form length past which `embed.source` appends the long form to the synopsis. */
 const LONGFORM_EMBED_CHARS = 1200;
 
-export function buildClaudeNamespace(ns: string): NamespaceDefinition {
+/** `relay`: this server relays mail to peer servers (it has a `mailDomain`). */
+export function buildClaudeNamespace(
+  ns: string,
+  opts: { relay?: boolean } = {}
+): NamespaceDefinition {
   /**
    * Concept names are near-static (concepts evolve rarely) but `Decision.embed.source`
    * reads one on every Decision write — the most common write in this namespace —
@@ -1102,7 +1106,8 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
         // biome-ignore lint/style/noNonNullAssertion: deliberate internal-seam assertion, see above
         definition.types!.AgentMessage!.fields as Record<string, FieldDef>,
         // biome-ignore lint/style/noNonNullAssertion: same internal-seam assertion
-        definition.types!.AgentMessage!.actions
+        definition.types!.AgentMessage!.actions,
+        opts.relay === true
       );
       // AgentIdentity keeps its autoCRUD surface, but a create may not claim
       // another machine, an edit is the row's own kid's or an operator's, and

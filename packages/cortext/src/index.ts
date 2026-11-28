@@ -22,7 +22,7 @@
  * time to contribute postWrite hooks via the engine's kernel-walk.
  */
 
-import type { CoordinatorPlugin } from '@mnmal-ai/substrate/sdk';
+import type { CoordinatorPlugin, ScheduledTaskContext } from '@mnmal-ai/substrate/sdk';
 import { buildAuthPolicies, DEFAULT_AUTH } from './auth-policy.js';
 import { registerCompactRoute, runCompact } from './compact.js';
 import type { CortextPluginConfig } from './config.js';
@@ -31,6 +31,7 @@ import { reportUncoveredNamespaces } from './kernel-invariants.js';
 import { buildArchitectureNamespace, buildClaudeNamespace } from './namespace.js';
 import { registerOnboardRoute } from './onboard.js';
 import { buildRelayNamespace } from './relay/namespace.js';
+import { drainOutbox, OUTBOX_INTERVAL_MS } from './relay/outbox.js';
 import { createRelayRuntime, type RelayRuntime } from './relay/runtime.js';
 
 export { buildAuthPolicies, DEFAULT_AUTH, isMonotonicAuth } from './auth-policy.js';
@@ -82,6 +83,7 @@ export function createCortextPlugin(
   deps: { relay?: Partial<RelayRuntime> } = {}
 ): CoordinatorPlugin {
   const relay = createRelayRuntime(cfg, deps.relay);
+  const relaying = cfg.mailDomain !== undefined;
   return {
     // From the shared constant, not a literal. The KERNEL
     // resolves which namespace to target by filtering
@@ -101,11 +103,31 @@ export function createCortextPlugin(
       relay.engine = ctx.engine;
     },
     namespaces: [
-      buildClaudeNamespace(cfg.namespace),
+      buildClaudeNamespace(cfg.namespace, { relay: relaying }),
       buildArchitectureNamespace(cfg.architectureNamespace),
       // Only a server with a mail domain exposes the relay surface.
-      ...(cfg.mailDomain !== undefined ? [buildRelayNamespace(relay)] : [])
+      ...(relaying ? [buildRelayNamespace(relay)] : [])
     ],
+    // A new message may be mail for a peer server: send it now rather than at the next schedule.
+    // Never awaited by the mutate, so a failed drain is only reported.
+    ...(relaying
+      ? {
+          onCommittedWrites: (batch): void => {
+            if (
+              batch.namespace !== cfg.namespace ||
+              batch.type !== 'AgentMessage' ||
+              batch.operation !== 'create'
+            ) {
+              return;
+            }
+            drainOutbox(relay).catch((err: unknown) => {
+              console.warn(
+                `cortext relay: outbox drain failed: ${err instanceof Error ? err.message : String(err)}`
+              );
+            });
+          }
+        }
+      : {}),
     // Auth posture. The context store is the agent's memory
     // estate — anonymous writes are a prompt-injection vector with
     // persistence (cold-start + recall inject Memory/AgentRule/Concept rows
@@ -118,20 +140,34 @@ export function createCortextPlugin(
     // internal maintenance writers (compact) pass the resolve-identity
     // system envelope so they keep working under gated writes.
     policies: buildAuthPolicies(cfg.auth ?? DEFAULT_AUTH),
-    schedule:
-      cfg.autoCompactIntervalMs !== undefined
+    schedule: [
+      ...(cfg.autoCompactIntervalMs !== undefined
         ? [
             {
               name: `${cfg.namespace}-auto-compact`,
               intervalMs: cfg.autoCompactIntervalMs,
               runOnStart: false,
-              handler: async (taskCtx): Promise<void> => {
+              handler: async (taskCtx: ScheduledTaskContext): Promise<void> => {
                 await runCompact(taskCtx.engine, cfg.namespace, cfg.compactRetention, false);
                 taskCtx.metric('compact_applied', { namespace: cfg.namespace });
               }
             }
           ]
-        : [],
+        : []),
+      // Retries, and mail whose post-commit send did not run.
+      ...(relaying
+        ? [
+            {
+              name: `${cfg.namespace}-mail-outbox`,
+              intervalMs: OUTBOX_INTERVAL_MS,
+              runOnStart: false,
+              handler: async (): Promise<void> => {
+                await drainOutbox(relay);
+              }
+            }
+          ]
+        : [])
+    ],
     routes: (router, routeCtx): void => {
       registerOnboardRoute(router, routeCtx, cfg.compactRetention, cfg.namespace);
       registerCompactRoute(

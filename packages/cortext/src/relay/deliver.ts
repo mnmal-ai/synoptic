@@ -33,15 +33,18 @@ import { isLocalIdentity } from '../participants.js';
 import { RELAY_PROTOCOL_VERSION, requirePeer } from './namespace.js';
 import type { RelayRuntime } from './runtime.js';
 
-const SUBJECT_MAX_CHARS = 200;
-const BODY_MAX_BYTES = 65_536;
+export const SUBJECT_MAX_CHARS = 200;
+export const BODY_MAX_BYTES = 65_536;
 /** messageId, from, to, instance and inReplyToRemoteId. */
 const FIELD_MAX_CHARS = 256;
 const RATE_PER_WINDOW = 60;
 const RATE_WINDOW_MS = 60_000;
 
-/** Stamped on remote AgentIdentity writes; a message is stamped with the peer's relay kid. */
-const RELAY_ACTOR: ActorIdentity = { kind: 'system', id: 'cortext:relay' };
+/**
+ * Stamped on remote AgentIdentity writes and on the outbox's writes; a received message is stamped
+ * with the peer's relay kid.
+ */
+export const RELAY_ACTOR: ActorIdentity = { kind: 'system', id: 'cortext:relay' };
 
 export const DELIVER_PARAMS: Record<string, FieldDef> = {
   v: field.number(),

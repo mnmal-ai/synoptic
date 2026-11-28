@@ -54,6 +54,8 @@ import {
   updateResolver
 } from '@mnmal-ai/substrate/sdk';
 import { isLocalIdentity, messageParticipantsOnly } from './participants.js';
+import { BODY_MAX_BYTES, SUBJECT_MAX_CHARS } from './relay/deliver.js';
+import { peerFor, peerUnavailable } from './relay/outbox.js';
 
 const TYPE = 'AgentMessage';
 const DIRECTORY_TYPE = 'AgentIdentity';
@@ -295,9 +297,45 @@ async function resolveRecipients(
   });
 }
 
+/**
+ * Refuses mail for an agent on a peer server that could not leave: this server relays nothing
+ * (`relay` false), no active unblocked MailPeer serves the agent's domain, or the subject or body
+ * is over what a peer accepts.
+ */
+async function assertRelayable(
+  ds: Dataset,
+  recipient: Row,
+  params: Record<string, unknown>,
+  relay: boolean
+): Promise<void> {
+  const domain = String(recipient.domain);
+  const reason = relay
+    ? peerUnavailable(await peerFor(ds, domain), domain)
+    : 'this server has no mail domain, so it relays no mail';
+  if (reason !== undefined) {
+    throw new ResolverFrameError(
+      'relay_unavailable',
+      `sendAgentMessage: cannot send to '${String(recipient.kid)}' on ${domain}: ${reason}`,
+      { kid: recipient.kid, domain, reason }
+    );
+  }
+  const { subject, body } = params;
+  if (
+    (typeof subject === 'string' && [...subject].length > SUBJECT_MAX_CHARS) ||
+    (typeof body === 'string' && Buffer.byteLength(body) > BODY_MAX_BYTES)
+  ) {
+    throw new ResolverFrameError(
+      'too_large',
+      `sendAgentMessage: mail to another server holds a subject of at most ${SUBJECT_MAX_CHARS} characters and a body of at most ${BODY_MAX_BYTES} bytes`,
+      { kid: recipient.kid }
+    );
+  }
+}
+
 function sendResolver(
   installCtx: NamespaceInstallContext,
-  createMessage: TypedResolver<Row>
+  createMessage: TypedResolver<Row>,
+  relay: boolean
 ): TypedResolver<Row[]> {
   return async (ctx: RequestContext, args: ResolverArgs): Promise<Row[]> => {
     const params = args.params ?? {};
@@ -314,6 +352,9 @@ function sendResolver(
     const ds = args.dataset ?? installCtx.dataset;
     const actor = resolveIdentity(ctx);
     const recipients = await resolveRecipients(ds, params.to, actor.id, ctx.namespace);
+    for (const recipient of recipients) {
+      if (!isLocalIdentity(recipient)) await assertRelayable(ds, recipient, params, relay);
+    }
 
     // Delegate each row write to the edge-aware autoCRUD create resolver —
     // field validation, enum/default handling, metadata stamping, shortId
@@ -334,6 +375,11 @@ function sendResolver(
         if (params.inReplyTo !== undefined) rowParams.inReplyTo = params.inReplyTo;
         if (params.tags !== undefined) rowParams.tags = params.tags;
         if (params.instance !== undefined) rowParams.instance = params.instance;
+        // Mail for a peer server waits for the outbox, which sends it once this commits.
+        if (!isLocalIdentity(recipient)) {
+          rowParams.delivery = 'pending';
+          rowParams.deliveryNextAt = ctx.now.toISOString();
+        }
         return createMessage(ctx, { ...args, params: rowParams });
       })
     );
@@ -477,12 +523,14 @@ function transitionResolver(
  * callers to build a shape that cannot work, and the refusal reads like a
  * grant problem. Field defs arrive pre-augmentation; the reserved engine
  * fields are added here, the way defineNamespace adds them for autoCRUD types.
- * `actions` are the type's declared `act` actions.
+ * `actions` are the type's declared `act` actions. `relay` is whether this server relays mail to
+ * peer servers (it has a `mailDomain`).
  */
 export function installMailboxMutations(
   ctx: NamespaceInstallContext,
   messageFields: Record<string, FieldDef>,
-  actions?: Record<string, ActionDecl>
+  actions?: Record<string, ActionDecl>,
+  relay = false
 ): void {
   const fields: Record<string, FieldDef> = { ...messageFields, ...RESERVED_AUTOCRUD_FIELDS };
 
@@ -571,7 +619,7 @@ export function installMailboxMutations(
   // custom mutations so verb-keyed posture policies (deny writes, deny
   // updates) compose over the mailbox exactly as over autoCRUD.
   ctx.registry.register('sendAgentMessage', {
-    resolver: sendResolver(ctx, createMessage),
+    resolver: sendResolver(ctx, createMessage, relay),
     kind: 'mutation',
     verb: 'create',
     params: SEND_PARAMS,
