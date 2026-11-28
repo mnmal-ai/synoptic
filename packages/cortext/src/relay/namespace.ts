@@ -11,9 +11,18 @@ import type {
   NamespaceDefinition,
   NamespaceInstallContext,
   Policy,
+  RequestContext,
   Row
 } from '@mnmal-ai/substrate/sdk';
-import { and, denyAll, field, or, requireIdentity } from '@mnmal-ai/substrate/sdk';
+import {
+  and,
+  denyAll,
+  field,
+  or,
+  ResolverFrameError,
+  requireIdentity
+} from '@mnmal-ai/substrate/sdk';
+import { listDirectory } from './directory.js';
 import type { RelayRuntime } from './runtime.js';
 
 export const RELAY_NAMESPACE = 'cortext-relay';
@@ -26,6 +35,23 @@ function relayPolicy(ctx: NamespaceInstallContext): Policy {
     denyAll('the relay namespace requires an authenticated identity')
   );
   return ctx.pluginPolicy !== undefined ? and(ctx.pluginPolicy, requireCaller) : requireCaller;
+}
+
+/**
+ * The active MailPeer whose `inboundKid` is the caller's kid, else `unknown_peer`. MailPeer's
+ * registry entries are operator-only, so the row is read straight from the coordinator dataset.
+ */
+export async function requirePeer(rt: RelayRuntime, ctx: RequestContext): Promise<Row> {
+  const kid = ctx.identity?.id;
+  const ds = rt.engine?.datasetFor(rt.mailNamespace);
+  if (kid !== undefined && ds !== undefined) {
+    const { rows } = await ds.read('MailPeer', {
+      where: { inboundKid: { eq: kid }, active: { eq: true } },
+      limit: 1
+    });
+    if (rows[0] !== undefined) return rows[0];
+  }
+  throw new ResolverFrameError('unknown_peer', 'the caller is not an active mail peer');
 }
 
 export function buildRelayNamespace(rt: RelayRuntime): NamespaceDefinition {
@@ -51,6 +77,21 @@ export function buildRelayNamespace(rt: RelayRuntime): NamespaceDefinition {
             mailNamespace: rt.mailNamespace
           } as Row
         ]
+      });
+      ctx.registry.register('Directory', {
+        kind: 'type',
+        fields: {
+          id: field.string(),
+          kid: field.string(),
+          displayName: field.string({ nullable: true }),
+          project: field.string({ nullable: true }),
+          description: field.string({ nullable: true })
+        },
+        policy,
+        resolver: async (rctx): Promise<Row[]> => {
+          await requirePeer(rt, rctx);
+          return (await listDirectory(rt)) as unknown as Row[];
+        }
       });
     }
   };
