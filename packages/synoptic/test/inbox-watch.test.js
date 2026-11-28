@@ -155,6 +155,48 @@ describe('runWatcher', () => {
     expect(events.find((e) => e.type === 'message').urgent).toBe(true);
   });
 
+  it('holds relayed mail unless its domain or sender is allowlisted; local mail is never held', async () => {
+    const relayed = row(5, 'x', {
+      remoteFrom: 'agent-b@host-b.example',
+      viaDomain: 'peer.example.net'
+    });
+    const held = async (extra) => {
+      const h = fakeSubstrate({
+        streams: [frames([snapshot([]), add(relayed), add(row(6, 'x')), end('x')])]
+      });
+      const { events } = await run({ fetchImpl: h.fetchImpl, env: { ...ENV, ...extra } });
+      return events.filter((e) => e.type === 'message').map((e) => e.held);
+    };
+    expect(await held({})).toEqual([true, false]);
+    expect(await held({ SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM: 'peer.example.net' })).toEqual([
+      false,
+      false
+    ]);
+  });
+
+  it('emits held mail from the snapshot even when it predates since, and drops other old mail', async () => {
+    const old = '2020-01-01T00:00:00Z';
+    const h = fakeSubstrate({
+      streams: [
+        frames([
+          snapshot([
+            row(5, old, { remoteFrom: 'agent-b@host-b.example', viaDomain: 'peer.example.net' }),
+            row(6, old)
+          ]),
+          end('x')
+        ])
+      ]
+    });
+    const { events } = await run({
+      fetchImpl: h.fetchImpl,
+      env: ENV,
+      since: '2026-01-01T00:00:00Z'
+    });
+    expect(events.filter((e) => e.type === 'message').map((e) => [e.shortId, e.held])).toEqual([
+      [5, true]
+    ]);
+  });
+
   it('the client follows server_restart, a dropped body and a 5xx; a 401 is terminal', async () => {
     const h = fakeSubstrate({
       streams: [

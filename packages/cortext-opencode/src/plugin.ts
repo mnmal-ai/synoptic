@@ -380,7 +380,8 @@ function inboxAccess(
 function createInboxSeams(
   identity: Identity,
   connection: Connection = {},
-  pushLive: () => boolean = () => false
+  pushLive: () => boolean = () => false,
+  pushHolding: () => boolean = () => false
 ): {
   onPrompt: (sessionID: string, metadata?: Record<string, unknown>) => void;
   noteFor: (sessionID: string) => Promise<string>;
@@ -408,17 +409,20 @@ function createInboxSeams(
       }
       // D2: while the watcher is live it delivers these rows itself. Drop the
       // previous turn's line too, or the context hook would inject it again.
-      if (pushLive()) {
+      // Held mail (another server's, not allowlisted) is not pushed, so once the watcher has
+      // seen some, the prompt check runs in its held-only mode. An operator's `off` stays off.
+      if (pushLive() && !pushHolding()) {
         notes.delete(sessionID);
         return;
       }
+      const access = inboxAccess(identity, connection);
+      if (pushLive())
+        access.env.SYNOPTIC_INBOX_PROMPT_CHECK =
+          access.env.SYNOPTIC_INBOX_PROMPT_CHECK === 'off' ? 'off' : 'held';
       const gate = withTimeout(INBOX_TIMEOUT_MS);
       notes.set(
         sessionID,
-        Promise.race([
-          promptHookContext(inboxAccess(identity, connection)),
-          gate.promise.then(() => '')
-        ])
+        Promise.race([promptHookContext(access), gate.promise.then(() => '')])
           .then((note) => {
             gate.cancel();
             return note;
@@ -647,7 +651,12 @@ async function setup(ctx: PluginContext): Promise<() => void> {
     push = null;
   }
   const bridge = push?.bridge ?? null;
-  const inbox = createInboxSeams(identity, connection, () => bridge?.live() ?? false);
+  const inbox = createInboxSeams(
+    identity,
+    connection,
+    () => bridge?.live() ?? false,
+    () => bridge?.holding() ?? false
+  );
 
   // Subagent (child) sessions also pass through the prompt and context hooks.
   // Mail is for the session the user is driving, as in the Claude bridge, so

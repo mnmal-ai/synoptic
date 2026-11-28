@@ -11,7 +11,12 @@ import { buildGroups } from '../src/audit-facts/groups.js';
 import { readDeclaredKid, readDeclaredName, readKeyFiles } from '../src/audit-facts/identity.js';
 import { gatherKeyRefs } from '../src/audit-facts/key-refs.js';
 import { gatherPluginFacts } from '../src/audit-facts/plugin.js';
-import { DIRECTORY_LIMIT, probeServer, readDirectory } from '../src/audit-facts/server.js';
+import {
+  DIRECTORY_LIMIT,
+  DIRECTORY_MAX_PAGES,
+  probeServer,
+  readDirectory
+} from '../src/audit-facts/server.js';
 
 const URL_ = 'https://substrate.test';
 
@@ -27,9 +32,10 @@ function write(path, text) {
 /**
  * A Substrate stub. `answer(key, params)` returns the value for one frame key, or
  * undefined to leave the key absent (a refused frame). Every request body is
- * recorded so tests can assert what was asked.
+ * recorded so tests can assert what was asked. `pagination(key, params)`, if
+ * given, returns the frame's `_pagination` entry.
  */
-function stubSubstrate({ answer, whoami = { authEnabled: true, identity: null } }) {
+function stubSubstrate({ answer, whoami = { authEnabled: true, identity: null }, pagination }) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     const path = String(url).slice(URL_.length);
@@ -40,11 +46,14 @@ function stubSubstrate({ answer, whoami = { authEnabled: true, identity: null } 
     const body = JSON.parse(init.body);
     calls.push({ path, body });
     const data = {};
+    const _pagination = {};
     for (const [key, frame] of Object.entries(body)) {
       const v = answer(key, frame.params ?? {});
       if (v !== undefined) data[key] = v;
+      const p = pagination?.(key, frame.params ?? {});
+      if (p !== undefined) _pagination[key] = p;
     }
-    return { ok: true, status: 200, json: async () => ({ data }) };
+    return { ok: true, status: 200, json: async () => ({ data, _pagination }) };
   };
   return { fetchImpl, calls };
 }
@@ -165,7 +174,12 @@ describe('readDirectory', () => {
   it('reads a refused frame as unknown, never as an empty directory', async () => {
     const { fetchImpl, calls } = stubSubstrate({ answer: () => undefined });
     const d = await readDirectory({ substrateUrl: URL_, env, fetchImpl });
-    expect(d).toEqual({ directoryRows: null, directoryKids: null, activeKids: null });
+    expect(d).toEqual({
+      directoryRows: null,
+      directoryKids: null,
+      activeKids: null,
+      directoryTruncated: false
+    });
     // Retried once without `roaming` for an older runtime.
     expect(calls).toHaveLength(2);
     expect(calls[1].body['cortext/AgentIdentity'].fields.roaming).toBeUndefined();
@@ -178,8 +192,18 @@ describe('readDirectory', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('exposes the page size the truncation finding compares against', () => {
-    expect(DIRECTORY_LIMIT).toBe(200);
+  it('pages to the end, and reports truncation only at the page bound', async () => {
+    let served = 0;
+    const { fetchImpl, calls } = stubSubstrate({
+      answer: () => [{ kid: `k${served++}@h`, active: true }],
+      pagination: () => ({ hasMore: true, nextCursor: 'more' })
+    });
+    const d = await readDirectory({ substrateUrl: URL_, env, fetchImpl });
+    expect(calls).toHaveLength(DIRECTORY_MAX_PAGES);
+    expect(calls[0].body['cortext/AgentIdentity'].params).toEqual({ limit: DIRECTORY_LIMIT });
+    expect(calls[1].body['cortext/AgentIdentity'].params.cursor).toBe('more');
+    expect(d.directoryKids).toHaveLength(DIRECTORY_MAX_PAGES);
+    expect(d.directoryTruncated).toBe(true);
   });
 });
 
@@ -333,15 +357,78 @@ describe('buildGroups', () => {
     expect(names.slice(-2)).toEqual(['fleet', 'hosts']);
   });
 
-  it('flags a full directory page as possibly truncated', () => {
+  it('flags a directory read that stopped at the page bound as possibly truncated', () => {
     const rows = Array.from({ length: DIRECTORY_LIMIT }, (_, i) => ({ kid: `k${i}@h` }));
     const drift = buildGroups(
       bareFacts({
         directoryRows: rows,
         directoryKids: rows.map((r) => r.kid),
-        activeKids: rows.map((r) => r.kid)
+        activeKids: rows.map((r) => r.kid),
+        directoryTruncated: true
       })
     ).find(([n]) => n === 'drift')[1];
     expect(drift.some((f) => f.id === 'directory.truncated' && f.state === 'unknown')).toBe(true);
+  });
+
+  /** A directory served newest first in pages of `DIRECTORY_LIMIT`, the cursor an offset. */
+  function pagedDirectory(rows) {
+    const offset = (params) => Number(params.cursor ?? 0);
+    return stubSubstrate({
+      answer: (_key, params) => rows.slice(offset(params), offset(params) + params.limit),
+      pagination: (_key, params) => {
+        const next = offset(params) + params.limit;
+        return next < rows.length
+          ? { hasMore: true, nextCursor: String(next) }
+          : { hasMore: false };
+      }
+    });
+  }
+  const env = { SUBSTRATE_NAMESPACE: 'cortext' };
+  const localRows = [
+    'agent-a@host-a.example',
+    'agent-c@host-a.example',
+    'agent-d@host-d.example'
+  ].map((kid) => ({ kid, active: true, description: null, project: 'p', host: 'host-a.example' }));
+  const remoteRow = (kid) => ({
+    kid,
+    active: true,
+    description: null,
+    project: null,
+    host: '',
+    domain: 'peer.example.net'
+  });
+
+  it('audits local identities alone, however many newer remote rows the directory holds', async () => {
+    const remote = Array.from({ length: DIRECTORY_LIMIT + 50 }, (_, i) =>
+      remoteRow(`r${i}@host-r.example`)
+    );
+    const groupsFor = async (rows) => {
+      const { fetchImpl } = pagedDirectory(rows);
+      const directory = await readDirectory({ substrateUrl: URL_, env, fetchImpl });
+      return buildGroups(
+        bareFacts({
+          ...directory,
+          kid: 'agent-a@host-a.example',
+          keyNames: ['agent-a', 'agent-c', 'agent-d'],
+          revokedNames: []
+        })
+      );
+    };
+    const mixed = await groupsFor([...remote, ...localRows]);
+    expect(mixed).toEqual(await groupsFor(localRows));
+    const ids = mixed.flatMap(([, findings]) => findings.map((f) => f.id));
+    expect(ids).not.toContain('directory.truncated');
+  });
+
+  it('does not let a remote kid sharing a name hide a local orphan key', async () => {
+    const { fetchImpl } = pagedDirectory([remoteRow('agent-b@host-b.example'), ...localRows]);
+    const directory = await readDirectory({ substrateUrl: URL_, env, fetchImpl });
+    const keys = buildGroups(
+      bareFacts({ ...directory, keyNames: ['agent-a', 'agent-b'], revokedNames: [] })
+    )
+      .find(([n]) => n === 'drift')[1]
+      .find((f) => f.id === 'orphans.keys');
+    expect(keys.state).not.toBe('ok');
+    expect(keys.text).toContain('agent-b');
   });
 });

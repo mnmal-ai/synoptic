@@ -13,7 +13,7 @@ import {
 import { createCortext } from '../capabilities/cortext.js';
 import { compareVersions } from '../fragment-resolve.js';
 import { auditPin, auditSkin } from '../marketplace-pin.js';
-import { DIRECTORY_LIMIT } from './server.js';
+import { DIRECTORY_MAX_PAGES } from './server.js';
 
 /** @param {Record<string, any>} facts every gatherer's output, plus the target and cwd. */
 export function buildGroups(facts) {
@@ -38,6 +38,7 @@ export function buildGroups(facts) {
     directoryKids,
     activeKids,
     directoryRows,
+    directoryTruncated,
     whoami,
     authWarning,
     targetDir,
@@ -129,13 +130,13 @@ export function buildGroups(facts) {
           keyRefs,
           refScanComplete
         }),
-        ...(directoryRows !== null && directoryRows.length >= DIRECTORY_LIMIT
+        ...(directoryTruncated === true
           ? [
               check(
                 'directory.truncated',
                 'unknown',
-                `read ${directoryRows.length} AgentIdentity rows, the query limit, so some may be missing`,
-                '"unregistered" and "never reported" findings may be false; this audit does not page'
+                `stopped reading AgentIdentity rows after ${DIRECTORY_MAX_PAGES} pages, so some may be missing`,
+                '"unregistered" and "never reported" findings may be false'
               )
             ]
           : [])

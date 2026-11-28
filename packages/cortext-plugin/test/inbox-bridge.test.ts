@@ -23,6 +23,7 @@ const msg = (n: number, extra: Ev = {}): Ev => ({
   createdAt: `2026-10-06T0${n}:00:00Z`,
   fromSelf: false,
   urgent: false,
+  held: false,
   ...extra
 });
 const LIVE = (wake = true): Ev => ({ type: 'status', state: 'live', config: { wake } });
@@ -131,7 +132,7 @@ function harness(on: any, script: Line[][], opts: Options = {}) {
     for (const release of held.splice(0)) release();
     await clock.settle();
   };
-  return { logs, clock, appended, submitted, aborted, env, spawns, releaseSubmits };
+  return { logs, clock, appended, submitted, aborted, env, state, spawns, releaseSubmits };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the engine's `$` as the kit hands it
@@ -270,12 +271,47 @@ test('disabled is not respawned', async ($, on) => {
   expect(h.spawns).toHaveLength(1);
 });
 
-test('live turns the prompt check off; a watcher exit restores it', async ($, on) => {
+test('live turns the prompt check off while nothing is held; a watcher exit restores it', async ($, on) => {
   const h = harness(on, [[LIVE(), { pause: 1_000 }]], { env: { [PROMPT_CHECK]: 'on' } });
   await start($, h);
   expect(h.env.get(PROMPT_CHECK)).toBe('off'); // live, the stream still open
   await h.clock.advance(1_000);
   expect(h.env.get(PROMPT_CHECK)).toBe('on'); // the stream ended: restored
+});
+
+test('the first held message narrows the prompt check to held mail; a watcher exit restores it', async ($, on) => {
+  const h = harness(
+    on,
+    [[LIVE(), msg(1), { pause: 1_000 }, msg(2, { held: true }), { pause: 1_000 }]],
+    {
+      env: { [PROMPT_CHECK]: 'on' }
+    }
+  );
+  await start($, h);
+  expect(h.env.get(PROMPT_CHECK)).toBe('off'); // local mail only: no prompt-time inbox request
+  await h.clock.advance(1_000);
+  expect(h.env.get(PROMPT_CHECK)).toBe('held');
+  await h.clock.advance(1_000);
+  expect(h.env.get(PROMPT_CHECK)).toBe('on');
+});
+
+test('an operator-set prompt check off stays off after held mail', async ($, on) => {
+  const h = harness(on, [[LIVE(), msg(1, { held: true }), { pause: 1_000 }]], {
+    env: { [PROMPT_CHECK]: 'off' }
+  });
+  await start($, h);
+  expect(h.env.get(PROMPT_CHECK)).toBe('off');
+});
+
+test('held mail is not appended, does not wake, and leaves the cursor and delivered ids alone', async ($, on) => {
+  const h = harness(on, [
+    [LIVE(true), msg(1, { held: true }), msg(2, { held: true, urgent: true })]
+  ]);
+  await start($, h);
+  expect(h.appended).toEqual([]);
+  expect(h.submitted).toEqual([]);
+  expect(h.aborted).toEqual([]);
+  expect([...h.state.keys()].filter((k) => /inbox(Cursor|Delivered)/.test(k))).toEqual([]);
 });
 
 test('live then disabled restores the prompt check and never respawns', async ($, on) => {

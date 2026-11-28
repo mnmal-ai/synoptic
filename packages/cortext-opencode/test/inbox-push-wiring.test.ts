@@ -235,6 +235,79 @@ describe('watcher wiring', () => {
     cleanup();
   });
 
+  it('a live session with only local mail makes no prompt-time inbox request; after held mail the prompt shows it', async () => {
+    process.env.SUBSTRATE_AGENT_KEY_ID = 'me@host';
+    let reads = 0;
+    vi.stubGlobal('fetch', (async (_url: unknown, init?: { body?: unknown }) => {
+      const data: Record<string, unknown> = {};
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      for (const k of Object.keys(body)) {
+        if (k === 'cortext/AgentIdentity') data[k] = [{ id: 'me-uuid' }];
+        else if (k === 'cortext/AgentMessage') {
+          reads += 1;
+          data[k] = [
+            {
+              id: 'm1',
+              shortId: 9,
+              subject: 'hi',
+              body: 'b',
+              remoteFrom: 'agent-b@host-b.example',
+              viaDomain: 'peer.example.net',
+              _metadata: {
+                createdBy: { kind: 'agent', id: 'relay@peer.example.net' },
+                createdAt: '2026-10-14T00:00:00Z'
+              }
+            },
+            {
+              id: 'm2',
+              shortId: 10,
+              subject: 'local',
+              body: 'b',
+              _metadata: {
+                createdBy: { kind: 'agent', id: 'peer@host' },
+                createdAt: '2026-10-14T00:00:00Z'
+              }
+            }
+          ];
+        } else data[k] = [];
+      }
+      return { ok: true, status: 200, json: async () => ({ data }) };
+    }) as unknown as typeof fetch);
+    const { hooks, cleanup } = await setup();
+    const summary = async () => {
+      await hooks.prompt?.({ sessionID: 's1' });
+      const system: Array<{ type: string; text: string }> = [];
+      await hooks.context?.({ sessionID: 's1', system });
+      await tick();
+      return system.find((p) => p.text.startsWith('📬'))?.text;
+    };
+    await summary(); // the first prompt is the cold-start's
+    watcher.calls[0]?.emit({ type: 'status', state: 'live' });
+    watcher.calls[0]?.emit({
+      type: 'message',
+      id: 'm2',
+      held: false,
+      fromSelf: false,
+      urgent: false
+    });
+    reads = 0;
+    expect(await summary()).toBeUndefined();
+    expect(reads).toBe(0);
+    watcher.calls[0]?.emit({
+      type: 'message',
+      id: 'm1',
+      held: true,
+      fromSelf: false,
+      urgent: false
+    });
+    await tick();
+    const line = await summary();
+    expect(line).toContain('relayed by peer.example.net');
+    expect(line).toContain('1 unread');
+    expect(line).not.toContain('#10');
+    cleanup();
+  });
+
   it('restarts a crashed watcher after a backoff, and not after dispose', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {

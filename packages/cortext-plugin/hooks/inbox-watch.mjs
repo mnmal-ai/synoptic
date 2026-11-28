@@ -5423,6 +5423,89 @@ function makeSignedFetch(getAuthHeader, fetchImpl = substrateFetch) {
 }
 
 //#endregion
+//#region ../synoptic/src/inbox-push.js
+/**
+* Fields a relayed message adds to an AgentMessage row. Projected on every inbox read: a server that
+* does not know them answers null for them (an undeclared projection is a `_diagnostics` note, not a
+* refusal), which reads as a local message.
+*/
+const MAIL_FIELDS_RELAY = ["remoteFrom", "viaDomain"];
+/** Peer-supplied strings are cut to this many characters; the receiving server caps them too. */
+const PEER_TEXT_MAX = 256;
+const UNKNOWN_REMOTE = "unknown remote sender";
+/** Cut to PEER_TEXT_MAX UTF-16 units without leaving half of a surrogate pair. */
+function cutPeerText(text) {
+	const cut = text.slice(0, PEER_TEXT_MAX);
+	const last = cut.charCodeAt(cut.length - 1);
+	return last >= 55296 && last <= 56319 && text.length > cut.length ? cut.slice(0, -1) : cut;
+}
+/**
+* A substrate AgentMessage row (with `_metadata`) as a flat message. For mail relayed from another
+* server `from` is the sender's kid as that server named it, and `external` says which server
+* relayed it; `external.relayKid` is the peer's relay key (what `createdBy` holds), for display and
+* logs only, never the sender. Relayed mail with no usable `remoteFrom` is from 'unknown remote sender'.
+*/
+function fromRow(row) {
+	const signer = row._metadata?.createdBy?.id ?? "unknown sender";
+	const domain = typeof row.viaDomain === "string" && row.viaDomain.trim() !== "" ? cutPeerText(row.viaDomain.trim()) : null;
+	const named = typeof row.remoteFrom === "string" && row.remoteFrom.trim() !== "" ? cutPeerText(row.remoteFrom) : null;
+	return {
+		id: row.id,
+		shortId: row.shortId,
+		subject: row.subject,
+		body: row.body ?? null,
+		inReplyTo: row.inReplyTo ?? null,
+		tags: row.tags ?? null,
+		from: domain === null ? signer : named ?? UNKNOWN_REMOTE,
+		external: domain === null ? null : {
+			domain,
+			relayKid: signer
+		},
+		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
+		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
+	};
+}
+const URGENT_TAG = "priority:urgent";
+const asciiLower = (v) => v.trim().replace(/[A-Z]/g, (c) => c.toLowerCase());
+/**
+* Mail from another server is held (not pushed mid-turn, no wake) unless `externalPushFrom` lifts it.
+* An entry is a peer domain (lifts all mail that peer relays) or `<domain>/<kid>` (lifts that sender
+* only when that domain relayed it). A bare kid matches nothing: a sender name is only the relaying
+* server's claim. Entries match whole values, trimmed, with ASCII-only lower-casing; the placeholder
+* sender never matches a kid entry. `m` is a fromRow result.
+*/
+function isHeld(m, externalPushFrom) {
+	if (m.external === null) return false;
+	const domain = asciiLower(m.external.domain);
+	const pair = m.from === UNKNOWN_REMOTE ? null : `${domain}/${asciiLower(m.from)}`;
+	return !externalPushFrom.some((e) => {
+		const entry = asciiLower(e);
+		return entry === domain || pair !== null && entry === pair;
+	});
+}
+/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
+function toWatchMessage(row, { kid, urgentFrom, externalPushFrom = [] }) {
+	const m = fromRow(row);
+	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
+	return {
+		type: "message",
+		...m,
+		fromSelf: m.external === null && m.from === kid,
+		held: isHeld(m, externalPushFrom),
+		urgent: tagged && m.external === null && urgentFrom.includes(m.from)
+	};
+}
+/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
+function readInboxKnobs(env) {
+	return {
+		push: env.SYNOPTIC_INBOX_PUSH !== "off",
+		wake: env.SYNOPTIC_INBOX_WAKE === "on",
+		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+		externalPushFrom: (env.SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+	};
+}
+
+//#endregion
 //#region ../synoptic/src/projection-audit.js
 /**
 * Residue for one response: fields substrate reported as undeclared that the call
@@ -5557,43 +5640,6 @@ async function resolveIdentityId({ substrateUrl, namespace = "cortext", agentKid
 }
 
 //#endregion
-//#region ../synoptic/src/inbox-push.js
-/** A substrate AgentMessage row (with `_metadata`) as a flat message. */
-function fromRow(row) {
-	return {
-		id: row.id,
-		shortId: row.shortId,
-		subject: row.subject,
-		body: row.body ?? null,
-		inReplyTo: row.inReplyTo ?? null,
-		tags: row.tags ?? null,
-		from: row._metadata?.createdBy?.id ?? "unknown sender",
-		instance: typeof row.instance === "string" && row.instance !== "" ? row.instance : null,
-		createdAt: typeof row._metadata?.createdAt === "string" ? row._metadata.createdAt : ""
-	};
-}
-const URGENT_TAG = "priority:urgent";
-/** A substrate row as the watcher's `message` event (spec §4.2 contract). */
-function toWatchMessage(row, { kid, urgentFrom }) {
-	const m = fromRow(row);
-	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
-	return {
-		type: "message",
-		...m,
-		fromSelf: m.from === kid,
-		urgent: tagged && urgentFrom.includes(m.from)
-	};
-}
-/** D5 switches. PUSH defaults on, WAKE defaults OFF (D1 — on only after the live check). */
-function readInboxKnobs(env) {
-	return {
-		push: env.SYNOPTIC_INBOX_PUSH !== "off",
-		wake: env.SYNOPTIC_INBOX_WAKE === "on",
-		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
-	};
-}
-
-//#endregion
 //#region ../synoptic/src/inbox-watch.js
 const OVERLOAD = "subscription_overloaded";
 async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, namespace, signal, clientOptions = {} }) {
@@ -5648,12 +5694,14 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 			inReplyTo: true,
 			instance: true,
 			tags: true,
+			...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
 			_metadata: true
 		}
 	} };
 	const toMsg = (r) => toWatchMessage(r, {
 		kid: env.SUBSTRATE_AGENT_KEY_ID,
-		urgentFrom: knobs.urgentFrom
+		urgentFrom: knobs.urgentFrom,
+		externalPushFrom: knobs.externalPushFrom
 	});
 	let snapshotSeen = false;
 	let restarts = 0;
@@ -5702,8 +5750,10 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 					});
 				}
 				const rows = isObj(event.data) ? event.data[key] : void 0;
-				if (Array.isArray(rows)) {
-					for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+				if (Array.isArray(rows)) for (const row of rows) {
+					if (!isObj(row)) continue;
+					const m = toMsg(row);
+					if (m.held || isNewer(row)) emit(m);
 				}
 			} else if (event.kind === "add") {
 				const row = isObj(event.data) ? event.data[key] : void 0;
@@ -5785,7 +5835,8 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /**
 * The repo-local env overlay: `{ env, source }`.

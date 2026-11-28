@@ -3,7 +3,8 @@
 // unread message; this module hands it to OMP's sendMessage, which steers it
 // into a turn in progress, or, with SYNOPTIC_INBOX_WAKE=on, starts a turn in
 // an idle session. Without wake an idle session gets the message appended and
-// reads it on its next turn. Own mail is never pushed. Nothing here throws
+// reads it on its next turn. Own mail and held mail (another server's, not
+// allowlisted) are never pushed. Nothing here throws
 // into OMP.
 
 import { createBudget, readInboxKnobs, renderPushRow } from '../../synoptic/src/inbox-push.js';
@@ -18,6 +19,7 @@ type WatchMessage = {
   shortId: number;
   inReplyTo: string | null;
   fromSelf: boolean;
+  held: boolean;
   createdAt: string;
   [k: string]: unknown;
 };
@@ -78,7 +80,8 @@ export function startInboxPush(
   const onEvent = (ev: WatchEvent): void => {
     if (signal.aborted || ev.type !== 'message') return;
     const m = ev as WatchMessage;
-    if (m.fromSelf || delivered.has(m.id)) return;
+    // A held message (another server's, not allowlisted) is left for the prompt and stop checks.
+    if (m.fromSelf || m.held || delivered.has(m.id)) return;
     delivered.add(m.id);
     if (delivered.size > DELIVERED_CAP) delivered.delete(delivered.values().next().value as string);
     const triggerTurn = knobs.wake && wakes.take(m, deps.now());

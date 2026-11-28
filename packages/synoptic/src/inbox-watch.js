@@ -4,7 +4,7 @@
 
 import { SubscribeError, SubstrateClient } from '@mnmal-ai/substrate/client';
 import { resolveIdentityId } from './inbox.js';
-import { readInboxKnobs, toWatchMessage } from './inbox-push.js';
+import { MAIL_FIELDS_RELAY, readInboxKnobs, toWatchMessage } from './inbox-push.js';
 
 const OVERLOAD = 'subscription_overloaded';
 
@@ -74,12 +74,17 @@ export async function runWatcher({
         inReplyTo: true,
         instance: true,
         tags: true,
+        ...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
         _metadata: true
       }
     }
   };
   const toMsg = (r) =>
-    toWatchMessage(r, { kid: env.SUBSTRATE_AGENT_KEY_ID, urgentFrom: knobs.urgentFrom });
+    toWatchMessage(r, {
+      kid: env.SUBSTRATE_AGENT_KEY_ID,
+      urgentFrom: knobs.urgentFrom,
+      externalPushFrom: knobs.externalPushFrom
+    });
   let snapshotSeen = false;
   let restarts = 0; // consecutive server_restart ends with no snapshot between them
   let snapshotSinceRestart = false;
@@ -130,7 +135,13 @@ export async function runWatcher({
           }
           const rows = isObj(event.data) ? event.data[key] : undefined;
           if (Array.isArray(rows))
-            for (const row of rows) if (isObj(row) && isNewer(row)) emit(toMsg(row));
+            for (const row of rows) {
+              if (!isObj(row)) continue;
+              const m = toMsg(row);
+              // Held mail older than `since` is still emitted: it never advances a cursor, and a skin
+              // learns from it that held mail is waiting. Skins do not push held mail.
+              if (m.held || isNewer(row)) emit(m);
+            }
         } else if (event.kind === 'add') {
           const row = isObj(event.data) ? event.data[key] : undefined;
           if (isObj(row)) emit(toMsg(row));

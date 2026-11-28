@@ -9,7 +9,7 @@ import {
 } from '../../synoptic/src/inbox-push.js';
 import type { InboxMessage, WatchEvent } from '../types';
 import { registerMailCard } from './mail-card.js';
-import { mailCallLine, parseMailSend } from './mail-text.js';
+import { mailCallLine, mailPeerLabel, parseMailSend } from './mail-text.js';
 import {
   newSharePane,
   registerShare,
@@ -39,6 +39,7 @@ type Bridge = {
   wakeOn: boolean; // from the watcher's `live` line (D1: off by default)
   toolsInFlight: number;
   failedSpawns: number; // consecutive watcher exits with no `live`, for the respawn backoff
+  holding: boolean; // this watcher run has emitted held mail, so the prompt check must show it
   late: InboxMessage[]; // appended since the latest main-thread step began
   wakes: ReturnType<typeof createBudget>;
   preemptions: ReturnType<typeof createBudget>;
@@ -61,6 +62,14 @@ function wake(b: Bridge, $: EngineInterface): void {
     });
 }
 
+/**
+ * The prompt check while the watcher is live: 'off' (it delivers mail itself) until it has emitted
+ * held mail, then 'held' (only held mail shows). An operator-set 'off' always stays 'off'.
+ */
+function livePromptCheck(b: Bridge, original: string | undefined): string {
+  return b.holding && original !== 'off' ? 'held' : 'off';
+}
+
 async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<void> {
   let interrupted = false;
   if (b.turnId !== undefined) {
@@ -75,12 +84,16 @@ async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
 }
 
 async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<void> {
+  // Held mail (another server's, not allowlisted) stays unread for the prompt and Stop summaries:
+  // not appended, no wake, and the cursor stays put.
+  if (m.held) return;
   const { value: ids = [] } = await $.state.get(DELIVERED);
   if (ids.includes(m.id)) return;
   await $.session.append({
     message: { type: 'user', content: [{ type: 'text', text: renderPushRow(m, b.ns) }] }
   });
-  if (!m.fromSelf) await shareMail(b.share, $, 'in', m.from, m.subject, m.body ?? '');
+  if (!m.fromSelf)
+    await shareMail(b.share, $, 'in', mailPeerLabel(m.from, m.external), m.subject, m.body ?? '');
   await update($, DELIVERED, (prev) => [...(prev ?? []), m.id].slice(-500));
   await update($, CURSOR, (prev) => laterCursor(prev, m.createdAt)); // never moves back
   if (m.fromSelf || !b.interactive) return;
@@ -102,7 +115,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
 
 /**
  * SYNOPTIC_INBOX_PROMPT_CHECK as the session first found it. A hot reload re-runs session.start
- * while the old watcher has set it 'off', and the old module cannot restore it after unload, so
+ * while the old watcher has set it to 'off' or 'held', and the old module cannot restore it after unload, so
  * the first reading is kept in $.state (which survives a reload) and written once (ifVersion 0).
  * $.state cannot hold undefined, so null stands for unset.
  */
@@ -128,6 +141,7 @@ export const register: Register = (on) => {
     wakeOn: false,
     toolsInFlight: 0,
     failedSpawns: 0,
+    holding: false,
     late: [],
     wakes: createBudget({ perHour: 6, perThread: 2 }), // D1
     preemptions: createBudget({ perHour: 3 }), // D4
@@ -167,8 +181,15 @@ export const register: Register = (on) => {
             continue;
           }
           for (const ev of split(piece.text) as WatchEvent[]) {
-            if (ev.type === 'message') await deliver(b, $, ev);
-            else if (ev.type === 'handled') b.late = b.late.filter((x) => x.id !== ev.id);
+            if (ev.type === 'message') {
+              await deliver(b, $, ev);
+              if (ev.held && !b.holding) {
+                b.holding = true;
+                // The backlog is emitted after `live`, so the switch from 'off' happens here.
+                if (wentLive)
+                  await $.env.set('SYNOPTIC_INBOX_PROMPT_CHECK', livePromptCheck(b, promptCheck));
+              }
+            } else if (ev.type === 'handled') b.late = b.late.filter((x) => x.id !== ev.id);
             else if (ev.type !== 'status')
               continue; // an unknown line changes nothing
             else if (ev.state === 'disabled') {
@@ -186,7 +207,7 @@ export const register: Register = (on) => {
               // command hook, so the UserPromptSubmit seam stands down while live.
               await $.env.set(
                 'SYNOPTIC_INBOX_PROMPT_CHECK',
-                ev.state === 'live' ? 'off' : promptCheck
+                ev.state === 'live' ? livePromptCheck(b, promptCheck) : promptCheck
               );
             }
           }
@@ -195,6 +216,7 @@ export const register: Register = (on) => {
       } catch (err) {
         $.ui.log(`inbox watcher: ${String(err)}`, { to: 'debug' });
       }
+      b.holding = false;
       await $.env.set('SYNOPTIC_INBOX_PROMPT_CHECK', promptCheck);
       if (disabled) return;
       // A watcher that exits without ever going live (a spawn failure, a crash at boot) backs

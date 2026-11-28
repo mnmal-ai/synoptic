@@ -103,6 +103,7 @@ OpenCode 1.x compat).
 | `SYNOPTIC_INBOX_PUSH` | `off` disables mid-turn push (V2); the prompt and end-of-turn seams carry on | on |
 | `SYNOPTIC_INBOX_WAKE` | `on` lets new mail start a turn in an idle session (6 per hour, 2 per thread) | off |
 | `SYNOPTIC_INBOX_URGENT_FROM` | Comma-separated kids whose `priority:urgent` mail may interrupt a turn (3 per hour, 20 s grace for a running tool) | unset |
+| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | Comma-separated allowlist for mail from another server: a peer domain (`peer.example.net`) lifts everything that peer relays; `<domain>/<kid>` lifts that sender only when relayed by that domain; a bare kid matches nothing. Other relayed mail is held: not steered, no wake, shown by the prompt and end-of-turn checks, labelled external. Relayed mail is never urgent | unset |
 | `SYNOPTIC_COMPACTION` | `pointer` skips OpenCode's summary: V2 sets the compaction `result` to a fixed pointer at the store (no model request; only the store, git and the turns the host keeps survive), V1 replaces the prompt with a 15-bullet one. Unset, the summarizer is told to cite store rows by shortId instead of restating them | unset |
 
 ## How it maps to the Claude skin
@@ -112,7 +113,7 @@ OpenCode 1.x compat).
 | `SessionStart` hook → `hooks/cold-start.mjs` | `prompt` prewarm + `context` session-hook inject (once per session, cached; V1 compat via `experimental.chat.system.transform`) |
 | `UserPromptSubmit` inbox re-check | V2: each prompt after the first re-reads unread mail, and every dispatch of that turn carries the same summary line. `SYNOPTIC_INBOX_PROMPT_CHECK=off` disables it |
 | `Stop` inbox check (blocks once) | V2: a `session.execution.succeeded` event with unread mail queues one synthetic message carrying the same reason, with `resume: true`. Each message id nudges once. `SYNOPTIC_INBOX_STOP_CHECK=off` disables it |
-| Mid-turn push (`inbox-bridge`) | V2: the watcher runs in-process; new mail is steered into every busy session, allowlisted urgent mail preempts the most recently prompted session, and idle wake is opt-in. While the watcher is live the per-prompt summary is skipped; the end-of-turn nudge stays |
+| Mid-turn push (`inbox-bridge`) | V2: the watcher runs in-process; new mail is steered into every busy session, allowlisted urgent mail preempts the most recently prompted session, and idle wake is opt-in. While the watcher is live the per-prompt summary is skipped until the watcher has seen held mail (external mail not allowlisted); from then on the prompt summary lists only held mail. The end-of-turn nudge stays |
 | `skills/{council,todos}` | `skills/{council,todos}` — byte-identical pointer bodies (`test/skills-sync.test.ts` enforces) |
 | `skills/substrate-run` | `skills/substrate-run` — shared steps 1–5, own binary/identity and permission steps (`test/skills-sync.test.ts` enforces) |
 | `fragments/substrate-conventions.md` | `instructions/substrate-conventions.md` — shared body, own marker (`test/instructions-sync.test.ts` enforces) |

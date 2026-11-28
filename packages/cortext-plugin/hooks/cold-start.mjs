@@ -1282,6 +1282,12 @@ function fleetCaveat() {
 
 //#endregion
 //#region ../synoptic/src/inbox-push.js
+/**
+* Fields a relayed message adds to an AgentMessage row. Projected on every inbox read: a server that
+* does not know them answers null for them (an undeclared projection is a `_diagnostics` note, not a
+* refusal), which reads as a local message.
+*/
+const MAIL_FIELDS_RELAY = ["remoteFrom", "viaDomain"];
 /** Replace CR, LF, and other line/paragraph separators with spaces to prevent header injection. */
 function sanitizeText(text) {
 	if (!text) return text;
@@ -2111,7 +2117,8 @@ const SETTINGS_ENV_ALLOWLIST = [
 	"SYNOPTIC_PROJECT_SCOPE",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /** Identity keys recorded only as set or unset: one holds a key file's path. */
 const SETTINGS_ENV_PRESENCE = ["SUBSTRATE_AGENT_KEY_ID", "SUBSTRATE_AGENT_KEY_PATH"];
@@ -2642,6 +2649,7 @@ async function loadInbox({ substrateUrl, namespace = "cortext", agentKid, fetchI
 			inReplyTo: true,
 			instance: true,
 			tags: true,
+			...Object.fromEntries(MAIL_FIELDS_RELAY.map((f) => [f, true])),
 			_metadata: true
 		}
 	} }, { fetchImpl }))[`${namespace}/AgentMessage`] ?? [];
@@ -3089,7 +3097,8 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /**
 * The repo-local env overlay: `{ env, source }`.
