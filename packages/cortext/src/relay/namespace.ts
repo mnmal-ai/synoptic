@@ -8,6 +8,7 @@
  */
 
 import type {
+  Dataset,
   NamespaceDefinition,
   NamespaceInstallContext,
   Policy,
@@ -40,11 +41,15 @@ function relayPolicy(ctx: NamespaceInstallContext): Policy {
 
 /**
  * The active MailPeer whose `inboundKid` is the caller's kid, else `unknown_peer`. MailPeer's
- * registry entries are operator-only, so the row is read straight from the coordinator dataset.
+ * registry entries are operator-only, so the row is read straight from the coordinator dataset:
+ * `ds` when given (a delivery's transaction), else the committed one.
  */
-export async function requirePeer(rt: RelayRuntime, ctx: RequestContext): Promise<Row> {
+export async function requirePeer(
+  rt: RelayRuntime,
+  ctx: RequestContext,
+  ds: Dataset | undefined = rt.engine?.datasetFor(rt.mailNamespace)
+): Promise<Row> {
   const kid = ctx.identity?.id;
-  const ds = rt.engine?.datasetFor(rt.mailNamespace);
   if (kid !== undefined && ds !== undefined) {
     const { rows } = await ds.read('MailPeer', {
       where: { inboundKid: { eq: kid }, active: { eq: true } },

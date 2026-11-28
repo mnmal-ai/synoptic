@@ -273,13 +273,29 @@ describe('cortext-relay/deliver', () => {
     ['from is a local kid', { from: LEGACY }, PEER, 'foreign_sender'],
     ["from is another domain's kid", { from: OTHER_REMOTE }, PEER, 'foreign_sender']
   ])('refuses when %s', async (_case, extra, kid, code) => {
-    const { deliver, messages, identities } = await setup();
+    const { deliver, messages, identities, batches } = await setup();
     const before = await identities();
     const { errors, result } = await deliver(payload(extra), kid);
     expect(result).toBeUndefined();
     expect(errors?.[0]?.code).toBe(code);
     expect(await messages()).toHaveLength(0);
     expect(await identities()).toEqual(before);
+    expect(batches).toEqual([]);
+  });
+
+  it('rolls back the sender identity and announces nothing when the message write fails', async () => {
+    const { deliver, messages, identity, ds, batches } = await setup();
+    const write = ds.write.bind(ds);
+    ds.write = async (type, rows, opts) => {
+      if (type === 'AgentMessage') throw new Error('injected write failure');
+      return write(type, rows, opts);
+    };
+    const { errors, result } = await deliver(payload());
+    expect(result).toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(await messages()).toHaveLength(0);
+    expect(await identity(SENDER)).toBeUndefined();
+    expect(batches).toEqual([]);
   });
 
   it.each(['messageId', 'from', 'to', 'instance', 'inReplyToRemoteId'])(

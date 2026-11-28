@@ -1,10 +1,11 @@
 /**
- * `deliver` on Postgres: the unique index on `(viaDomain, remoteId)` is what stores a message
- * once when the same delivery arrives several times at once. Runs in a schema of its own,
- * rebuilt each run.
+ * `deliver` on Postgres, with the driver's default pool and more concurrent deliveries than it
+ * has connections: each delivery works on its frame's one connection, concurrent repeats store
+ * once, and a failed delivery leaves nothing behind. Runs in a schema of its own, rebuilt each run.
  */
 
 import type { RequestContext } from '@mnmal-ai/substrate/sdk';
+import { ResolverFrameError } from '@mnmal-ai/substrate/sdk';
 import {
   compose,
   MemorySubstrateServer,
@@ -26,9 +27,7 @@ const PEER = 'relay-peer@peer.example.net';
 
 async function openStore(url: string): Promise<ReturnType<typeof postgres>> {
   await recreatePgTestSchema(url, pgTestSchemaName(PACKAGE));
-  // Each deliver holds its relay frame's transaction connection while it writes through the pool,
-  // so ten at once need more than the driver's default ten connections.
-  const sql = postgres(pgTestSchemaUrl(url, PACKAGE), { onnotice: () => {}, max: 20 });
+  const sql = postgres(pgTestSchemaUrl(url, PACKAGE), { onnotice: () => {} });
   await runMigrations(sql);
   return sql;
 }
@@ -84,26 +83,29 @@ describe.skipIf(store === undefined)('cortext-relay/deliver on Postgres', () => 
     await sql.end({ timeout: 5 });
   });
 
-  it('stores one row for ten concurrent deliveries of one message', async () => {
-    // The engine's grant gate reads the grant from the identity, as the HTTP route sets it.
-    const ctx = {
-      identity: { kind: 'agent', id: PEER, grants: { 'cortext-relay': ['read', 'mutate'] } }
-    } as Partial<RequestContext> as RequestContext;
-    const frame = {
-      'cortext-relay/deliver': {
-        params: {
-          v: 1,
-          messageId: '0196a0b2-0000-7000-8000-000000000001',
-          from: 'agent-b@host-b.example',
-          to: 'agent-a@host-a.example',
-          subject: 'hello',
-          body: 'once'
-        },
-        fields: { id: true, shortId: true, duplicate: true }
-      }
-    };
+  // The engine's grant gate reads the grant from the identity, as the HTTP route sets it.
+  const ctx = {
+    identity: { kind: 'agent', id: PEER, grants: { 'cortext-relay': ['read', 'mutate'] } }
+  } as Partial<RequestContext> as RequestContext;
+  const deliver = (params: Record<string, unknown>) =>
+    composed.engine.mutate({
+      frame: {
+        'cortext-relay/deliver': {
+          params: { v: 1, to: 'agent-a@host-a.example', subject: 'hello', body: 'b', ...params },
+          fields: { id: true, shortId: true, duplicate: true }
+        }
+      },
+      ctx
+    });
+  const count = async (type: string, where: Record<string, unknown>) =>
+    (await composed.engine.datasetFor(CORTEXT_NAMESPACE)?.read(type, { where }))?.rows.length;
+  const MANY = 25;
+
+  it(`stores one row for ${MANY} concurrent deliveries of one message`, async () => {
     const envelopes = await Promise.all(
-      Array.from({ length: 10 }, () => composed.engine.mutate({ frame, ctx }))
+      Array.from({ length: MANY }, () =>
+        deliver({ messageId: 'same-message', from: 'agent-b@host-b.example' })
+      )
     );
     expect(envelopes.flatMap((e) => e.errors ?? [])).toEqual([]);
     const results = envelopes.map(
@@ -111,14 +113,36 @@ describe.skipIf(store === undefined)('cortext-relay/deliver on Postgres', () => 
     );
     expect(new Set(results.map((r) => r.id)).size).toBe(1);
     expect(results.filter((r) => !r.duplicate)).toHaveLength(1);
-    const ds = composed.engine.datasetFor(CORTEXT_NAMESPACE);
-    const { rows } = (await ds?.read('AgentMessage', {
-      where: { viaDomain: { eq: 'peer.example.net' } }
-    })) ?? { rows: [] };
-    expect(rows).toHaveLength(1);
-    const senders = await ds?.read('AgentIdentity', {
-      where: { kid: { eq: 'agent-b@host-b.example' } }
-    });
-    expect(senders?.rows).toHaveLength(1);
+    expect(await count('AgentMessage', { remoteId: { eq: 'same-message' } })).toBe(1);
+    expect(await count('AgentIdentity', { kid: { eq: 'agent-b@host-b.example' } })).toBe(1);
+  });
+
+  it(`stores ${MANY} messages from one new sender delivered at once`, async () => {
+    const from = 'agent-c@host-c.example';
+    const envelopes = await Promise.all(
+      Array.from({ length: MANY }, (_, i) => deliver({ messageId: `burst-${i}`, from }))
+    );
+    expect(envelopes.flatMap((e) => e.errors ?? [])).toEqual([]);
+    expect(await count('AgentMessage', { remoteFrom: { eq: from } })).toBe(MANY);
+    expect(await count('AgentIdentity', { kid: { eq: from } })).toBe(1);
+  });
+
+  it('leaves no sender row when the delivery fails after the sender upsert', async () => {
+    const from = 'agent-d@host-d.example';
+    const write = PgDataset.prototype.write;
+    PgDataset.prototype.write = function (this: PgDataset, type, rows, options) {
+      if (type === 'AgentMessage') {
+        return Promise.reject(new ResolverFrameError('injected_failure', 'injected write failure'));
+      }
+      return write.call(this, type, rows, options);
+    };
+    try {
+      const envelope = await deliver({ messageId: 'doomed', from });
+      expect(envelope.errors?.[0]?.code).toBe('injected_failure');
+    } finally {
+      PgDataset.prototype.write = write;
+    }
+    expect(await count('AgentIdentity', { kid: { eq: from } })).toBe(0);
+    expect(await count('AgentMessage', { remoteId: { eq: 'doomed' } })).toBe(0);
   });
 });
