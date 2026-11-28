@@ -44,6 +44,7 @@ import { storeLayout } from './layout.js';
 import {
   countDuplicateHostInstallKeys,
   countDuplicateKids,
+  countDuplicateRelayMessages,
   rescopeHostInstallKeyIndex,
   rescopeKidUniqueIndex,
   rescopeRelayMessageIndex,
@@ -141,8 +142,20 @@ export async function repairInvariants(
     outcomes.push({ kind: 'repaired', object: 'rows_host_install_key_unique' });
   }
 
-  await rescopeRelayMessageIndex(s, namespace);
-  outcomes.push({ kind: 'repaired', object: 'rows_agent_message_relay_unique' });
+  const duplicateRelayed = await countDuplicateRelayMessages(s, namespace);
+  if (duplicateRelayed > 0) {
+    outcomes.push({
+      kind: 'skipped',
+      object: 'rows_agent_message_relay_unique',
+      reason:
+        `${duplicateRelayed} relayed message(s) are held by more than one live row in '${namespace}', ` +
+        'so a unique index cannot be built. Delete the extra copy of each, then re-run repair. ' +
+        'The existing index is left exactly as it was.'
+    });
+  } else {
+    await rescopeRelayMessageIndex(s, namespace);
+    outcomes.push({ kind: 'repaired', object: 'rows_agent_message_relay_unique' });
+  }
 
   return outcomes;
 }

@@ -1145,11 +1145,16 @@ export function buildClaudeNamespace(ns: string): NamespaceDefinition {
               todoResolutionGuard(ctx, 'updateTodo', r, TODO_STATUS_ALIASES)
             )
         ],
-        // A peer row names a key path, so every verb on it, reads included, is an operator's.
-        ...(['MailPeer', 'createMailPeer', 'updateMailPeer', 'deleteMailPeer'] as const).map(
-          (n) =>
-            [n, (r: RegistryEntryResolver) => operatorOnly(n, r, 'use a mail peer row')] as const
-        ),
+        // A peer row names a key path, so every verb on it, reads included, is an
+        // operator's. Every entry autoCRUD registered for the type, so a verb added
+        // later is covered too.
+        ...[...ctx.registry.all()]
+          .map(([n]) => n)
+          .filter((n) => n.endsWith('MailPeer'))
+          .map(
+            (n) =>
+              [n, (r: RegistryEntryResolver) => operatorOnly(n, r, 'use a mail peer row')] as const
+          ),
         // A shared session's feed: only its owner writes it, and events are never edited.
         [
           'updateSessionFeed',

@@ -18,7 +18,11 @@ import { auditObjects, INVARIANT_OBJECTS } from '../../src/kernel/invariant-audi
 import { cortextBaselineMigration } from '../../src/kernel/migrations/0001_baseline.js';
 import { cortextRelayMessageUniqueMigration } from '../../src/kernel/migrations/0003_relay_message_unique.js';
 import { repairInvariants } from '../../src/kernel/repair.js';
-import { countDuplicateHostInstallKeys, countDuplicateKids } from '../../src/kernel/rescope.js';
+import {
+  countDuplicateHostInstallKeys,
+  countDuplicateKids,
+  countDuplicateRelayMessages
+} from '../../src/kernel/rescope.js';
 
 const POSTGRES_URL = process.env.POSTGRES_URL;
 const describePg = POSTGRES_URL ? describe : describe.skip;
@@ -167,6 +171,24 @@ describePg('opt-in repair against a drifted store', () => {
       expect(key).toMatchObject({ kind: 'skipped' });
       expect((key as { reason: string }).reason).toContain('more than one live row');
       expect(outcomes.find((o) => o.object === 'rows_agent_identity_kid_unique')).toMatchObject({
+        kind: 'repaired'
+      });
+    });
+  });
+
+  it('skips the relay index on duplicate relayed messages, and still repairs the rest', async () => {
+    await fenced(async () => {
+      for (const id of ['m-1', 'm-2']) {
+        await tx.unsafe(`INSERT INTO rows (id, namespace, type, body)
+          VALUES ('${id}', '${DRIFTED}', 'AgentMessage', '{"viaDomain":"peer.example.net","remoteId":"r1"}'::jsonb)`);
+      }
+      expect(await countDuplicateRelayMessages(tx, DRIFTED)).toBe(1);
+
+      const outcomes = await repairInvariants(tx, () => {}, DRIFTED);
+      const relay = outcomes.find((o) => o.object === 'rows_agent_message_relay_unique');
+      expect(relay).toMatchObject({ kind: 'skipped' });
+      expect((relay as { reason: string }).reason).toContain('more than one live row');
+      expect(outcomes.find((o) => o.object === 'rows_host_install_key_unique')).toMatchObject({
         kind: 'repaired'
       });
     });

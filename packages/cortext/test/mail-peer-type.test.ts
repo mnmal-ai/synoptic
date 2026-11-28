@@ -83,6 +83,24 @@ const create = (params: Record<string, unknown> = PEER) => ({
 });
 
 describe('cortext/MailPeer', () => {
+  it('lets an operator get, update and delete', async () => {
+    const server = await setup();
+    const made = await asOperator(server, '/substrate/v1/mutate', create());
+    const id = (made.data[`${NS}/createMailPeer`] as { id: string }).id;
+    const got = await asOperator(server, '/substrate/v1/query', {
+      [`${NS}/getMailPeer`]: { params: { id }, fields: { outboundKeyPath: true } }
+    });
+    expect(got.errors).toBeUndefined();
+    const updated = await asOperator(server, '/substrate/v1/mutate', {
+      [`${NS}/updateMailPeer`]: { params: { id, active: false }, fields: { id: true } }
+    });
+    expect(updated.errors).toBeUndefined();
+    const deleted = await asOperator(server, '/substrate/v1/mutate', {
+      [`${NS}/deleteMailPeer`]: { params: { id }, fields: { id: true } }
+    });
+    expect(deleted.errors).toBeUndefined();
+  });
+
   it('is registered, and the delivery vocabulary is fixed', () => {
     expect(CLAUDE_TYPE_NAMES).toContain('MailPeer');
     expect([...AGENT_MESSAGE_DELIVERY_VOCAB]).toEqual(['pending', 'delivered', 'failed']);
@@ -144,6 +162,13 @@ describe('cortext/MailPeer', () => {
         })
       ]
     ];
+    const getFrame = {
+      [`${NS}/getMailPeer`]: { params: { id }, fields: { outboundKeyPath: true } }
+    };
+    attempts.push(
+      ['get (query)', await asAgent(server, '/substrate/v1/query', getFrame)],
+      ['get (mutate)', await asAgent(server, '/substrate/v1/mutate', getFrame)]
+    );
     for (const [verb, env] of attempts) {
       expect(code(env), verb).toBe('operator_only');
       expect(JSON.stringify(env)).not.toContain(PEER.outboundKeyPath);

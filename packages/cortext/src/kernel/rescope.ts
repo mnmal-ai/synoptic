@@ -217,6 +217,23 @@ export async function rescopeHostInstallKeyIndex(s: Sql, namespace: string): Pro
   `);
 }
 
+/** How many (viaDomain, remoteId) pairs are held by more than one live relayed message in `namespace`. */
+export async function countDuplicateRelayMessages(s: Sql, namespace: string): Promise<number> {
+  const [row] = await s.unsafe(`
+    SELECT count(*)::int AS count FROM (
+      SELECT 1
+        FROM rows
+       WHERE namespace = '${namespace}'
+         AND type = 'AgentMessage'
+         AND body->>'viaDomain' IS NOT NULL
+         AND deleted_at IS NULL
+       GROUP BY body->>'viaDomain', body->>'remoteId'
+      HAVING count(*) > 1
+    ) dupes
+  `);
+  return (row as unknown as { count: number } | undefined)?.count ?? 0;
+}
+
 /**
  * The unique index behind relayed mail: one live AgentMessage per sending
  * server and the id it had there. Messages that never left this server have no
