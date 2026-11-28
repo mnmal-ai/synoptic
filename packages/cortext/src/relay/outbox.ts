@@ -93,13 +93,17 @@ export async function peerFor(ds: Dataset, domain: string): Promise<Row | undefi
   return (await ds.read('MailPeer', { where: { domain: { eq: domain } }, limit: 1 })).rows[0];
 }
 
-/** What stops mail going through `peer`, or undefined when nothing does. */
+/**
+ * What stops mail going through `peer`, or undefined when nothing does. A peer is not checked
+ * until its first clean directory sync, which is when it passes the open-reads check.
+ */
 export function peerProblem(
   peer: Row | undefined
-): 'peer_missing' | 'peer_blocked' | 'peer_inactive' | undefined {
+): 'peer_missing' | 'peer_blocked' | 'peer_inactive' | 'peer_unchecked' | undefined {
   if (peer === undefined) return 'peer_missing';
   if (typeof peer.blockedReason === 'string' && peer.blockedReason !== '') return 'peer_blocked';
   if (peer.active !== true) return 'peer_inactive';
+  if (peer.lastSyncAt == null) return 'peer_unchecked';
   return undefined;
 }
 
@@ -112,6 +116,8 @@ export function peerUnavailable(peer: Row | undefined, domain: string): string |
       return `the mail peer for ${domain} is blocked: ${String(peer?.blockedReason)}`;
     case 'peer_inactive':
       return `the mail peer for ${domain} is switched off`;
+    case 'peer_unchecked':
+      return `the mail peer for ${domain} is not checked yet`;
     default:
       return undefined;
   }
@@ -269,18 +275,22 @@ async function drainRow(
   const now = rt.now();
   const unclaimed = { delivery: 'pending', deliveryAttempts: row.deliveryAttempts ?? null };
   const age = now.getTime() - Date.parse(String(row._metadata?.createdAt));
+  const found = recipient?.domain == null ? 'recipient_gone' : peerProblem(peer);
+  // Mail for a peer not checked yet waits, as for an unreachable peer, until it expires.
   const problem =
-    recipient?.domain == null
-      ? 'recipient_gone'
-      : (peerProblem(peer) ?? (age >= GIVE_UP_MS ? 'expired' : undefined));
-  if (peer === undefined || problem !== undefined) {
+    found === undefined || found === 'peer_unchecked'
+      ? age >= GIVE_UP_MS
+        ? 'expired'
+        : found
+      : found;
+  if (peer === undefined || (problem !== undefined && problem !== 'peer_unchecked')) {
     // peerProblem names a missing peer, so `problem` is set here.
     return fail(rt, ds, row, unclaimed, to, domain, String(problem));
   }
 
   const attempts = Number(row.deliveryAttempts ?? 0);
   const retryMs = Math.min(2 ** attempts, RETRY_MAX_MINUTES) * MINUTE_MS;
-  const skipped = unreachable.get(domain);
+  const skipped = problem ?? unreachable.get(domain);
   const claim = await ds.conditionalUpdate(
     TYPE,
     row.id,

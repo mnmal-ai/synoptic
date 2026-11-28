@@ -1,13 +1,19 @@
 // Directory sync: each active peer's Info and Directory are read on a schedule, so the agents it
-// lists are addressable here and those it drops are retired. A peer whose server answers an
-// unsigned read of its mailbox is blocked, unless its row allows open reads.
+// lists are addressable here and those it drops are marked unlisted. A peer whose server answers
+// an unsigned read of its mailbox is blocked, unless its row allows open reads, and a peer is not
+// used for sending until its first clean sync.
 
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Row, SubstrateResponse } from '@mnmal-ai/substrate/sdk';
-import { compose, MemoryDataset, MemorySubstrateServer } from '@mnmal-ai/substrate/testing';
+import {
+  compose,
+  MemoryDataset,
+  MemorySubstrateServer,
+  signHs256
+} from '@mnmal-ai/substrate/testing';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import type { CortextAuthConfig } from '../src/config.js';
 import { createRelayRuntime, type RelayRuntime } from '../src/relay/runtime.js';
@@ -121,8 +127,9 @@ async function setup() {
     { relay: { fetchImpl, now: () => NOW } }
   );
   const { onCommittedWrites: _hook, ...withoutHook } = plugin;
+  const server = new MemorySubstrateServer();
   const composed = await compose({
-    server: new MemorySubstrateServer(),
+    server,
     dataset: new MemoryDataset({ namespace: 'default' }),
     datasets: {
       [NS]: new MemoryDataset({ namespace: NS }),
@@ -132,6 +139,7 @@ async function setup() {
     coordinators: [withoutHook],
     auth: { keys: [{ kid: 'test', alg: 'HS256', publicKey: 'test-secret' }], mode: 'attribute' }
   });
+  await server.start();
   cleanup.push(() => composed.stop());
 
   const ds = composed.engine.datasetFor(NS);
@@ -174,6 +182,21 @@ async function setup() {
     (await ds.read('AgentIdentity', { where: { kid: { eq: kid } }, limit: 1 })).rows[0];
   const identities = async (): Promise<Row[]> =>
     (await ds.read('AgentIdentity', { limit: 1000 })).rows;
+  /** One mutate frame through the server, signed as `sub`. */
+  const mutate = async (key: string, params: Record<string, unknown>, sub: string) => {
+    const token = signHs256(
+      { sub, exp: Math.floor(Date.now() / 1000) + 3600, capabilities: ['read', 'mutate'] },
+      'test-secret',
+      { kid: 'test' }
+    );
+    const res = await server.inject({
+      method: 'POST',
+      path: '/substrate/v1/mutate',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: Buffer.from(JSON.stringify({ [key]: { params, fields: { id: true } } }))
+    });
+    return JSON.parse(text(res)) as { errors?: Array<{ code: string; message: string }> };
+  };
   return {
     ds,
     rt,
@@ -188,7 +211,16 @@ async function setup() {
     peerOf,
     identity,
     identities,
-    sync: async () => syncPeer(rt, await peerOf('peer'))
+    sync: async () => syncPeer(rt, await peerOf('peer')),
+    /** A local agent's send. */
+    send: (params: Record<string, unknown>) => mutate(`${NS}/sendAgentMessage`, params, LOCAL),
+    /** The first peer's delivery of one message to LOCAL. */
+    deliver: (messageId: string, from: string) =>
+      mutate(
+        'cortext-relay/deliver',
+        { v: 1, messageId, from, to: LOCAL, subject: 'hello', body: 'b' },
+        `relay-in@${PEER_DOMAIN}`
+      )
   };
 }
 
@@ -207,10 +239,11 @@ describe('syncPeer', () => {
     ];
     expect(await sync()).toEqual({
       upserted: 2,
-      retired: 0,
+      unlisted: 0,
       collisions: [],
       skipped: 0,
-      blocked: null
+      blocked: null,
+      changed: false
     });
     expect(await identity(REMOTE)).toMatchObject({
       kid: REMOTE,
@@ -247,22 +280,93 @@ describe('syncPeer', () => {
     expect((await identity(REMOTE))?.description ?? null).toBeNull();
   });
 
-  it('retires a remote row the peer no longer lists', async () => {
+  it('unlists a remote row the peer no longer lists, leaving it active', async () => {
     const { peer, sync, identity } = await setup();
     peer.directory = [{ kid: REMOTE }, { kid: NEIGHBOUR }];
     await sync();
     peer.directory = [{ kid: REMOTE }];
-    expect(await sync()).toMatchObject({ upserted: 1, retired: 1 });
-    expect((await identity(NEIGHBOUR))?.active).toBe(false);
-    expect((await identity(REMOTE))?.active).toBe(true);
+    expect(await sync()).toMatchObject({ upserted: 1, unlisted: 1 });
+    expect(await identity(NEIGHBOUR)).toMatchObject({ active: true, listed: false });
+    expect(await identity(REMOTE)).toMatchObject({ active: true, listed: true });
     // Only this peer's rows: a local row and another peer's row are left alone.
     expect(await identity(LOCAL)).toMatchObject({ active: true });
     expect((await identity(LOCAL))?.domain ?? null).toBeNull();
+    expect((await identity(LOCAL))?.listed).not.toBe(false);
     expect(await identity(OTHER)).toMatchObject({ active: true, domain: PEER_TWO_DOMAIN });
-    // Listed again, it comes back.
+    expect((await identity(OTHER))?.listed).not.toBe(false);
+    // Listed again, it is listed again.
     peer.directory = [{ kid: REMOTE }, { kid: NEIGHBOUR }];
-    expect(await sync()).toMatchObject({ upserted: 2, retired: 0 });
-    expect((await identity(NEIGHBOUR))?.active).toBe(true);
+    expect(await sync()).toMatchObject({ upserted: 2, unlisted: 0 });
+    expect(await identity(NEIGHBOUR)).toMatchObject({ active: true, listed: true });
+  });
+
+  it('never changes whether an existing row is active', async () => {
+    const { peer, sync, identity, ds } = await setup();
+    await ds.write('AgentIdentity', [
+      { id: 'asleep', kid: NEIGHBOUR, host: '', domain: PEER_DOMAIN, active: false }
+    ]);
+    peer.directory = [{ kid: NEIGHBOUR, description: 'back' }];
+    await sync();
+    expect(await identity(NEIGHBOUR)).toMatchObject({ active: false, description: 'back' });
+  });
+
+  it('keeps a row made by first-contact delivery active, and answerable, when the peer does not list it', async () => {
+    const { peer, sync, identity, deliver, send } = await setup();
+    const hidden = 'hidden@host-b.example';
+    expect((await deliver('m-1', hidden)).errors).toBeUndefined();
+    expect(await identity(hidden)).toMatchObject({ domain: PEER_DOMAIN, active: true });
+    peer.directory = [{ kid: REMOTE }];
+    expect(await sync()).toMatchObject({ upserted: 1, unlisted: 1 });
+    expect(await identity(hidden)).toMatchObject({ active: true, listed: false });
+    expect((await send({ to: hidden, subject: 're: hello', body: 'b' })).errors).toBeUndefined();
+  });
+
+  it('refuses a send to a peer until its first clean sync', async () => {
+    const { peer, sync, ds, send } = await setup();
+    await ds.write('AgentIdentity', [
+      { id: 'remote', kid: REMOTE, host: '', domain: PEER_DOMAIN, active: true }
+    ]);
+    const mail = { to: REMOTE, subject: 's', body: 'b' };
+    const unchecked = (await send(mail)).errors?.[0];
+    expect(unchecked?.code).toBe('relay_unavailable');
+    expect(unchecked?.message).toContain(`the mail peer for ${PEER_DOMAIN} is not checked yet`);
+    // A sync that blocks the peer does not make it usable.
+    peer.openReads = true;
+    await sync();
+    expect((await send(mail)).errors?.[0]?.message).toContain('is blocked');
+    peer.openReads = false;
+    peer.directory = [{ kid: REMOTE }];
+    expect((await sync()).blocked).toBeNull();
+    expect((await send(mail)).errors).toBeUndefined();
+  });
+
+  it.each([
+    ['switched off', { active: false }, false],
+    ['blocked by an operator', { blockedReason: 'abuse report' }, false],
+    ['switched off, as its open reads are found', { active: false }, true],
+    ['blocked by an operator, as its open reads are found', { blockedReason: 'abuse report' }, true]
+  ])('writes nothing when the peer is %s during the sync', async (_case, patch, openReads) => {
+    const { peer, sync, h, ds, peerOf, identity, metrics } = await setup();
+    peer.openReads = openReads;
+    peer.directory = [{ kid: REMOTE }];
+    const scripted = h.respond;
+    h.respond = async (url, init, key, signed) => {
+      if (key === MAILBOX) await ds.write('MailPeer', [{ id: 'peer', ...patch }]);
+      return scripted(url, init, key, signed);
+    };
+    expect(await sync()).toMatchObject({ changed: true, blocked: null, upserted: 0 });
+    // The operator's change stands, and sync added nothing to it.
+    const row = await peerOf('peer');
+    expect({ active: row.active, blockedReason: row.blockedReason ?? null }).toEqual({
+      active: true,
+      blockedReason: null,
+      ...patch
+    });
+    expect(row.lastSyncAt ?? null).toBeNull();
+    expect(await identity(REMOTE)).toBeUndefined();
+    expect(metrics).toEqual([
+      { name: 'cortext.mail_peer_changed_during_sync', payload: { domain: PEER_DOMAIN } }
+    ]);
   });
 
   it('skips and reports a kid that collides with a local agent', async () => {
@@ -274,10 +378,11 @@ describe('syncPeer', () => {
     ];
     expect(await sync()).toEqual({
       upserted: 1,
-      retired: 0,
+      unlisted: 0,
       collisions: [LOCAL, OTHER],
       skipped: 0,
-      blocked: null
+      blocked: null,
+      changed: false
     });
     expect(await identity(REMOTE)).toMatchObject({ domain: PEER_DOMAIN });
     // Never merged: each holder keeps its row as it was.
@@ -582,10 +687,11 @@ describe('syncPeers', () => {
     };
     expect(await local.sync()).toEqual({
       upserted,
-      retired: 0,
+      unlisted: 0,
       collisions: [],
       skipped: 0,
-      blocked
+      blocked,
+      changed: false
     });
     expect(await local.identity(NEIGHBOUR)).toBeUndefined();
     if (blocked !== null) return;

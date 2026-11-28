@@ -90,7 +90,9 @@ describe.skipIf(store === undefined)('the outbox on Postgres', () => {
         inboundKid: 'relay-in@peer.example.net',
         outboundKid: 'relay-out@substrate.example.org',
         outboundKeyPath: keyPath,
-        active: true
+        active: true,
+        // Checked by a directory sync, so mail may go to it.
+        lastSyncAt: '2026-11-27T00:00:00.000Z'
       }
     ]);
     await ds.write('AgentIdentity', [

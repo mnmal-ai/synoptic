@@ -1,12 +1,15 @@
 /**
  * Directory sync: every 15 minutes, and once at start, each active MailPeer's `Info` and
  * `Directory` are read. The agents a peer lists become remote AgentIdentity rows of its domain, so
- * local agents can address them, and that domain's rows it no longer lists are made inactive. A
- * peer whose server answers an unsigned read of its mailbox is blocked, unless its row sets
- * `allowOpenReads`.
+ * local agents can address them, and that domain's rows it no longer lists are marked unlisted;
+ * sync never changes whether an existing row is active, so an agent its operator hides can still
+ * be answered. A peer whose server answers an unsigned read of its mailbox is blocked, unless its
+ * row sets `allowOpenReads`. A peer's first clean sync is what makes it usable for sending.
  *
  * Sync holds no connection, transaction or lock while it waits on a peer: it reads the peer's
- * answers first, then writes each row in a short transaction of its own.
+ * answers first, then writes each row in a short transaction of its own. Each write to the MailPeer
+ * row is conditional on the `active` and `blockedReason` sync last read, so an operator's change
+ * made meanwhile wins: sync writes nothing to the row and reports it.
  *
  * Nothing a peer writes reaches `blockedReason`, a metric or a warning: they carry this server's
  * fixed reasons, the peer's domain from its MailPeer row, and kids that passed the kid checks.
@@ -42,21 +45,30 @@ const syncOwnsReason = (peer: Row): boolean =>
 
 export interface SyncResult {
   upserted: number;
-  retired: number;
+  unlisted: number;
   collisions: string[];
   /** Entries left out for a malformed kid or one naming a host of this server. */
   skipped: number;
   blocked: string | null;
+  /** The MailPeer row was switched off, blocked by an operator or removed while sync ran. */
+  changed: boolean;
 }
 
 /**
  * One peer's sync. Throws, writing nothing, when the peer gives no usable answer; returns with
- * `blocked` set when it blocks the peer.
+ * `blocked` set when it blocks the peer, and `changed` set when the peer's row changed under it.
  */
 export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult> {
   const ds = coordinator(rt);
   const domain = String(peer.domain);
-  const result: SyncResult = { upserted: 0, retired: 0, collisions: [], skipped: 0, blocked: null };
+  const result: SyncResult = {
+    upserted: 0,
+    unlisted: 0,
+    collisions: [],
+    skipped: 0,
+    blocked: null,
+    changed: false
+  };
 
   const infoFields = { v: true, domain: true, mailNamespace: true };
   const info = rowsOf(await ask(rt, peer, INFO, { fields: infoFields }), INFO)?.[0];
@@ -89,6 +101,17 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
     throw new Error(`the peer's directory has more than ${DIRECTORY_MAX_ENTRIES} entries`);
   }
 
+  // An operator may have switched the peer off or blocked it while sync waited on the network.
+  const fresh = (await ds.read('MailPeer', { id: peer.id })).rows[0];
+  if (
+    fresh === undefined ||
+    fresh.active !== true ||
+    ((fresh.blockedReason ?? null) !== (peer.blockedReason ?? null) && !syncOwnsReason(fresh))
+  ) {
+    return changed(rt, peer, result);
+  }
+  const current: Row = { ...fresh };
+
   const listed = new Set<string>();
   for (const entry of entries) {
     const kid = isRecord(entry) ? entry.kid : undefined;
@@ -99,6 +122,7 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
     try {
       await upsertRemoteIdentity(rt, domain, {
         kid,
+        listed: true,
         displayName: clean(entry.displayName, NAME_MAX_CHARS),
         project: clean(entry.project, NAME_MAX_CHARS),
         description: clean(entry.description, DESCRIPTION_MAX_CHARS)
@@ -131,19 +155,12 @@ export async function syncPeer(rt: RelayRuntime, peer: Row): Promise<SyncResult>
     );
   }
 
-  result.retired = await retire(rt, ds, domain, listed);
-  await ds.conditionalUpdate(
-    'MailPeer',
-    peer.id,
-    {},
-    {
-      lastSyncAt: rt.now().toISOString(),
-      ...(syncOwnsReason(peer) ? { blockedReason: null } : {})
-    },
-    RELAY_ACTOR,
-    rt.now()
-  );
-  return result;
+  result.unlisted = await unlist(rt, ds, domain, listed);
+  const synced = await writePeer(rt, ds, current, {
+    lastSyncAt: rt.now().toISOString(),
+    ...(syncOwnsReason(current) ? { blockedReason: null } : {})
+  });
+  return synced ? result : changed(rt, current, result);
 }
 
 /** Every active peer in turn; a peer whose sync fails is reported and the rest still sync. */
@@ -229,6 +246,36 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const clean = (v: unknown, max: number): string | null =>
   typeof v === 'string' ? [...v.replace(UNSAFE, '')].slice(0, max).join('') : null;
 
+/** `patch` on the MailPeer row if its `active` and `blockedReason` are still as `peer` has them. */
+async function writePeer(
+  rt: RelayRuntime,
+  ds: Dataset,
+  peer: Row,
+  patch: Record<string, unknown>
+): Promise<boolean> {
+  const asRead = { active: peer.active ?? null, blockedReason: peer.blockedReason ?? null };
+  const { matched } = await ds.conditionalUpdate(
+    'MailPeer',
+    peer.id,
+    asRead,
+    patch,
+    RELAY_ACTOR,
+    rt.now()
+  );
+  return matched;
+}
+
+function changed(rt: RelayRuntime, peer: Row, result: SyncResult): SyncResult {
+  const domain = String(peer.domain);
+  report(
+    rt,
+    'cortext.mail_peer_changed_during_sync',
+    { domain },
+    `cortext relay: mail peer ${domain} changed during its directory sync, so the sync wrote nothing to it`
+  );
+  return { ...result, changed: true };
+}
+
 async function block(
   rt: RelayRuntime,
   ds: Dataset,
@@ -237,15 +284,8 @@ async function block(
   result: SyncResult
 ): Promise<SyncResult> {
   const domain = String(peer.domain);
-  if (syncOwnsReason(peer)) {
-    await ds.conditionalUpdate(
-      'MailPeer',
-      peer.id,
-      {},
-      { blockedReason: reason },
-      RELAY_ACTOR,
-      rt.now()
-    );
+  if (syncOwnsReason(peer) && !(await writePeer(rt, ds, peer, { blockedReason: reason }))) {
+    return changed(rt, peer, result);
   }
   report(
     rt,
@@ -256,8 +296,11 @@ async function block(
   return { ...result, blocked: reason };
 }
 
-/** Make inactive each active row of `domain` whose kid the peer did not list; how many it did. */
-async function retire(
+/**
+ * Mark unlisted each row of `domain` whose kid the peer did not list, leaving whether it is active
+ * alone; how many it marked. A row without `listed` reads as listed.
+ */
+async function unlist(
   rt: RelayRuntime,
   ds: Dataset,
   domain: string,
@@ -267,26 +310,26 @@ async function retire(
   let cursor: string | undefined;
   do {
     const page = await ds.read('AgentIdentity', {
-      where: { domain: { eq: domain }, active: { eq: true } },
+      where: { domain: { eq: domain } },
       limit: 1000,
       ...(cursor !== undefined ? { cursor } : {})
     });
-    stale.push(...page.rows.filter((r) => !listed.has(String(r.kid))));
+    stale.push(...page.rows.filter((r) => r.listed !== false && !listed.has(String(r.kid))));
     cursor = page.hasMore ? page.nextCursor : undefined;
   } while (cursor !== undefined);
-  let retired = 0;
+  let unlisted = 0;
   for (const row of stale) {
     const { matched } = await ds.conditionalUpdate(
       'AgentIdentity',
       row.id,
-      { domain, active: true },
-      { active: false },
+      { domain },
+      { listed: false },
       RELAY_ACTOR,
       rt.now()
     );
-    if (matched) retired += 1;
+    if (matched) unlisted += 1;
   }
-  return retired;
+  return unlisted;
 }
 
 function report(rt: RelayRuntime, name: string, payload: unknown, message: string): void {

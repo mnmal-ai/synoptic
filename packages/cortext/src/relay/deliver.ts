@@ -68,6 +68,8 @@ export type DeliverResult = { id: string; shortId: number; duplicate: boolean };
 
 export interface RemoteIdentityEntry {
   kid: string;
+  active?: boolean;
+  listed?: boolean;
   displayName?: string | null;
   project?: string | null;
   description?: string | null;
@@ -216,16 +218,16 @@ async function identityByKid(ds: Dataset, kid: string): Promise<Row | undefined>
 }
 
 /**
- * The remote identity `entry.kid` of `domain`: created on first sight, otherwise made active and
- * given whichever of `displayName`, `project` and `description` the entry carries. A kid held by
- * a local identity or by another domain is `kid_collision`, naming both holders; it is never merged.
- * Otherwise a kid whose host, in any case, is the host of a local identity is `local_host`: a peer
- * names agents on its own machines, never on this server's. Runs under a lock on the kid, whichever
- * domain claims it, so concurrent claims serialise. With a `scope` it runs in that transaction (a
- * delivery's); without one, in a transaction of its own, announced once it commits. Never call the
- * form without a scope from inside a frame's resolver: its transaction would take a second pooled
- * connection beside the frame's. A create that loses to a writer taking no lock (an operator's)
- * fails on the unique index and is not retried.
+ * The remote identity `entry.kid` of `domain`: created active on first sight, otherwise given
+ * whichever of `active`, `listed`, `displayName`, `project` and `description` the entry carries.
+ * A kid held by a local identity or by another domain is `kid_collision`, naming both holders; it
+ * is never merged. Otherwise a kid whose host, in any case, is the host of a local identity is
+ * `local_host`: a peer names agents on its own machines, never on this server's. Runs under a lock
+ * on the kid, whichever domain claims it, so concurrent claims serialise. With a `scope` it runs in
+ * that transaction (a delivery's); without one, in a transaction of its own, announced once it
+ * commits. Never call the form without a scope from inside a frame's resolver: its transaction
+ * would take a second pooled connection beside the frame's. A create that loses to a writer taking
+ * no lock (an operator's) fails on the unique index and is not retried.
  */
 export async function upsertRemoteIdentity(
   rt: RelayRuntime,
@@ -260,9 +262,9 @@ async function upsertLocked(
   domain: string,
   entry: RemoteIdentityEntry
 ): Promise<Row> {
-  const described: Record<string, unknown> = {};
-  for (const key of ['displayName', 'project', 'description'] as const) {
-    if (entry[key] !== undefined) described[key] = entry[key];
+  const given: Record<string, unknown> = {};
+  for (const key of ['active', 'listed', 'displayName', 'project', 'description'] as const) {
+    if (entry[key] !== undefined) given[key] = entry[key];
   }
   const row = await identityByKid(scope.ds, entry.kid);
   if (row !== undefined && (isLocalIdentity(row) || row.domain !== domain)) {
@@ -286,11 +288,11 @@ async function upsertLocked(
       host: '',
       domain,
       active: true,
-      ...described
+      ...given
     });
   }
   const patch = Object.fromEntries(
-    Object.entries({ active: true, ...described }).filter(([k, v]) => (row[k] ?? null) !== v)
+    Object.entries(given).filter(([k, v]) => (row[k] ?? null) !== v)
   );
   if (Object.keys(patch).length === 0) return row;
   const updated = await coordinatorWrite(rt, scope, RELAY_ACTOR, 'AgentIdentity', 'update', {
@@ -439,7 +441,7 @@ async function deliverIn(
       );
     }
     try {
-      await upsertRemoteIdentity(rt, domain, { kid: p.from }, scope);
+      await upsertRemoteIdentity(rt, domain, { kid: p.from, active: true }, scope);
     } catch (err) {
       const code = isResolverFrameError(err) ? err.code : undefined;
       if (code !== 'kid_collision' && code !== 'local_host') throw err;

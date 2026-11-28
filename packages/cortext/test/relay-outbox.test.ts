@@ -33,6 +33,8 @@ const ORIGIN_TWO = 'https://peer-two.example.net';
 const OUT_KID = 'relay-out@substrate.example.org';
 const DELIVER = 'cortext-relay/deliver';
 const MINUTE = 60_000;
+// Both peers have passed a directory sync, so mail may go to them.
+const SYNCED_AT = '2026-11-27T00:00:00.000Z';
 
 interface Envelope {
   data?: Record<string, unknown>;
@@ -114,7 +116,8 @@ async function setup(opts: { mailDomain?: string | undefined; hook?: boolean } =
       inboundKid: 'relay-in@peer.example.net',
       outboundKid: OUT_KID,
       outboundKeyPath: keyPath,
-      active: true
+      active: true,
+      lastSyncAt: SYNCED_AT
     },
     {
       id: 'peer-two',
@@ -123,7 +126,8 @@ async function setup(opts: { mailDomain?: string | undefined; hook?: boolean } =
       inboundKid: 'relay-in@peer-two.example.net',
       outboundKid: OUT_KID,
       outboundKeyPath: keyPath,
-      active: true
+      active: true,
+      lastSyncAt: SYNCED_AT
     }
   ]);
   await ds.write('AgentIdentity', [
@@ -541,6 +545,36 @@ describe('drainOutbox', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('holds queued mail for a peer not checked yet, without a request or a bounce', async () => {
+    const { rt, sendRemote, message, bounces, calls, ds, advance } = await setup();
+    const id = await sendRemote();
+    await ds.write('MailPeer', [{ id: 'peer', lastSyncAt: null }]);
+    expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 1, failed: 0 });
+    expect(calls).toHaveLength(0);
+    expect(await message(id)).toMatchObject({
+      delivery: 'pending',
+      deliveryAttempts: 1,
+      deliveryError: 'peer_unchecked'
+    });
+    expect(await bounces()).toHaveLength(0);
+    // Once the peer has been checked, the next pass delivers it.
+    await ds.write('MailPeer', [{ id: 'peer', lastSyncAt: SYNCED_AT }]);
+    advance(MINUTE);
+    expect(await drainOutbox(rt)).toEqual({ delivered: 1, retried: 0, failed: 0 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('still gives up 24 hours after createdAt on a peer never checked', async () => {
+    const { rt, sendRemote, message, bounces, calls, ds, advance } = await setup();
+    const id = await sendRemote();
+    await ds.write('MailPeer', [{ id: 'peer', lastSyncAt: null }]);
+    advance(24 * 60 * MINUTE);
+    expect(await drainOutbox(rt)).toEqual({ delivered: 0, retried: 0, failed: 1 });
+    expect(calls).toHaveLength(0);
+    expect(await message(id)).toMatchObject({ delivery: 'failed', deliveryError: 'expired' });
+    expect(await bounces()).toHaveLength(1);
   });
 
   it('never bounces a bounce', async () => {

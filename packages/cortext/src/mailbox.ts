@@ -299,8 +299,8 @@ async function resolveRecipients(
 
 /**
  * Refuses mail for an agent on a peer server that could not leave: this server relays nothing
- * (`relay` false), no active unblocked MailPeer serves the agent's domain, or the subject or body
- * is over what a peer accepts.
+ * (`relay` false), no active, unblocked and checked MailPeer serves the agent's domain, or the
+ * subject or body is over what a peer accepts.
  */
 async function assertRelayable(
   ds: Dataset,
