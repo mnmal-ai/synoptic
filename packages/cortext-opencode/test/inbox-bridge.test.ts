@@ -24,6 +24,7 @@ function msg(id: string, extra: Partial<PushMessage> = {}): PushMessage {
     createdAt: '2026-10-14T00:00:00Z',
     fromSelf: false,
     urgent: false,
+    held: false,
     ...extra
   };
 }
@@ -78,6 +79,20 @@ function harness(opts: { wake?: boolean; failSynthetic?: boolean } = {}) {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe('held mail', () => {
+  it('is not steered, queued, woken or preempted, and is not kept for a later turn', async () => {
+    const h = harness({ wake: true });
+    h.start('a');
+    h.bridge.track('idle');
+    await h.bridge.onWatch(msg('m1', { held: true, urgent: true }));
+    expect(h.synthetic).toEqual([]);
+    expect(h.interrupts).toEqual([]);
+    h.start('b');
+    await flush();
+    expect(h.synthetic).toEqual([]);
+  });
+});
 
 describe('steer', () => {
   it('steers into every busy tracked session and none of the idle ones', async () => {

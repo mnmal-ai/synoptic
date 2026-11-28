@@ -2218,6 +2218,7 @@ async function preempt(b, $, m) {
 	$.prompt.submit({ text: urgentNotice(m, { interrupted }) }).catch(() => {});
 }
 async function deliver(b, $, m) {
+	if (m.held) return;
 	const { value: ids = [] } = await $.state.get(DELIVERED);
 	if (ids.includes(m.id)) return;
 	await $.session.append({ message: {
@@ -2246,7 +2247,7 @@ async function deliver(b, $, m) {
 }
 /**
 * SYNOPTIC_INBOX_PROMPT_CHECK as the session first found it. A hot reload re-runs session.start
-* while the old watcher has set it 'off', and the old module cannot restore it after unload, so
+* while the old watcher has set it 'held', and the old module cannot restore it after unload, so
 * the first reading is kept in $.state (which survives a reload) and written once (ifVersion 0).
 * $.state cannot hold undefined, so null stands for unset.
 */
@@ -2320,7 +2321,7 @@ const register = (on) => {
 							b.failedSpawns = 0;
 						}
 						if (ev.config !== void 0) b.wakeOn = ev.config.wake;
-						await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", ev.state === "live" ? "off" : promptCheck);
+						await $.env.set("SYNOPTIC_INBOX_PROMPT_CHECK", ev.state === "live" ? promptCheck === "off" ? "off" : "held" : promptCheck);
 					}
 					if (disabled) break;
 				}

@@ -17,7 +17,7 @@
 
 import { substrateFetch } from '@mnmal-ai/substrate/client';
 import { loadInbox, unreadCount } from './inbox.js';
-import { fromRow, sanitizeText } from './inbox-push.js';
+import { fromRow, isHeld, readInboxKnobs, sanitizeText } from './inbox-push.js';
 
 const LIST_CAP = 5;
 const SUBJECT_CAP = 120;
@@ -119,7 +119,14 @@ export async function promptHookContext({ env, fetchImpl = substrateFetch }) {
   if (env.SYNOPTIC_INBOX_PROMPT_CHECK === 'off') return '';
   const found = await unreadOrNull({ env, fetchImpl });
   if (found === null) return '';
-  const { messages, kid } = found;
+  const { kid } = found;
+  // 'held': a watcher is pushing mail, so only what it holds back (external, not allowlisted) is new here.
+  const { externalPushFrom } = readInboxKnobs(env);
+  const messages =
+    env.SYNOPTIC_INBOX_PROMPT_CHECK === 'held'
+      ? found.messages.filter((m) => isHeld(fromRow(m), externalPushFrom))
+      : found.messages;
+  if (messages.length === 0) return '';
   const ns = env.SUBSTRATE_NAMESPACE ?? 'cortext';
   return (
     `📬 Inbox (${kid}): ${unreadCount(messages.length)} unread — ${summarize(messages)}. ` +

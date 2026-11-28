@@ -11,6 +11,7 @@ export type InboxMessage = {
   createdAt: string;
   fromSelf: boolean;
   urgent: boolean;
+  held: boolean;
 };
 export type WatchStatus = {
   type: 'status';

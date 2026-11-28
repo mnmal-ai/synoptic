@@ -103,6 +103,7 @@ OpenCode 1.x compat).
 | `SYNOPTIC_INBOX_PUSH` | `off` disables mid-turn push (V2); the prompt and end-of-turn seams carry on | on |
 | `SYNOPTIC_INBOX_WAKE` | `on` lets new mail start a turn in an idle session (6 per hour, 2 per thread) | off |
 | `SYNOPTIC_INBOX_URGENT_FROM` | Comma-separated kids whose `priority:urgent` mail may interrupt a turn (3 per hour, 20 s grace for a running tool) | unset |
+| `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | Comma-separated peer domains or sender kids whose mail from another server is pushed like local mail. Otherwise it is held: not steered, no wake, shown only by the prompt and end-of-turn checks, labelled external. Relayed mail is never urgent | unset |
 | `SYNOPTIC_COMPACTION` | `pointer` skips OpenCode's summary: V2 sets the compaction `result` to a fixed pointer at the store (no model request; only the store, git and the turns the host keeps survive), V1 replaces the prompt with a 15-bullet one. Unset, the summarizer is told to cite store rows by shortId instead of restating them | unset |
 
 ## How it maps to the Claude skin

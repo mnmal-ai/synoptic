@@ -75,6 +75,9 @@ async function preempt(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
 }
 
 async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<void> {
+  // Held mail (another server's, not allowlisted) stays unread for the prompt and Stop summaries:
+  // not appended, no wake, and the cursor stays put.
+  if (m.held) return;
   const { value: ids = [] } = await $.state.get(DELIVERED);
   if (ids.includes(m.id)) return;
   await $.session.append({
@@ -103,7 +106,7 @@ async function deliver(b: Bridge, $: EngineInterface, m: InboxMessage): Promise<
 
 /**
  * SYNOPTIC_INBOX_PROMPT_CHECK as the session first found it. A hot reload re-runs session.start
- * while the old watcher has set it 'off', and the old module cannot restore it after unload, so
+ * while the old watcher has set it 'held', and the old module cannot restore it after unload, so
  * the first reading is kept in $.state (which survives a reload) and written once (ifVersion 0).
  * $.state cannot hold undefined, so null stands for unset.
  */
@@ -184,10 +187,10 @@ export const register: Register = (on) => {
               }
               if (ev.config !== undefined) b.wakeOn = ev.config.wake;
               // D2, Q3 measured: a module's $.env.set IS visible to a later settings
-              // command hook, so the UserPromptSubmit seam stands down while live.
+              // command hook, so the UserPromptSubmit seam narrows to held mail while live ('off' stays off).
               await $.env.set(
                 'SYNOPTIC_INBOX_PROMPT_CHECK',
-                ev.state === 'live' ? 'off' : promptCheck
+                ev.state === 'live' ? (promptCheck === 'off' ? 'off' : 'held') : promptCheck
               );
             }
           }

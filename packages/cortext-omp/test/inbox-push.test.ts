@@ -17,6 +17,7 @@ function msg(id: string, extra: Record<string, unknown> = {}) {
     createdAt: '2026-11-18T00:00:00Z',
     fromSelf: false,
     urgent: false,
+    held: false,
     ...extra
   };
 }
@@ -69,6 +70,13 @@ describe('OMP inbox push', () => {
     h.emit(msg('r1', { inReplyTo: 't1' }));
     h.emit(msg('r2', { inReplyTo: 't1' }));
     expect(h.sent.map((s) => s.triggerTurn)).toEqual([true, true, false]);
+  });
+
+  it('does not send held mail, with wake on or off', async () => {
+    const h = harness({ ...ENV, SYNOPTIC_INBOX_WAKE: 'on' });
+    await h.flush();
+    h.emit(msg('h1', { held: true }));
+    expect(h.sent).toEqual([]);
   });
 
   it('skips own mail, repeats, and anything after stop', async () => {

@@ -5433,6 +5433,12 @@ const MAIL_FIELDS_RELAY = ["remoteFrom", "viaDomain"];
 /** Peer-supplied strings are cut to this many characters; the receiving server caps them too. */
 const PEER_TEXT_MAX = 256;
 const UNKNOWN_REMOTE = "unknown remote sender";
+/** Cut to PEER_TEXT_MAX UTF-16 units without leaving half of a surrogate pair. */
+function cutPeerText(text) {
+	const cut = text.slice(0, PEER_TEXT_MAX);
+	const last = cut.charCodeAt(cut.length - 1);
+	return last >= 55296 && last <= 56319 && text.length > cut.length ? cut.slice(0, -1) : cut;
+}
 /**
 * A substrate AgentMessage row (with `_metadata`) as a flat message. For mail relayed from another
 * server `from` is the sender's kid as that server named it, and `external` says which server
@@ -5441,8 +5447,8 @@ const UNKNOWN_REMOTE = "unknown remote sender";
 */
 function fromRow(row) {
 	const signer = row._metadata?.createdBy?.id ?? "unknown sender";
-	const domain = typeof row.viaDomain === "string" && row.viaDomain.trim() !== "" ? row.viaDomain.trim().slice(0, PEER_TEXT_MAX) : null;
-	const named = typeof row.remoteFrom === "string" && row.remoteFrom !== "" ? row.remoteFrom.slice(0, PEER_TEXT_MAX) : null;
+	const domain = typeof row.viaDomain === "string" && row.viaDomain.trim() !== "" ? cutPeerText(row.viaDomain.trim()) : null;
+	const named = typeof row.remoteFrom === "string" && row.remoteFrom.trim() !== "" ? cutPeerText(row.remoteFrom) : null;
 	return {
 		id: row.id,
 		shortId: row.shortId,
@@ -5460,14 +5466,26 @@ function fromRow(row) {
 	};
 }
 const URGENT_TAG = "priority:urgent";
+/**
+* Mail from another server is held (not pushed mid-turn, no wake) unless its server's domain or its
+* sender's kid is in `externalPushFrom`. Entries match whole values, case-insensitively; the
+* placeholder sender matches nothing. `m` is a fromRow result.
+*/
+function isHeld(m, externalPushFrom) {
+	if (m.external === null) return false;
+	const named = m.from === UNKNOWN_REMOTE ? [] : [m.from];
+	const wanted = new Set(externalPushFrom.map((e) => e.trim().toLowerCase()));
+	return ![m.external.domain, ...named].some((v) => wanted.has(v.trim().toLowerCase()));
+}
 /** A substrate row as the watcher's `message` event (spec §4.2 contract). */
-function toWatchMessage(row, { kid, urgentFrom }) {
+function toWatchMessage(row, { kid, urgentFrom, externalPushFrom = [] }) {
 	const m = fromRow(row);
 	const tagged = Array.isArray(m.tags) && m.tags.includes(URGENT_TAG);
 	return {
 		type: "message",
 		...m,
 		fromSelf: m.external === null && m.from === kid,
+		held: isHeld(m, externalPushFrom),
 		urgent: tagged && m.external === null && urgentFrom.includes(m.from)
 	};
 }
@@ -5476,7 +5494,8 @@ function readInboxKnobs(env) {
 	return {
 		push: env.SYNOPTIC_INBOX_PUSH !== "off",
 		wake: env.SYNOPTIC_INBOX_WAKE === "on",
-		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+		externalPushFrom: (env.SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
 	};
 }
 
@@ -5675,7 +5694,8 @@ async function runWatcher({ env, fetchImpl, since, emit, sleep, idleMs = 6e4, na
 	} };
 	const toMsg = (r) => toWatchMessage(r, {
 		kid: env.SUBSTRATE_AGENT_KEY_ID,
-		urgentFrom: knobs.urgentFrom
+		urgentFrom: knobs.urgentFrom,
+		externalPushFrom: knobs.externalPushFrom
 	});
 	let snapshotSeen = false;
 	let restarts = 0;
@@ -5807,7 +5827,8 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /**
 * The repo-local env overlay: `{ env, source }`.

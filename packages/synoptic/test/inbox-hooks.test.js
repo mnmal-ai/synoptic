@@ -227,6 +227,59 @@ describe('relayed mail in the end-of-turn and prompt summaries', () => {
   });
 });
 
+describe('held mail in the prompt and end-of-turn summaries', () => {
+  const rows = [
+    {
+      id: 'm1',
+      shortId: 3,
+      subject: 'from afar',
+      remoteFrom: 'agent-b@host-b.example',
+      viaDomain: 'peer.example.net',
+      _metadata: { createdBy: { kind: 'agent', id: 'relay-peer@peer.example.net' } }
+    },
+    { id: 'm2', shortId: 4, subject: 'local', _metadata: { createdBy: { id: 'p@h' } } }
+  ];
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: { 'cortext/AgentIdentity': [{ id: 'me' }], 'cortext/AgentMessage': rows }
+    })
+  });
+  const env = { SUBSTRATE_URL: 'https://h', SUBSTRATE_AGENT_KEY_ID: 'me@host' };
+
+  it('while a watcher pushes, the prompt shows only the external mail it is holding', async () => {
+    const out = await promptHookContext({
+      env: { ...env, SYNOPTIC_INBOX_PROMPT_CHECK: 'held' },
+      fetchImpl
+    });
+    expect(out).toContain('1 unread');
+    expect(out).toContain('(relayed by peer.example.net, not verified by this server)');
+    expect(out).not.toContain('#4');
+  });
+
+  it('an allowlisted peer is pushed, so the prompt leaves it out', async () => {
+    const out = await promptHookContext({
+      env: {
+        ...env,
+        SYNOPTIC_INBOX_PROMPT_CHECK: 'held',
+        SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM: 'peer.example.net'
+      },
+      fetchImpl
+    });
+    expect(out).toBe('');
+  });
+
+  it('off still shows nothing, and the Stop check counts held and local mail alike', async () => {
+    expect(
+      await promptHookContext({ env: { ...env, SYNOPTIC_INBOX_PROMPT_CHECK: 'off' }, fetchImpl })
+    ).toBe('');
+    const { reason } = JSON.parse(await stopHookDecision({ input: {}, env, fetchImpl }));
+    expect(reason).toContain('2 unread');
+    expect(reason).toContain('relayed by peer.example.net');
+  });
+});
+
 describe('closing instructions name the MCP tool and the ids', () => {
   const fetchImpl = async () => ({
     ok: true,

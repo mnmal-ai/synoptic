@@ -80,7 +80,11 @@ export async function runWatcher({
     }
   };
   const toMsg = (r) =>
-    toWatchMessage(r, { kid: env.SUBSTRATE_AGENT_KEY_ID, urgentFrom: knobs.urgentFrom });
+    toWatchMessage(r, {
+      kid: env.SUBSTRATE_AGENT_KEY_ID,
+      urgentFrom: knobs.urgentFrom,
+      externalPushFrom: knobs.externalPushFrom
+    });
   let snapshotSeen = false;
   let restarts = 0; // consecutive server_restart ends with no snapshot between them
   let snapshotSinceRestart = false;

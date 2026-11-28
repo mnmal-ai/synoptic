@@ -6,8 +6,9 @@
 //   prompted session (3 per hour, 20 s grace for a tool in flight);
 // - with SYNOPTIC_INBOX_WAKE=on and nothing busy, wake that session
 //   (6 per hour, 2 per thread).
-// Own mail never wakes or preempts. Every host call is injected, so the
-// policy is tested with fakes; nothing here throws into OpenCode.
+// Own mail never wakes or preempts, and held mail (another server's, not
+// allowlisted) is not pushed. Every host call is injected, so the policy is
+// tested with fakes; nothing here throws into OpenCode.
 
 import { createBudget, renderPushRow, urgentNotice } from '../../synoptic/src/inbox-push.js';
 
@@ -33,6 +34,7 @@ export type PushMessage = {
   createdAt: string;
   fromSelf: boolean;
   urgent: boolean;
+  held: boolean;
 };
 
 export type WatchEvent =
@@ -199,6 +201,8 @@ export function createInboxBridge(deps: BridgeDeps): InboxBridge {
   }
 
   async function onMessage(m: PushMessage): Promise<void> {
+    // Held mail (another server's, not allowlisted) is left for the prompt and stop checks.
+    if (m.held) return;
     const target = lastActive;
     const t = target === null ? undefined : sessions.get(target);
     const eligible = !m.fromSelf && target !== null && t !== undefined && !acted.includes(m.id);

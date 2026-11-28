@@ -24,7 +24,8 @@ export const SETTINGS_ENV_ALLOWLIST = [
   'SYNOPTIC_PROJECT_SCOPE',
   'SYNOPTIC_INBOX_PUSH',
   'SYNOPTIC_INBOX_WAKE',
-  'SYNOPTIC_INBOX_URGENT_FROM'
+  'SYNOPTIC_INBOX_URGENT_FROM',
+  'SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM'
 ];
 
 /** Identity keys recorded only as set or unset: one holds a key file's path. */

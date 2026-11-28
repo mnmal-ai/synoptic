@@ -734,7 +734,8 @@ function readInboxKnobs(env) {
 	return {
 		push: env.SYNOPTIC_INBOX_PUSH !== "off",
 		wake: env.SYNOPTIC_INBOX_WAKE === "on",
-		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+		urgentFrom: (env.SYNOPTIC_INBOX_URGENT_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+		externalPushFrom: (env.SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean)
 	};
 }
 
@@ -2491,7 +2492,8 @@ const SETTINGS_ENV_ALLOWLIST = [
 	"SYNOPTIC_PROJECT_SCOPE",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /** Identity keys recorded only as set or unset: one holds a key file's path. */
 const SETTINGS_ENV_PRESENCE = ["SUBSTRATE_AGENT_KEY_ID", "SUBSTRATE_AGENT_KEY_PATH"];
@@ -3503,7 +3505,8 @@ const LOCAL_ENV_KEYS = [
 	"SYNOPTIC_INBOX_PROMPT_CHECK",
 	"SYNOPTIC_INBOX_PUSH",
 	"SYNOPTIC_INBOX_WAKE",
-	"SYNOPTIC_INBOX_URGENT_FROM"
+	"SYNOPTIC_INBOX_URGENT_FROM",
+	"SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM"
 ];
 /**
 * The repo-local env overlay: `{ env, source }`.
