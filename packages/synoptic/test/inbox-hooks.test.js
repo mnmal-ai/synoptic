@@ -225,6 +225,11 @@ describe('relayed mail in the end-of-turn and prompt summaries', () => {
     );
     expect(out).not.toContain('relay-peer@');
   });
+
+  it('tells the agent to project the relayed sender when reading the full message', async () => {
+    const { reason } = JSON.parse(await stopHookDecision({ input: {}, env, fetchImpl }));
+    expect(reason).toContain('project body, remoteFrom, viaDomain + _metadata');
+  });
 });
 
 describe('held mail in the prompt and end-of-turn summaries', () => {

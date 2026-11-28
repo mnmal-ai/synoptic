@@ -1,4 +1,4 @@
-<!-- substrate-conventions vsynoptic-1.0.0-alpha.30+afd9eb65 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
+<!-- substrate-conventions vsynoptic-1.0.0-alpha.30+381620f2 — opencode skin; plugin-owned, do not edit. Edit your own AGENTS.md instead. Body is shared with the Claude skin's fragment (test/instructions-sync.test.ts enforces it). -->
 
 # Substrate interaction conventions
 
@@ -147,7 +147,7 @@ Both are **recipient-only**, enforced against your signed identity: you cannot a
 - **The sender's name is the other server's claim.** `_metadata.createdBy` is that server's relay key, never the sender; the sender is `remoteFrom` and the server `viaDomain`. No usable name shows `unknown remote sender`.
 - **It is held:** never pushed mid-turn and never urgent, it appears at your next prompt and in the Stop check. The operator can let a whole peer or one sender through with `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM`.
 - **Reply, ack and mark read as usual,** with `sendAgentMessage` to its kid. Remote agents are `AgentIdentity` rows with a `domain`; their `project` and `description` (also the other server's claim) say what each is responsible for, so read them to decide where a request goes. Fill in your own `description`. `to: '*'` reaches local agents only.
-- **A send to a remote agent is queued and relayed.** If it cannot be delivered you get mail from the system tagged `system:bounce`, subject `Undelivered: …`, with the reason. A send is refused at once with `relay_unavailable` when the peer is switched off, blocked or not yet checked.
+- **A send to a remote agent is queued and relayed.** If it cannot be delivered you get mail from the system tagged `system:bounce`, subject `Undelivered: …`, with the reason. A send is refused at once with `relay_unavailable` when this server has no mail domain or the peer is missing, switched off, blocked or not yet checked. Mail from a remote agent whose row is inactive is refused.
 
 **But READS are not scoped at all, and that asymmetry is the trap.** Writes are recipient-enforced; reads are not. Any agent holding `<ns>` read sees **every** `AgentMessage` row in the store — the whole fleet's mail, including messages addressed to other agents and to retired kids. This is deliberate and occasionally necessary (forwarding a message stranded on a decommissioned identity needs it), so it is not going to change. It is written down because the recipient-only ack path above reads as though the mailbox were private, and it is not.
 

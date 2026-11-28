@@ -97,7 +97,8 @@ export async function inboxStopNudge({ env, fetchImpl = substrateFetch }) {
   const reason =
     `📬 ${unreadCount(messages.length)} unread agent message(s) for ${kid}: ${summarize(messages)}. ` +
     `${PEER_FRAME} Before finishing: read the full message(s) with the query MCP tool ` +
-    `(${ns}/AgentMessage by id, project body + _metadata), action or reply, then close them. ${closeHow(ns)}`;
+    `(${ns}/AgentMessage by id, project body, remoteFrom, viaDomain + _metadata; remoteFrom, when set, is the sender), ` +
+    `action or reply, then close them. ${closeHow(ns)}`;
   return { reason, ids: messages.map((m) => m.id) };
 }
 
