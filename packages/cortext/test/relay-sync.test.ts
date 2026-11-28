@@ -672,7 +672,7 @@ describe('syncPeers', () => {
     await ds.write('MailPeer', [{ id: 'peer', active: false }]);
     await syncPeers(rt);
     expect(calls.some((c) => c.url.startsWith(`${ORIGIN}/`))).toBe(false);
-    expect(calls.some((c) => c.url.startsWith(ORIGIN_TWO))).toBe(true);
+    expect(calls.some((c) => c.url.startsWith(`${ORIGIN_TWO}/`))).toBe(true);
   });
 
   it('leaves no key path in any row when the key cannot be used', async () => {

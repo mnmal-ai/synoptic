@@ -397,12 +397,12 @@ describe('drainOutbox', () => {
     'calls a peer that %s once per pass and still delivers to the others',
     async (_case, dead, code) => {
       const { rt, send, sendRemote, message, calls, h } = await setup();
-      h.respond = (url) => (url.startsWith(ORIGIN_TWO) ? accepted() : dead());
+      h.respond = (url) => (url.startsWith(`${ORIGIN_TWO}/`) ? accepted() : dead());
       const stuck = [await sendRemote(), await sendRemote(), await sendRemote()];
       const { sent } = await send({ to: REMOTE_TWO, subject: 'hello', body: 'b' });
       expect(await drainOutbox(rt)).toEqual({ delivered: 1, retried: 3, failed: 0 });
-      expect(calls.filter((c) => c.url.startsWith(ORIGIN))).toHaveLength(1);
-      expect(calls.filter((c) => c.url.startsWith(ORIGIN_TWO))).toHaveLength(1);
+      expect(calls.filter((c) => c.url.startsWith(`${ORIGIN}/`))).toHaveLength(1);
+      expect(calls.filter((c) => c.url.startsWith(`${ORIGIN_TWO}/`))).toHaveLength(1);
       expect((await message(String(sent[0]?.id)))?.delivery).toBe('delivered');
       for (const id of stuck) {
         expect(await message(id)).toMatchObject({
@@ -467,9 +467,9 @@ describe('drainOutbox', () => {
       inReplyTo: id,
       _metadata: expect.objectContaining({ createdBy: { kind: 'system', id: 'cortext:relay' } })
     });
-    expect(bounce?.body).toMatch(
-      new RegExp(`^Your message to ${REMOTE} on ${PEER_DOMAIN} was not delivered: .+\\.$`)
-    );
+    const opening = `Your message to ${REMOTE} on ${PEER_DOMAIN} was not delivered: `;
+    expect(String(bounce?.body).startsWith(opening)).toBe(true);
+    expect(bounce?.body).toMatch(/[^ ]\.$/);
     // The peer's message is not quoted.
     expect(bounce?.body).not.toContain('deliver:');
     advance(2 * 60 * MINUTE);

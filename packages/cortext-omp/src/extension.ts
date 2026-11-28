@@ -31,6 +31,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAgentAuth, makeSignedFetch } from '../../synoptic/src/agent-auth.js';
+import { autoRecallContext } from '../../synoptic/src/auto-recall.js';
 import { runColdStart, truncateToBudget } from '../../synoptic/src/cold-start.js';
 import { readOrNull } from '../../synoptic/src/fs-safe.js';
 import { inboxStopNudge, promptHookContext } from '../../synoptic/src/inbox-hooks.js';
@@ -52,7 +53,7 @@ import { type SendMessage, startInboxPush } from './inbox-push.js';
 /** The slice of OMP's ExtensionAPI this skin uses, typed locally so the
  *  build needs no OMP package (it ships TS source that imports Bun). */
 export type OmpContext = { cwd: string; sessionManager: { getSessionId(): string } };
-type BeforeAgentStart = { reason: 'prompt' | 'revive'; systemPrompt: string[] };
+type BeforeAgentStart = { reason: 'prompt' | 'revive'; prompt?: string; systemPrompt: string[] };
 type SessionStop = { stop_hook_active: boolean };
 type StopResult = { continue: true; additionalContext: string };
 type BeforeCompact = {
@@ -200,6 +201,8 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
   // A promise per session, so overlapping preparations share one render.
   const renders = new Map<string, Promise<string>>();
   const nudged = new Map<string, Set<string>>();
+  // Memory rows already shown by the automatic recall, per session.
+  const recalled = new Map<string, Set<string>>();
   // shortcut: the session's Task lives in memory, so a restarted OMP opens a new Task; persist it in the session if that proves noisy.
   const tasks = new Map<string, TaskRef>();
   // Every step compacted so far, per session, so each pointer carries them all.
@@ -233,6 +236,17 @@ export default function cortext(pi: OmpApi, env: NodeJS.ProcessEnv = process.env
       const parts = [await doc];
       if (later)
         parts.push(await bounded(() => promptHookContext(access(env)), INBOX_TIMEOUT_MS, ''));
+      const seen = recalled.get(id) ?? new Set<string>();
+      recalled.set(id, seen);
+      parts.push(
+        await autoRecallContext({
+          env,
+          prompt: event.prompt,
+          project: projectSlug(sessionRoot(ctx.cwd), env),
+          fetchImpl: access(env).fetchImpl,
+          seen
+        })
+      );
       const add = parts.filter((p) => p.length > 0);
       return add.length > 0 ? { systemPrompt: [...event.systemPrompt, ...add] } : undefined;
     } catch {

@@ -38,6 +38,7 @@ To give the model substrate's `act` tool (short sketches such as `close Todo #12
 | `SYNOPTIC_INBOX_PUSH=off` | Do not watch the inbox (no pushed mail) |
 | `SYNOPTIC_INBOX_EXTERNAL_PUSH_FROM` | Comma-separated allowlist for mail from another server: a peer domain (`peer.example.net`) lifts everything that peer relays; `<domain>/<kid>` lifts that sender only when relayed by that domain; a bare kid matches nothing. Other relayed mail is held for the prompt and stop checks |
 | `SYNOPTIC_INBOX_WAKE=on` | Let pushed mail start a turn in an idle session |
+| `SYNOPTIC_RECALL_AUTO=on` | On each prompt, search `Memory` for the prompt text and add up to `SYNOPTIC_RECALL_MAX` (default 3) hits as one line each, in the project's scope. Read-only, at most 2 seconds, each row shown once per session. `SYNOPTIC_RECALL_MIN_SCORE` drops weaker hits; it has no default |
 
 A read-only identity works: the cold-start and the inbox are reads, the HostInstall write fails into a comment line, and a refused checkpoint write falls back to OMP's own compaction.
 
