@@ -22,6 +22,7 @@ import {
   ResolverFrameError,
   requireIdentity
 } from '@mnmal-ai/substrate/sdk';
+import { DELIVER_PARAMS, DELIVER_RETURNS, deliverResolver } from './deliver.js';
 import { listDirectory } from './directory.js';
 import type { RelayRuntime } from './runtime.js';
 
@@ -58,6 +59,7 @@ export function buildRelayNamespace(rt: RelayRuntime): NamespaceDefinition {
   return {
     namespace: RELAY_NAMESPACE,
     install(ctx) {
+      rt.edges = ctx.edges;
       const policy = relayPolicy(ctx);
       const infoFields = {
         id: field.string(),
@@ -92,6 +94,14 @@ export function buildRelayNamespace(rt: RelayRuntime): NamespaceDefinition {
           await requirePeer(rt, rctx);
           return (await listDirectory(rt)) as unknown as Row[];
         }
+      });
+      ctx.registry.register('deliver', {
+        kind: 'mutation',
+        verb: 'create',
+        params: DELIVER_PARAMS,
+        returns: DELIVER_RETURNS,
+        policy,
+        resolver: deliverResolver(rt)
       });
     }
   };

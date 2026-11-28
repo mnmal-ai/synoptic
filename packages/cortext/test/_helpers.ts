@@ -9,14 +9,18 @@ import type { CoordinatorPlugin } from '@mnmal-ai/substrate/sdk';
 import { type CortextPluginConfig, createCortextPlugin } from '../src/index.js';
 
 export function buildClaudeForTest(
-  overrides: Partial<CortextPluginConfig> = {}
+  overrides: Partial<CortextPluginConfig> = {},
+  deps: Parameters<typeof createCortextPlugin>[1] = {}
 ): CoordinatorPlugin {
-  return createCortextPlugin({
-    namespace: 'claude',
-    architectureNamespace: 'architecture',
-    compactRetention: 7,
-    autoCompactIntervalMs: undefined,
-    auth: undefined,
-    ...overrides
-  });
+  return createCortextPlugin(
+    {
+      namespace: 'claude',
+      architectureNamespace: 'architecture',
+      compactRetention: 7,
+      autoCompactIntervalMs: undefined,
+      auth: undefined,
+      ...overrides
+    },
+    deps
+  );
 }
