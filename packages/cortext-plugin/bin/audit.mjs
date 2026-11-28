@@ -2304,7 +2304,7 @@ async function substrateQuery(substrateUrl, payload, opts = {}) {
 * it is reporting on.
 */
 async function recall(substrateUrl, opts = {}) {
-	const { query, namespace, type, k = 60, threshold, fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null, boost, where } = opts;
+	const { query, namespace, type, k = 60, threshold, fetchImpl = substrateFetch, timeoutMs = DEFAULT_TIMEOUT_MS, onFrameFailure = null, boost, where, rowFields } = opts;
 	const key = "recall/Hit";
 	const params = {
 		to: query,
@@ -2320,7 +2320,8 @@ async function recall(substrateUrl, opts = {}) {
 			params,
 			fields: {
 				id: true,
-				score: true
+				score: true,
+				...rowFields !== void 0 ? { row: rowFields } : {}
 			}
 		} }, {
 			fetchImpl,
